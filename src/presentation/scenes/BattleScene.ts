@@ -1,6 +1,12 @@
 import Phaser from 'phaser';
 import { chooseAiCommand } from '../../ai/controller';
 import { applyCommand } from '../../core/commands/reducer';
+import {
+  appendCommand,
+  createReplayLog,
+  type ReplayLog,
+} from '../../core/replay/log';
+import { saveReplay } from '../../core/replay/storage';
 import type {
   Command,
   GameEvent,
@@ -84,6 +90,7 @@ export class BattleScene extends Phaser.Scene {
   private aiTickEvent: Phaser.Time.TimerEvent | null = null;
   private aiActiveUnitId: string | null = null;
   private aiActionsThisActivation = 0;
+  private replayLog!: ReplayLog;
   private currentTimer: {
     phase: string;
     startMs: number;
@@ -98,6 +105,7 @@ export class BattleScene extends Phaser.Scene {
 
   create(): void {
     this.gameState = setupDemoState();
+    this.replayLog = createReplayLog(this.gameState);
     this.cameras.main.setBackgroundColor('#0a0c0a');
 
     this.boardEdgeGfx = this.add.graphics();
@@ -392,6 +400,7 @@ export class BattleScene extends Phaser.Scene {
     try {
       const result = applyCommand(this.gameState, cmd);
       this.gameState = result.state;
+      this.replayLog = appendCommand(this.replayLog, cmd);
       this.hud.pushEvents(result.events);
       if (this.aimMode === 'aim-shoot' || this.aimMode === 'aim-melee') {
         this.aimMode = 'idle';
@@ -754,7 +763,22 @@ export class BattleScene extends Phaser.Scene {
         if (this.reaction) this.reaction.markers = [];
         this.confirmReaction();
         return;
+      case 'SAVE_REPLAY':
+        this.saveCurrentReplay();
+        return;
+      case 'PLAY_LAST_REPLAY':
+        this.scene.start('Replay');
+        return;
     }
+  }
+
+  private saveCurrentReplay(): void {
+    if (this.replayLog.commands.length === 0) {
+      this.hud.pushError('No commands recorded yet');
+      return;
+    }
+    const id = saveReplay(this.replayLog);
+    this.hud.pushError(`Replay saved (${id}, ${this.replayLog.commands.length} commands)`);
   }
 
   private cancelAim(): void {

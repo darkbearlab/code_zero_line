@@ -22,7 +22,9 @@ export type ActionRequest =
   | 'REQUEST_MELEE'
   | 'CANCEL_AIM'
   | 'CONFIRM_REACTION'
-  | 'SKIP_REACTION';
+  | 'SKIP_REACTION'
+  | 'SAVE_REPLAY'
+  | 'PLAY_LAST_REPLAY';
 
 export type RequestActionFn = (req: ActionRequest) => void;
 
@@ -327,6 +329,16 @@ export class Hud {
     sep.style.margin = '6px 0';
     this.actionsEl.appendChild(sep);
     this.addBtn('Pass Initiative', { type: 'PASS_INITIATIVE' });
+
+    const sep2 = document.createElement('div');
+    sep2.style.borderTop = '1px solid #2a3a2a';
+    sep2.style.margin = '6px 0';
+    this.actionsEl.appendChild(sep2);
+    const replayHeader = document.createElement('h3');
+    replayHeader.textContent = 'Replay';
+    this.actionsEl.appendChild(replayHeader);
+    this.addReqBtn('Save current battle', 'SAVE_REPLAY');
+    this.addReqBtn('Play last replay', 'PLAY_LAST_REPLAY');
   }
 
   private renderActivationActions(

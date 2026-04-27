@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { BattleScene } from './presentation/scenes/BattleScene';
+import { ReplayScene } from './presentation/scenes/ReplayScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -16,7 +17,7 @@ const config: Phaser.Types.Core.GameConfig = {
     pixelArt: false,
     roundPixels: false,
   },
-  scene: [BattleScene],
+  scene: [BattleScene, ReplayScene],
 };
 
 new Phaser.Game(config);
