@@ -1,0 +1,8 @@
+{
+  "id": "heavy-rifle",
+  "modes": ["ACTIVE", "REACTION"],
+  "kind": "SHOOT",
+  "diceCount": 4,
+  "threshold": 4,
+  "descriptors": ["FOCUSED", "COMBINED"]
+}

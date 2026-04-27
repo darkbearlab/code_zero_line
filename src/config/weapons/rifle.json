@@ -1,0 +1,8 @@
+{
+  "id": "rifle",
+  "modes": ["ACTIVE", "REACTION"],
+  "kind": "SHOOT",
+  "diceCount": 3,
+  "threshold": 5,
+  "descriptors": ["FOCUSED", "COMBINED"]
+}

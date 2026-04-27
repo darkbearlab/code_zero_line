@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Code: Zero Line</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #0a0c0a;
+        color: #cfe8cf;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        overflow: hidden;
+        height: 100%;
+      }
+      #game {
+        position: absolute;
+        inset: 0;
+      }
+      #hud {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 10;
+      }
+      #hud > * {
+        pointer-events: auto;
+      }
+      #hud-top {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        padding: 8px 16px;
+        background: rgba(10, 14, 10, 0.85);
+        border-bottom: 1px solid #2a3a2a;
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        font-size: 13px;
+      }
+      #hud-top .holder-A {
+        color: #6ab0ff;
+      }
+      #hud-top .holder-B {
+        color: #ff8a6a;
+      }
+      #hud-ai-toggles {
+        margin-left: auto;
+        display: inline-flex;
+        gap: 10px;
+        color: #cfe8cf;
+      }
+      #hud-ai-toggles label {
+        cursor: pointer;
+        user-select: none;
+      }
+      #hud-ai-toggles input {
+        vertical-align: middle;
+        margin-right: 4px;
+      }
+      #hud-timer {
+        padding: 2px 8px;
+        background: #1a2a1a;
+        border: 1px solid #3a5a3a;
+        color: #ffd166;
+        font-variant-numeric: tabular-nums;
+      }
+      #hud-timer[hidden] {
+        display: none;
+      }
+      #hud-frame {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 9;
+      }
+      #hud-frame[hidden] {
+        display: none;
+      }
+      #hud-frame-rect {
+        fill: none;
+        stroke-width: 6;
+        vector-effect: non-scaling-stroke;
+        transition: stroke 200ms ease;
+      }
+      #hud-actions {
+        position: absolute;
+        right: 0;
+        top: 48px;
+        bottom: 80px;
+        width: 260px;
+        padding: 12px;
+        background: rgba(10, 14, 10, 0.85);
+        border-left: 1px solid #2a3a2a;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        font-size: 12px;
+        overflow-y: auto;
+      }
+      #hud-actions h3 {
+        margin: 0 0 4px;
+        font-size: 12px;
+        color: #7a9a7a;
+        font-weight: normal;
+        letter-spacing: 0.5px;
+      }
+      #hud-actions button {
+        background: #1a2a1a;
+        color: #cfe8cf;
+        border: 1px solid #3a5a3a;
+        padding: 6px 10px;
+        font: inherit;
+        cursor: pointer;
+        text-align: left;
+      }
+      #hud-actions button:hover {
+        background: #2a4a2a;
+      }
+      #hud-actions button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      #hud-log {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 260px;
+        height: 80px;
+        padding: 8px 16px;
+        background: rgba(10, 14, 10, 0.85);
+        border-top: 1px solid #2a3a2a;
+        font-size: 12px;
+        line-height: 1.5;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        color: #8aa28a;
+      }
+      #hud-scrubber {
+        position: absolute;
+        bottom: 80px;
+        left: 0;
+        right: 260px;
+        padding: 10px 16px;
+        background: rgba(20, 30, 20, 0.92);
+        border-top: 1px solid #2a3a2a;
+        font-size: 12px;
+        z-index: 11;
+      }
+      #hud-scrubber[hidden] {
+        display: none;
+      }
+      #hud-scrubber-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      #hud-scrubber-label {
+        min-width: 110px;
+        color: #cfe8cf;
+      }
+      #hud-scrubber-input {
+        flex: 1;
+      }
+      #hud-scrubber-help {
+        color: #7a9a7a;
+        font-size: 11px;
+        margin-top: 6px;
+        line-height: 1.4;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <svg id="hud-frame" preserveAspectRatio="none" hidden>
+      <rect id="hud-frame-rect" x="3" y="3" />
+    </svg>
+    <div id="hud">
+      <div id="hud-top">
+        <span>Round <strong id="hud-round">1</strong></span>
+        <span>Holder: <strong id="hud-holder">A</strong></span>
+        <span>Momentum A: <strong id="hud-momentum-a">0</strong></span>
+        <span>Momentum B: <strong id="hud-momentum-b">0</strong></span>
+        <span id="hud-active"></span>
+        <span id="hud-ai-toggles">
+          <label><input type="checkbox" id="hud-ai-a" /> AI A</label>
+          <label><input type="checkbox" id="hud-ai-b" /> AI B</label>
+        </span>
+        <span id="hud-timer" hidden></span>
+      </div>
+      <div id="hud-actions"></div>
+      <div id="hud-scrubber" hidden>
+        <div id="hud-scrubber-row">
+          <span id="hud-scrubber-label">Reaction t = 0.00</span>
+          <input
+            type="range"
+            id="hud-scrubber-input"
+            min="0"
+            max="1"
+            step="0.01"
+            value="0"
+          />
+        </div>
+        <div id="hud-scrubber-help">
+          Drag to preview unit position. Click an enemy with green outline to
+          place a SOLO reaction marker. Confirm in the panel.
+        </div>
+      </div>
+      <div id="hud-log"></div>
+    </div>
+    <script type="module" src="/src/index.ts"></script>
+  </body>
+</html>

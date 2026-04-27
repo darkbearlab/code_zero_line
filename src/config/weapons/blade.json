@@ -1,0 +1,8 @@
+{
+  "id": "blade",
+  "modes": ["ACTIVE"],
+  "kind": "MELEE",
+  "diceCount": 2,
+  "threshold": 5,
+  "descriptors": []
+}

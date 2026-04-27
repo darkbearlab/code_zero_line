@@ -1,0 +1,7 @@
+{
+  "templateId": "heavy_gunner",
+  "displayName": "Heavy Gunner",
+  "quality": 3,
+  "weaponIds": ["heavy-rifle"],
+  "traits": []
+}

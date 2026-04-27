@@ -1,0 +1,8 @@
+{
+  "enabled": false,
+  "_comment": "Set 'enabled' to true to turn on phase timers (intended for online/competitive). Single-player and hotseat usually keep this off. Times are seconds.",
+  "moveTargetSeconds": 25,
+  "reactionPhaseSeconds": 20,
+  "shootPickerSeconds": 15,
+  "meleePickerSeconds": 15
+}

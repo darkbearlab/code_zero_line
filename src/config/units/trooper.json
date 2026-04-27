@@ -1,0 +1,7 @@
+{
+  "templateId": "trooper",
+  "displayName": "Trooper",
+  "quality": 3,
+  "weaponIds": ["rifle", "blade"],
+  "traits": []
+}
