@@ -55,6 +55,7 @@ export class RosterScene extends Phaser.Scene {
       <div class="setup-footer">
         <button data-action="demo">Demo loadout (2v2)</button>
         <button data-action="replay">Play last replay</button>
+        <a data-action="editor" href="./editor.html" target="_blank" rel="noopener" style="padding:6px 14px;background:#1a2a1a;color:#cfe8cf;border:1px solid #3a5a3a;cursor:pointer;font:inherit;text-decoration:none;">Open editor ↗</a>
         <button data-action="continue" style="margin-left:auto;">Continue →</button>
       </div>
     `;

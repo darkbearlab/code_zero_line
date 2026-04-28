@@ -32,7 +32,7 @@ export interface UnitTemplate {
   readonly factionTags?: ReadonlyArray<string>;
 }
 
-const WEAPONS: ReadonlyArray<Weapon> = [
+const BUNDLED_WEAPONS: ReadonlyArray<Weapon> = [
   rifleJson,
   smgJson,
   heavyRifleJson,
@@ -40,7 +40,7 @@ const WEAPONS: ReadonlyArray<Weapon> = [
   rpgJson,
 ] as Weapon[];
 
-const TEMPLATES: ReadonlyArray<UnitTemplate> = [
+const BUNDLED_TEMPLATES: ReadonlyArray<UnitTemplate> = [
   trooperJson,
   eliteJson,
   conscriptJson,
@@ -49,19 +49,60 @@ const TEMPLATES: ReadonlyArray<UnitTemplate> = [
   veteranJson,
 ];
 
+const EDITOR_WEAPON_KEY = 'czl.editor.weapons.v1';
+const EDITOR_TEMPLATE_KEY = 'czl.editor.templates.v1';
+
+const safeReadLocal = <T>(key: string): T[] => {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? (v as T[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+/** Merge bundled list with localStorage overrides; custom items replace by id. */
+const mergedWeapons = (): ReadonlyArray<Weapon> => {
+  const custom = safeReadLocal<Weapon>(EDITOR_WEAPON_KEY);
+  if (custom.length === 0) return BUNDLED_WEAPONS;
+  const byId = new Map<string, Weapon>();
+  for (const w of BUNDLED_WEAPONS) byId.set(w.id, w);
+  for (const w of custom) byId.set(w.id, w);
+  return [...byId.values()];
+};
+
+const mergedTemplates = (): ReadonlyArray<UnitTemplate> => {
+  const custom = safeReadLocal<UnitTemplate>(EDITOR_TEMPLATE_KEY);
+  if (custom.length === 0) return BUNDLED_TEMPLATES;
+  const byId = new Map<string, UnitTemplate>();
+  for (const t of BUNDLED_TEMPLATES) byId.set(t.templateId, t);
+  for (const t of custom) byId.set(t.templateId, t);
+  return [...byId.values()];
+};
+
 export const getWeapon = (id: string): Weapon => {
-  const w = WEAPONS.find((x) => x.id === id);
+  const w = mergedWeapons().find((x) => x.id === id);
   if (!w) throw new Error(`Unknown weapon id: ${id}`);
   return w;
 };
 
 export const getUnitTemplate = (templateId: string): UnitTemplate => {
-  const t = TEMPLATES.find((x) => x.templateId === templateId);
+  const t = mergedTemplates().find((x) => x.templateId === templateId);
   if (!t) throw new Error(`Unknown unit template: ${templateId}`);
   return t;
 };
 
-export const listUnitTemplates = (): ReadonlyArray<UnitTemplate> => TEMPLATES;
+export const listUnitTemplates = (): ReadonlyArray<UnitTemplate> =>
+  mergedTemplates();
+
+export const listWeapons = (): ReadonlyArray<Weapon> => mergedWeapons();
+
+export const listBundledWeapons = (): ReadonlyArray<Weapon> => BUNDLED_WEAPONS;
+export const listBundledTemplates = (): ReadonlyArray<UnitTemplate> =>
+  BUNDLED_TEMPLATES;
 
 export interface UnitSpawn {
   readonly id: string;

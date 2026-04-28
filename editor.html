@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Code: Zero Line — Editor</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #0a0c0a;
+        color: #cfe8cf;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        height: 100%;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        padding: 12px 24px;
+        border-bottom: 1px solid #2a3a2a;
+        display: flex;
+        gap: 16px;
+        align-items: center;
+        font-size: 13px;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: normal;
+        letter-spacing: 1px;
+        color: #cfe8cf;
+      }
+      header .tab {
+        padding: 6px 14px;
+        background: #1a2a1a;
+        color: #cfe8cf;
+        border: 1px solid #3a5a3a;
+        cursor: pointer;
+        font: inherit;
+      }
+      header .tab.active {
+        background: #2a4a2a;
+      }
+      header .spacer {
+        flex: 1;
+      }
+      header a.back {
+        color: #7a9a7a;
+        text-decoration: none;
+        font-size: 12px;
+      }
+      header a.back:hover {
+        color: #cfe8cf;
+      }
+      main {
+        flex: 1;
+        overflow: auto;
+        padding: 16px 24px;
+      }
+      footer {
+        padding: 8px 24px;
+        border-top: 1px solid #2a3a2a;
+        font-size: 12px;
+        color: #7a9a7a;
+      }
+
+      .editor-grid {
+        display: grid;
+        grid-template-columns: 280px 1fr;
+        gap: 16px;
+        align-items: start;
+      }
+      .item-list {
+        background: rgba(20, 30, 20, 0.5);
+        border: 1px solid #2a3a2a;
+        max-height: 70vh;
+        overflow-y: auto;
+      }
+      .item-list .row {
+        padding: 8px 12px;
+        border-bottom: 1px solid #2a3a2a;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      .item-list .row:hover {
+        background: rgba(154, 240, 154, 0.07);
+      }
+      .item-list .row.active {
+        background: rgba(154, 240, 154, 0.18);
+      }
+      .item-list .row .meta {
+        font-size: 11px;
+        color: #7a9a7a;
+        margin-top: 2px;
+      }
+      .item-list .row .badge {
+        display: inline-block;
+        font-size: 10px;
+        padding: 1px 6px;
+        margin-left: 6px;
+        border: 1px solid #3a5a3a;
+        color: #9af09a;
+        border-radius: 8px;
+      }
+      .item-list .toolbar {
+        position: sticky;
+        top: 0;
+        background: rgba(10, 14, 10, 0.95);
+        border-bottom: 1px solid #2a3a2a;
+        padding: 8px 12px;
+      }
+
+      .form {
+        background: rgba(20, 30, 20, 0.5);
+        border: 1px solid #2a3a2a;
+        padding: 16px 20px;
+      }
+      .form .row {
+        display: grid;
+        grid-template-columns: 140px 1fr;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      .form label {
+        color: #9aa89a;
+        font-size: 12px;
+      }
+      .form input[type='text'],
+      .form input[type='number'],
+      .form select,
+      .form textarea {
+        background: #0a0c0a;
+        color: #cfe8cf;
+        border: 1px solid #3a5a3a;
+        padding: 5px 8px;
+        font: inherit;
+      }
+      .form input[type='checkbox'] {
+        margin-right: 6px;
+      }
+      .form .checkbox-row {
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+      .form .help {
+        font-size: 11px;
+        color: #7a9a7a;
+        margin-top: 4px;
+      }
+      .form .actions {
+        margin-top: 16px;
+        display: flex;
+        gap: 10px;
+      }
+      .form button {
+        background: #1a2a1a;
+        color: #cfe8cf;
+        border: 1px solid #3a5a3a;
+        padding: 6px 14px;
+        font: inherit;
+        cursor: pointer;
+      }
+      .form button:hover {
+        background: #2a4a2a;
+      }
+      .form button.danger {
+        border-color: #6a3a3a;
+        color: #ff8a6a;
+      }
+      .form button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .pill-input {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .pill-input .pill {
+        background: #1a2a1a;
+        border: 1px solid #3a5a3a;
+        padding: 2px 8px;
+        font-size: 12px;
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .pill-input .pill .x {
+        cursor: pointer;
+        color: #ff8a6a;
+      }
+      .pill-input input {
+        flex: 1;
+        min-width: 120px;
+      }
+
+      .empty {
+        padding: 24px;
+        color: #7a9a7a;
+        text-align: center;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Code: Zero Line — Editor</h1>
+      <button class="tab" data-tab="weapons">Weapons</button>
+      <button class="tab" data-tab="units">Units</button>
+      <span class="spacer"></span>
+      <a class="back" href="./">← Back to game</a>
+    </header>
+    <main id="editor-main"></main>
+    <footer id="editor-footer">Edits persist in localStorage and override bundled JSON in battle.</footer>
+    <script type="module" src="/src/editor/index.ts"></script>
+  </body>
+</html>
