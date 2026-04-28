@@ -1,7 +1,8 @@
 import { mountWeaponEditor } from './weaponEditor';
 import { mountUnitEditor } from './unitEditor';
+import { mountMapEditor } from './mapEditor';
 
-type Tab = 'weapons' | 'units';
+type Tab = 'weapons' | 'units' | 'maps';
 
 const main = document.getElementById('editor-main')!;
 const tabs = document.querySelectorAll<HTMLButtonElement>('header .tab');
@@ -12,7 +13,8 @@ const setActive = (tab: Tab): void => {
   });
   main.innerHTML = '';
   if (tab === 'weapons') mountWeaponEditor(main);
-  else mountUnitEditor(main);
+  else if (tab === 'units') mountUnitEditor(main);
+  else mountMapEditor(main);
   // Persist last tab selection.
   try {
     localStorage.setItem('czl.editor.lastTab', tab);

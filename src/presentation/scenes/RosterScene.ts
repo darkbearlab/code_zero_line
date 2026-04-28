@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
-import { listUnitTemplates } from '../../config/loader';
+import { listMaps, listUnitTemplates } from '../../config/loader';
 import {
   ROSTER_MAX_PER_SIDE,
   ROSTER_MIN_PER_SIDE,
   type RosterEntry,
   type RostersBySide,
 } from '../../core/setup/types';
+import { DEFAULT_MAP_ID } from '../state/setupBattleState';
 
 const FACTIONS: ReadonlyArray<'A' | 'B'> = ['A', 'B'];
 
@@ -18,6 +19,7 @@ export class RosterScene extends Phaser.Scene {
   private rosters: { A: RosterEntry[]; B: RosterEntry[] } = { A: [], B: [] };
   private nextIdCounter = 0;
   private rootEl!: HTMLElement;
+  private selectedMapId: string = DEFAULT_MAP_ID;
 
   constructor() {
     super({ key: 'Roster' });
@@ -27,6 +29,20 @@ export class RosterScene extends Phaser.Scene {
     // Reset per scene entry (Phaser reuses scene instances).
     this.rosters = { A: [], B: [] };
     this.nextIdCounter = 0;
+    // Default to last selection if it's still available.
+    const available = listMaps();
+    const persisted = (() => {
+      try {
+        return localStorage.getItem('czl.lastMapId');
+      } catch {
+        return null;
+      }
+    })();
+    if (persisted && available.some((m) => m.id === persisted)) {
+      this.selectedMapId = persisted;
+    } else {
+      this.selectedMapId = DEFAULT_MAP_ID;
+    }
     hideBattleHud();
     this.rootEl = this.makeRoot();
     this.events.once('shutdown', () => this.rootEl?.remove());
@@ -56,6 +72,10 @@ export class RosterScene extends Phaser.Scene {
         <button data-action="demo">Demo loadout (2v2)</button>
         <button data-action="replay">Play last replay</button>
         <a data-action="editor" href="./editor.html" target="_blank" rel="noopener" style="padding:6px 14px;background:#1a2a1a;color:#cfe8cf;border:1px solid #3a5a3a;cursor:pointer;font:inherit;text-decoration:none;">Open editor ↗</a>
+        <span style="margin-left:24px;display:inline-flex;gap:6px;align-items:center;color:#9aa89a;font-size:13px;">
+          Map:
+          <select data-map style="background:#0a0c0a;color:#cfe8cf;border:1px solid #3a5a3a;padding:4px 8px;font:inherit;"></select>
+        </span>
         <button data-action="continue" style="margin-left:auto;">Continue →</button>
       </div>
     `;
@@ -70,6 +90,23 @@ export class RosterScene extends Phaser.Scene {
       };
     root.querySelector<HTMLButtonElement>('[data-action="continue"]')!.onclick =
       () => this.tryContinue();
+
+    const mapSelect = root.querySelector<HTMLSelectElement>('[data-map]')!;
+    for (const m of listMaps()) {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = `${m.displayName} (${m.id})`;
+      mapSelect.appendChild(opt);
+    }
+    mapSelect.value = this.selectedMapId;
+    mapSelect.onchange = () => {
+      this.selectedMapId = mapSelect.value;
+      try {
+        localStorage.setItem('czl.lastMapId', this.selectedMapId);
+      } catch {
+        /* ignore */
+      }
+    };
 
     return root;
   }
@@ -183,7 +220,7 @@ export class RosterScene extends Phaser.Scene {
       B: [...this.rosters.B],
     };
     this.rootEl.remove();
-    this.scene.start('InitiativeRoll', { rosters });
+    this.scene.start('InitiativeRoll', { rosters, mapId: this.selectedMapId });
   }
 }
 

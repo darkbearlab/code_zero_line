@@ -6,10 +6,12 @@ import type { RostersBySide } from '../../core/setup/types';
 
 interface InitData {
   rosters: RostersBySide;
+  mapId?: string;
 }
 
 export class InitiativeRollScene extends Phaser.Scene {
   private rosters!: RostersBySide;
+  private mapId?: string;
   private rootEl!: HTMLElement;
   private masterSeed = `match-${Date.now()}`;
   private rerollIndex = 0;
@@ -20,6 +22,7 @@ export class InitiativeRollScene extends Phaser.Scene {
 
   init(data: InitData): void {
     this.rosters = data.rosters;
+    this.mapId = data.mapId;
   }
 
   create(): void {
@@ -87,6 +90,7 @@ export class InitiativeRollScene extends Phaser.Scene {
           rosters: this.rosters,
           firstHolder: winner,
           deployFirst,
+          mapId: this.mapId,
         });
       };
     });

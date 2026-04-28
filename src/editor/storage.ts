@@ -1,8 +1,10 @@
 import type { Weapon } from '../core/state/GameState';
 import type { UnitTemplate } from '../config/loader';
+import type { EditorMapDoc } from '../config/mapDoc';
 
 const WEAPON_KEY = 'czl.editor.weapons.v1';
 const TEMPLATE_KEY = 'czl.editor.templates.v1';
+const MAP_KEY = 'czl.editor.maps.v1';
 
 export interface CustomWeapon extends Weapon {
   /** Marker so future editor versions can migrate. */
@@ -61,7 +63,25 @@ export const removeCustomTemplate = (templateId: string): void => {
   );
 };
 
+export const loadCustomMaps = (): EditorMapDoc[] =>
+  safeParse<EditorMapDoc>(localStorage.getItem(MAP_KEY));
+
+export const saveCustomMaps = (list: ReadonlyArray<EditorMapDoc>): void => {
+  localStorage.setItem(MAP_KEY, JSON.stringify(list));
+};
+
+export const upsertCustomMap = (m: EditorMapDoc): void => {
+  const list = loadCustomMaps().filter((x) => x.id !== m.id);
+  list.push({ ...m, _custom: true });
+  saveCustomMaps(list);
+};
+
+export const removeCustomMap = (id: string): void => {
+  saveCustomMaps(loadCustomMaps().filter((m) => m.id !== id));
+};
+
 export const resetAllCustomData = (): void => {
   localStorage.removeItem(WEAPON_KEY);
   localStorage.removeItem(TEMPLATE_KEY);
+  localStorage.removeItem(MAP_KEY);
 };

@@ -3,6 +3,7 @@ import type { Vec2 } from '../core/geometry/types';
 import type { MapDef } from '../core/setup/types';
 import { v2 } from '../core/geometry/vec2';
 import { STANDARD_BASE_RADIUS_PIXELS } from '../core/rules/constants';
+import { docToMapDef, type EditorMapDoc } from './mapDoc';
 
 import rifleJson from './weapons/rifle.json';
 import smgJson from './weapons/smg.json';
@@ -51,6 +52,7 @@ const BUNDLED_TEMPLATES: ReadonlyArray<UnitTemplate> = [
 
 const EDITOR_WEAPON_KEY = 'czl.editor.weapons.v1';
 const EDITOR_TEMPLATE_KEY = 'czl.editor.templates.v1';
+const EDITOR_MAP_KEY = 'czl.editor.maps.v1';
 
 const safeReadLocal = <T>(key: string): T[] => {
   try {
@@ -128,12 +130,23 @@ export const buildUnit = (spawn: UnitSpawn): Unit => {
   };
 };
 
-const MAPS: ReadonlyArray<MapDef> = [demoMapJson as MapDef];
+const BUNDLED_MAPS: ReadonlyArray<MapDef> = [demoMapJson as MapDef];
+
+const mergedMaps = (): ReadonlyArray<MapDef> => {
+  const customDocs = safeReadLocal<EditorMapDoc>(EDITOR_MAP_KEY);
+  if (customDocs.length === 0) return BUNDLED_MAPS;
+  const byId = new Map<string, MapDef>();
+  for (const m of BUNDLED_MAPS) byId.set(m.id, m);
+  for (const d of customDocs) byId.set(d.id, docToMapDef(d));
+  return [...byId.values()];
+};
 
 export const getMap = (id: string): MapDef => {
-  const m = MAPS.find((x) => x.id === id);
+  const m = mergedMaps().find((x) => x.id === id);
   if (!m) throw new Error(`Unknown map id: ${id}`);
   return m;
 };
 
-export const listMaps = (): ReadonlyArray<MapDef> => MAPS;
+export const listMaps = (): ReadonlyArray<MapDef> => mergedMaps();
+
+export const listBundledMaps = (): ReadonlyArray<MapDef> => BUNDLED_MAPS;

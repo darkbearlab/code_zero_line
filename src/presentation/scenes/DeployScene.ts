@@ -18,6 +18,7 @@ interface InitData {
   rosters: RostersBySide;
   firstHolder: Faction;
   deployFirst: Faction;
+  mapId?: string;
 }
 
 const FACTION_COLOR: Readonly<Record<Faction, number>> = {
@@ -35,6 +36,7 @@ export class DeployScene extends Phaser.Scene {
   private rosters!: RostersBySide;
   private firstHolder!: Faction;
   private deployFirst!: Faction;
+  private mapId: string = DEFAULT_MAP_ID;
   private map!: MapDef;
   private placements: { A: DeploymentPlacement[]; B: DeploymentPlacement[] } = {
     A: [],
@@ -58,6 +60,7 @@ export class DeployScene extends Phaser.Scene {
     this.rosters = data.rosters;
     this.firstHolder = data.firstHolder;
     this.deployFirst = data.deployFirst;
+    this.mapId = data.mapId ?? DEFAULT_MAP_ID;
   }
 
   create(): void {
@@ -65,7 +68,7 @@ export class DeployScene extends Phaser.Scene {
     this.placements = { A: [], B: [] };
     this.currentSide = null;
     this.terrainLabels = [];
-    this.map = getMap(DEFAULT_MAP_ID);
+    this.map = getMap(this.mapId);
     this.cameras.main.setBackgroundColor('#0a0c0a');
     this.boardEdgeGfx = this.add.graphics();
     this.zonesGfx = this.add.graphics();
