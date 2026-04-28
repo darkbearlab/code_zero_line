@@ -19,6 +19,11 @@ import { CommandError } from '../commands/types';
 import { applyHits } from './damage';
 import { targetHasCover } from './cover';
 import { sumTraitParams, unitHasTrait } from '../traits/types';
+import {
+  isReloadWeapon,
+  sumWeaponDescriptorParam,
+  weaponHasDescriptor,
+} from './weapon_descriptors';
 
 export interface ResolveShotInput {
   readonly state: GameState;
@@ -27,6 +32,8 @@ export interface ResolveShotInput {
   readonly mode: ShootMode;
   readonly participantIds: ReadonlyArray<string>;
   readonly weaponMode: WeaponMode;
+  /** Specific weapon id used by the shooter; required if multiple match. */
+  readonly weaponId?: string;
   /** Label suffix for deterministic RNG (e.g., 'shoot' or 'reaction:m0'). */
   readonly rngLabel: string;
   readonly cmdIndex: number;
@@ -41,18 +48,68 @@ export interface ResolveShotOutput {
   readonly causedSuppressOrKill: boolean;
 }
 
-const findShootWeapon = (
+const candidateShootWeapons = (
   u: Unit,
   mode: ShootMode,
   weaponMode: WeaponMode,
-): Weapon | undefined => {
-  return u.weapons.find((w) => {
+): Weapon[] => {
+  return u.weapons.filter((w) => {
     if (w.kind !== 'SHOOT') return false;
     if (!w.modes.includes(weaponMode)) return false;
     if (mode === 'SOLO') return true;
-    if (mode === 'FOCUSED') return w.descriptors.includes('FOCUSED');
-    return w.descriptors.includes('COMBINED');
+    if (mode === 'FOCUSED') return weaponHasDescriptor(w, 'FOCUSED');
+    return weaponHasDescriptor(w, 'COMBINED');
   });
+};
+
+const reloadAlreadyUsed = (
+  state: GameState,
+  unitId: string,
+  weapon: Weapon,
+): boolean => {
+  if (!isReloadWeapon(weapon)) return false;
+  const usage = state.initiative.activeActivation?.weaponUsage;
+  return !!usage && (usage[unitId]?.includes(weapon.id) ?? false);
+};
+
+/**
+ * Pick the shooter weapon to fire. Honors explicit `weaponId` if provided;
+ * otherwise back-compat: if exactly one weapon matches, use it; if more
+ * than one matches, throw `MULTIPLE_WEAPONS` to force the caller to pick.
+ */
+const pickShooterWeapon = (
+  state: GameState,
+  unit: Unit,
+  mode: ShootMode,
+  weaponMode: WeaponMode,
+  weaponId: string | undefined,
+): Weapon => {
+  const all = candidateShootWeapons(unit, mode, weaponMode).filter(
+    (w) => !reloadAlreadyUsed(state, unit.id, w),
+  );
+  if (weaponId) {
+    const w = all.find((x) => x.id === weaponId);
+    if (!w) {
+      throw new CommandError(
+        'INVALID_WEAPON',
+        `${unit.id} has no ${mode}/${weaponMode} weapon '${weaponId}' available`,
+      );
+    }
+    return w;
+  }
+  if (all.length === 0) {
+    throw new CommandError(
+      'NO_WEAPON',
+      `${unit.id} has no ${mode}/${weaponMode} weapon available`,
+    );
+  }
+  if (all.length > 1) {
+    throw new CommandError(
+      'MULTIPLE_WEAPONS',
+      `${unit.id} has multiple ${mode}/${weaponMode} weapons; specify weaponId`,
+    );
+  }
+  return all[0]!;
 };
 
 export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
@@ -63,6 +120,7 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
     mode,
     participantIds,
     weaponMode,
+    weaponId,
     rngLabel,
     cmdIndex,
   } = input;
@@ -128,43 +186,59 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
     participants.push(p);
   }
 
-  const allShooters: ReadonlyArray<Unit> = [shooter, ...participants];
-
-  const shooterWeapon = findShootWeapon(shooter, mode, weaponMode);
-  if (!shooterWeapon) {
-    throw new CommandError(
-      'NO_WEAPON',
-      `${shooterId} has no ${mode}/${weaponMode} weapon`,
-    );
-  }
+  // Shooter's chosen weapon — explicit weaponId required when ambiguous.
+  const shooterWeapon = pickShooterWeapon(
+    s,
+    shooter,
+    mode,
+    weaponMode,
+    weaponId,
+  );
   const threshold = shooterWeapon.threshold;
 
+  // Track which (unit, weapon) pairs fired this shot (for RELOAD bookkeeping).
+  const usedWeapons: Array<[string, string]> = [
+    [shooter.id, shooterWeapon.id],
+  ];
+
   let totalDice = 0;
-  for (const sh of allShooters) {
-    const w = findShootWeapon(sh, mode, weaponMode);
-    if (!w) {
+  totalDice += shooter.damage === 'IMPEDED'
+    ? Math.max(0, shooterWeapon.diceCount - 1)
+    : shooterWeapon.diceCount;
+
+  // Each participant uses their own first matching (mode/weaponMode) weapon
+  // that isn't already RELOAD-used. Future expansion: let UI pick per-ally.
+  for (const p of participants) {
+    const partWeapon = candidateShootWeapons(p, mode, weaponMode).find(
+      (w) => !reloadAlreadyUsed(s, p.id, w),
+    );
+    if (!partWeapon) {
       throw new CommandError(
         'NO_WEAPON',
-        `${sh.id} lacks a ${mode}/${weaponMode} weapon`,
+        `${p.id} lacks a ${mode}/${weaponMode} weapon`,
       );
     }
-    let dice = w.diceCount;
-    if (sh.damage === 'IMPEDED') dice = Math.max(0, dice - 1);
+    let dice = partWeapon.diceCount;
+    if (p.damage === 'IMPEDED') dice = Math.max(0, dice - 1);
     totalDice += dice;
+    usedWeapons.push([p.id, partWeapon.id]);
   }
 
   const cover = targetHasCover(shooter, target, s.terrain);
-  // "IGNORE_COVER" weapon descriptor (e.g. 神射手) bypasses the -1.
-  const ignoreCover = shooterWeapon.descriptors.includes('IGNORE_COVER');
+  // IGNORE_COVER (神射手) bypasses the -1.
+  const ignoreCover = weaponHasDescriptor(shooterWeapon, 'IGNORE_COVER');
   if (cover && !ignoreCover) totalDice = Math.max(0, totalDice - 1);
 
   const rng = deriveRng(s.seed, cmdIndex, `${rngLabel}:hits`);
   const rolls = rng.rollDice(totalDice, D6_SIDES);
   const rawHits = countHits(rolls, threshold);
 
-  // ARMOR(N) absorbs N hits before damage state is computed.
-  const armorN = sumTraitParams(target, 'ARMOR');
-  const hits = Math.max(0, rawHits - Math.max(0, armorN));
+  // ARMOR(N) absorbs hits; ARMOR_PIERCE(M) on the shooter's weapon reduces
+  // effective armor (rule 7 — RPG/穿甲).
+  const targetArmor = sumTraitParams(target, 'ARMOR');
+  const piercing = sumWeaponDescriptorParam(shooterWeapon, 'ARMOR_PIERCE');
+  const effectiveArmor = Math.max(0, targetArmor - piercing);
+  const hits = Math.max(0, rawHits - effectiveArmor);
 
   const beforeDamage = target.damage;
   let afterDamage = applyHits(beforeDamage, hits);
@@ -177,6 +251,11 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
   if (afterDamage === 'SUPPRESSED' && beforeDamage !== 'SUPPRESSED') {
     next = updateUnit(next, targetId, { damage: afterDamage, stance: 'PRONE' });
   }
+
+  // Record RELOAD weapon usage on the activation. We intentionally update
+  // even if the activation will end on this action — it's read by future
+  // shot resolutions within the same activation (multi-shot CHECK_SUCCESS).
+  next = recordWeaponUsage(next, usedWeapons);
 
   const causedSuppressOrKill =
     (afterDamage === 'SUPPRESSED' || afterDamage === 'KILLED') &&
@@ -207,5 +286,28 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
     beforeDamage,
     afterDamage,
     causedSuppressOrKill,
+  };
+};
+
+/** Append (unitId, weaponId) entries to the active activation's weaponUsage. */
+const recordWeaponUsage = (
+  s: GameState,
+  pairs: ReadonlyArray<[string, string]>,
+): GameState => {
+  const act = s.initiative.activeActivation;
+  if (!act) return s;
+  const usage = { ...(act.weaponUsage ?? {}) };
+  for (const [unitId, weaponId] of pairs) {
+    const list = usage[unitId] ?? [];
+    if (!list.includes(weaponId)) {
+      usage[unitId] = [...list, weaponId];
+    }
+  }
+  return {
+    ...s,
+    initiative: {
+      ...s.initiative,
+      activeActivation: { ...act, weaponUsage: usage },
+    },
   };
 };

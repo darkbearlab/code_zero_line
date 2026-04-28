@@ -222,8 +222,8 @@ export class BattleScene extends Phaser.Scene {
       (req) => this.handleActionRequest(req),
       (idx) => this.removeMarker(idx),
       (t) => this.onScrubberChange(t),
-      (shooterId, mode, parts) =>
-        this.tryAddReactionMarker(shooterId, mode, parts),
+      (shooterId, mode, weaponId, parts) =>
+        this.tryAddReactionMarker(shooterId, mode, weaponId, parts),
       (faction, enabled) => {
         this.aiControlled[faction] = enabled;
         if (!enabled) this.cancelAiTick();
@@ -344,7 +344,17 @@ export class BattleScene extends Phaser.Scene {
       ) => {
         if (this.aimMode === 'reaction-phase') {
           ev.stopPropagation();
-          this.tryAddReactionMarker(u.id);
+          // Quick-click shortcut: pick the unit's first SOLO/REACTION weapon.
+          // Multi-weapon shooters should use the HUD picker for explicit choice.
+          const firstReactionWeapon = u.weapons.find(
+            (w) => w.kind === 'SHOOT' && w.modes.includes('REACTION'),
+          );
+          this.tryAddReactionMarker(
+            u.id,
+            'SOLO',
+            firstReactionWeapon?.id,
+            [],
+          );
           return;
         }
         if (this.aimMode !== 'idle') return;
@@ -1118,6 +1128,8 @@ export class BattleScene extends Phaser.Scene {
           note: `(q${shooter.quality}+${shooter.damage !== 'NONE' ? `, ${shooter.damage}` : ''})`,
           modes: modes.map((m) => ({
             mode: m.mode,
+            weaponId: m.weaponId,
+            weaponDisplay: m.weaponDisplay,
             participantIds: m.participantIds,
             totalDice: m.totalDice,
           })),
@@ -1192,6 +1204,8 @@ export class BattleScene extends Phaser.Scene {
           note: `(q${target.quality}+${target.damage !== 'NONE' ? `, ${target.damage}` : ''})`,
           modes: modes.map((m) => ({
             mode: m.mode,
+            weaponId: m.weaponId,
+            weaponDisplay: m.weaponDisplay,
             participantIds: m.participantIds,
             totalDice: m.totalDice,
           })),
@@ -2034,6 +2048,7 @@ export class BattleScene extends Phaser.Scene {
   private tryAddReactionMarker(
     shooterId: string,
     mode: ShootMode = 'SOLO',
+    weaponId?: string,
     participantIds: ReadonlyArray<string> = [],
   ): void {
     if (!this.reaction) return;
@@ -2061,6 +2076,7 @@ export class BattleScene extends Phaser.Scene {
       mode,
       participantIds: [...participantIds],
       targetUnitId: this.reaction.selectedTargetUnitId,
+      ...(weaponId !== undefined ? { weaponId } : {}),
     };
     this.reaction.markers = [...this.reaction.markers, marker].sort(
       (a, b) => a.atT - b.atT,

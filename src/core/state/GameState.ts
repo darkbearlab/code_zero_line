@@ -65,6 +65,12 @@ export interface ActiveActivation {
   readonly forcedTurnoverAfterAction: boolean;
   /** Momentum deficit granted to opponent at turnover (OVERDRAFT only). */
   readonly overdraftDeficit?: number;
+  /**
+   * Per-unit weapon usage tracking for [RELOAD] enforcement (rule 7 — 填裝).
+   * `weaponUsage[unitId]` lists weapon ids fired by that unit during this
+   * activation. RELOAD weapons that already appear here cannot fire again.
+   */
+  readonly weaponUsage?: Readonly<Record<string, ReadonlyArray<string>>>;
 }
 
 export interface Initiative {

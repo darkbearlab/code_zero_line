@@ -87,6 +87,7 @@ const chooseActiveAction = (
             mode: m.mode,
             shooterId: u.id,
             targetId: e.id,
+            weaponId: m.weaponId,
             participantIds: m.participantIds,
           },
           ev,

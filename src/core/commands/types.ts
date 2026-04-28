@@ -23,6 +23,11 @@ export interface ReactionMarker {
    * (regular MOVE/RALLY/etc.), this is optional and defaults to the mover.
    */
   readonly targetUnitId?: string;
+  /**
+   * Specific weapon id the shooter fires with. Required when the shooter
+   * has multiple matching reaction-eligible weapons.
+   */
+  readonly weaponId?: string;
 }
 
 export interface ReactionPlan {
@@ -83,6 +88,11 @@ export type Command =
       mode: ShootMode;
       shooterId: string;
       targetId: string;
+      /**
+       * Specific weapon id to fire. Required when the shooter has multiple
+       * weapons matching the (mode, weaponMode) pair; optional otherwise.
+       */
+      weaponId?: string;
       participantIds?: ReadonlyArray<string>;
     }
   | {

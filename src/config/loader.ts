@@ -8,12 +8,14 @@ import rifleJson from './weapons/rifle.json';
 import smgJson from './weapons/smg.json';
 import heavyRifleJson from './weapons/heavy_rifle.json';
 import bladeJson from './weapons/blade.json';
+import rpgJson from './weapons/rpg.json';
 
 import trooperJson from './units/trooper.json';
 import eliteJson from './units/elite.json';
 import conscriptJson from './units/conscript.json';
 import heavyGunnerJson from './units/heavy_gunner.json';
 import squadLeadJson from './units/squad_lead.json';
+import veteranJson from './units/veteran.json';
 
 import demoMapJson from './maps/demo.json';
 
@@ -35,6 +37,7 @@ const WEAPONS: ReadonlyArray<Weapon> = [
   smgJson,
   heavyRifleJson,
   bladeJson,
+  rpgJson,
 ] as Weapon[];
 
 const TEMPLATES: ReadonlyArray<UnitTemplate> = [
@@ -43,6 +46,7 @@ const TEMPLATES: ReadonlyArray<UnitTemplate> = [
   conscriptJson,
   heavyGunnerJson,
   squadLeadJson,
+  veteranJson,
 ];
 
 export const getWeapon = (id: string): Weapon => {

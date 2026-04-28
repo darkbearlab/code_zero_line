@@ -1,0 +1,7 @@
+{
+  "templateId": "veteran",
+  "displayName": "Veteran",
+  "quality": 3,
+  "weaponIds": ["rifle", "rpg", "blade"],
+  "traits": ["STALWART"]
+}

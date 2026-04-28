@@ -1,37 +1,14 @@
 import type { Unit } from '../state/GameState';
+import { parseIdParam, type IdParam } from '../util/idParam';
 
 /**
  * Parsed trait reference. Trait strings on units may carry an integer
  * parameter using either `ID:N` or `ID(N)` notation (e.g., `ARMOR:1`,
  * `AGITATOR(2)`). Bare `ID` defaults param to 0.
  */
-export interface TraitInstance {
-  readonly id: string;
-  readonly param: number;
-}
+export type TraitInstance = IdParam;
 
-export const parseTrait = (raw: string): TraitInstance => {
-  const colon = raw.indexOf(':');
-  if (colon > 0) {
-    const value = Number(raw.slice(colon + 1));
-    return {
-      id: raw.slice(0, colon).trim(),
-      param: Number.isFinite(value) ? value : 0,
-    };
-  }
-  const paren = raw.indexOf('(');
-  if (paren > 0) {
-    const close = raw.indexOf(')', paren);
-    const inner =
-      close > 0 ? raw.slice(paren + 1, close) : raw.slice(paren + 1);
-    const value = Number(inner);
-    return {
-      id: raw.slice(0, paren).trim(),
-      param: Number.isFinite(value) ? value : 0,
-    };
-  }
-  return { id: raw, param: 0 };
-};
+export const parseTrait = (raw: string): TraitInstance => parseIdParam(raw);
 
 /**
  * Static trait definition. Most traits express their effect via simple flags

@@ -9,27 +9,42 @@ import type {
 } from '../state/GameState';
 import { findUnit, getUnitCircle, isUnitAlive } from '../state/GameState';
 import type { ShootMode } from '../commands/types';
+import {
+  isReloadWeapon,
+  weaponHasDescriptor,
+} from './weapon_descriptors';
 
 export interface AvailableShootMode {
   readonly mode: ShootMode;
+  /** The shooter's chosen weapon for this option. */
+  readonly weaponId: string;
+  /** Display label for the weapon (currently same as id). */
+  readonly weaponDisplay: string;
   readonly participantIds: ReadonlyArray<string>;
   readonly totalDice: number;
   readonly threshold: number;
 }
 
-const findShootWeapon = (
+const candidateShootWeapons = (
   u: Unit,
   mode: ShootMode,
   weaponMode: WeaponMode,
-): Weapon | undefined => {
-  return u.weapons.find((w) => {
+): Weapon[] => {
+  return u.weapons.filter((w) => {
     if (w.kind !== 'SHOOT') return false;
     if (!w.modes.includes(weaponMode)) return false;
     if (mode === 'SOLO') return true;
-    if (mode === 'FOCUSED') return w.descriptors.includes('FOCUSED');
-    return w.descriptors.includes('COMBINED');
+    if (mode === 'FOCUSED') return weaponHasDescriptor(w, 'FOCUSED');
+    return weaponHasDescriptor(w, 'COMBINED');
   });
 };
+
+/** First matching shoot weapon (used for participants' implicit weapon pick). */
+const firstShootWeapon = (
+  u: Unit,
+  mode: ShootMode,
+  weaponMode: WeaponMode,
+): Weapon | undefined => candidateShootWeapons(u, mode, weaponMode)[0];
 
 const adjustDice = (u: Unit, base: number): number =>
   u.damage === 'IMPEDED' ? Math.max(0, base - 1) : base;
@@ -42,15 +57,26 @@ const adjustDice = (u: Unit, base: number): number =>
 const participantNeedsLosToOfficer = (u: Unit): boolean =>
   !u.traits.includes('NO_OFFICER_LOS_FOR_COMBINED');
 
+/** True if the unit-weapon pair already fired this activation under [RELOAD]. */
+const reloadAlreadyUsed = (
+  state: GameState,
+  unitId: string,
+  weapon: Weapon,
+): boolean => {
+  if (!isReloadWeapon(weapon)) return false;
+  const usage = state.initiative.activeActivation?.weaponUsage;
+  return !!usage && (usage[unitId]?.includes(weapon.id) ?? false);
+};
+
 /**
- * Enumerate the SHOOT modes available to `shooter` against `target`.
- * Returns one entry per viable mode with auto-selected participants.
+ * Enumerate the SHOOT modes available to `shooter` against `target`,
+ * returning one entry **per weapon × mode combo**. The UI surfaces these
+ * as separate buttons so the player explicitly picks weapon + mode.
  *
  * Used both for the active-turn SHOOT UI (weaponMode='ACTIVE') and for
  * building reaction-fire markers (weaponMode='REACTION').
  *
- * Returns empty array if shooter cannot shoot the target at all (no LOS,
- * suppressed shooter, friendly fire, etc.).
+ * Returns empty array if the shooter cannot shoot the target at all.
  */
 export const listAvailableShootModes = (
   state: GameState,
@@ -68,7 +94,6 @@ export const listAvailableShootModes = (
   if (!isUnitAlive(shooter) || !isUnitAlive(target)) return [];
   if (shooter.faction === target.faction) return [];
   if (shooter.damage === 'SUPPRESSED') return [];
-  // For REACTION fires, the shooter must not have already failed a reaction.
   if (weaponMode === 'REACTION' && shooter.cannotReactThisRound) return [];
 
   const losTo = (from: Unit, to: Unit): boolean =>
@@ -82,20 +107,22 @@ export const listAvailableShootModes = (
 
   const out: AvailableShootMode[] = [];
 
-  // SOLO
-  const sw = findShootWeapon(shooter, 'SOLO', weaponMode);
-  if (sw) {
+  // SOLO — one entry per matching shooter weapon.
+  for (const sw of candidateShootWeapons(shooter, 'SOLO', weaponMode)) {
+    if (reloadAlreadyUsed(state, shooter.id, sw)) continue;
     out.push({
       mode: 'SOLO',
+      weaponId: sw.id,
+      weaponDisplay: sw.id,
       participantIds: [],
       totalDice: adjustDice(shooter, sw.diceCount),
       threshold: sw.threshold,
     });
   }
 
-  // FOCUSED — friendlies within 1 unit distance with FOCUSED weapon and LOS
-  const fw = findShootWeapon(shooter, 'FOCUSED', weaponMode);
-  if (fw) {
+  // FOCUSED — one entry per FOCUSED-tagged weapon the shooter can fire.
+  for (const fw of candidateShootWeapons(shooter, 'FOCUSED', weaponMode)) {
+    if (reloadAlreadyUsed(state, shooter.id, fw)) continue;
     const parts = state.units.filter(
       (u) =>
         u.id !== shooter.id &&
@@ -106,29 +133,28 @@ export const listAvailableShootModes = (
         (weaponMode === 'ACTIVE' || !u.cannotReactThisRound) &&
         v2Dist(u.position, shooter.position) <= UNIT_DISTANCE_PIXELS &&
         losTo(u, target) &&
-        findShootWeapon(u, 'FOCUSED', weaponMode),
+        firstShootWeapon(u, 'FOCUSED', weaponMode),
     );
-    if (parts.length > 0) {
-      let dice = adjustDice(shooter, fw.diceCount);
-      for (const p of parts) {
-        const w = findShootWeapon(p, 'FOCUSED', weaponMode)!;
-        dice += adjustDice(p, w.diceCount);
-      }
-      out.push({
-        mode: 'FOCUSED',
-        participantIds: parts.map((u) => u.id),
-        totalDice: dice,
-        threshold: fw.threshold,
-      });
+    if (parts.length === 0) continue;
+    let dice = adjustDice(shooter, fw.diceCount);
+    for (const p of parts) {
+      const w = firstShootWeapon(p, 'FOCUSED', weaponMode)!;
+      dice += adjustDice(p, w.diceCount);
     }
+    out.push({
+      mode: 'FOCUSED',
+      weaponId: fw.id,
+      weaponDisplay: fw.id,
+      participantIds: parts.map((u) => u.id),
+      totalDice: dice,
+      threshold: fw.threshold,
+    });
   }
 
-  // COMBINED — officer-led, friendlies with LOS to officer AND target.
-  // The "LOS to officer" requirement may be bypassed by future skills
-  // (e.g., dedicated comms operator) — gated through participantNeedsLosToOfficer.
+  // COMBINED — officer-led; one entry per COMBINED weapon.
   if (shooter.traits.includes('OFFICER')) {
-    const cw = findShootWeapon(shooter, 'COMBINED', weaponMode);
-    if (cw) {
+    for (const cw of candidateShootWeapons(shooter, 'COMBINED', weaponMode)) {
+      if (reloadAlreadyUsed(state, shooter.id, cw)) continue;
       const parts = state.units.filter(
         (u) =>
           u.id !== shooter.id &&
@@ -139,21 +165,22 @@ export const listAvailableShootModes = (
           (weaponMode === 'ACTIVE' || !u.cannotReactThisRound) &&
           (participantNeedsLosToOfficer(u) ? losTo(u, shooter) : true) &&
           losTo(u, target) &&
-          findShootWeapon(u, 'COMBINED', weaponMode),
+          firstShootWeapon(u, 'COMBINED', weaponMode),
       );
-      if (parts.length > 0) {
-        let dice = adjustDice(shooter, cw.diceCount);
-        for (const p of parts) {
-          const w = findShootWeapon(p, 'COMBINED', weaponMode)!;
-          dice += adjustDice(p, w.diceCount);
-        }
-        out.push({
-          mode: 'COMBINED',
-          participantIds: parts.map((u) => u.id),
-          totalDice: dice,
-          threshold: cw.threshold,
-        });
+      if (parts.length === 0) continue;
+      let dice = adjustDice(shooter, cw.diceCount);
+      for (const p of parts) {
+        const w = firstShootWeapon(p, 'COMBINED', weaponMode)!;
+        dice += adjustDice(p, w.diceCount);
       }
+      out.push({
+        mode: 'COMBINED',
+        weaponId: cw.id,
+        weaponDisplay: cw.id,
+        participantIds: parts.map((u) => u.id),
+        totalDice: dice,
+        threshold: cw.threshold,
+      });
     }
   }
 

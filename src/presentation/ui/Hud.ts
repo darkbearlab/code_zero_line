@@ -48,6 +48,8 @@ export type RequestActionFn = (req: ActionRequest) => void;
 
 export interface ReactorMode {
   readonly mode: ShootMode;
+  readonly weaponId: string;
+  readonly weaponDisplay: string;
   readonly participantIds: ReadonlyArray<string>;
   readonly totalDice: number;
 }
@@ -79,6 +81,8 @@ export interface ReactionContext {
 
 export interface ShootCandidateMode {
   readonly mode: ShootMode;
+  readonly weaponId: string;
+  readonly weaponDisplay: string;
   readonly participantIds: ReadonlyArray<string>;
   readonly totalDice: number;
 }
@@ -189,6 +193,7 @@ export class Hud {
     private placeMarker: (
       shooterId: string,
       mode: ShootMode,
+      weaponId: string,
       participantIds: ReadonlyArray<string>,
     ) => void,
     private onAiToggle: (faction: 'A' | 'B', enabled: boolean) => void,
@@ -583,13 +588,14 @@ export class Hud {
             m.participantIds.length > 0
               ? ` w/ ${m.participantIds.join(',')}`
               : '';
-          b.textContent = `${m.mode}${partsLabel} (${m.totalDice}d)`;
+          b.textContent = `${m.mode} [${m.weaponDisplay}]${partsLabel} (${m.totalDice}d)`;
           b.onclick = () =>
             this.dispatch({
               type: 'SHOOT',
               mode: m.mode,
               shooterId: shoot.shooterId,
               targetId: c.targetId,
+              weaponId: m.weaponId,
               participantIds: m.participantIds,
             });
           this.actionsEl.appendChild(b);
@@ -864,9 +870,9 @@ export class Hud {
             m.participantIds.length > 0
               ? ` w/ ${m.participantIds.join(',')}`
               : '';
-          b.textContent = `+ ${m.mode}${partsLabel} (${m.totalDice}d)`;
+          b.textContent = `+ ${m.mode} [${m.weaponDisplay}]${partsLabel} (${m.totalDice}d)`;
           b.onclick = () =>
-            this.placeMarker(v.id, m.mode, m.participantIds);
+            this.placeMarker(v.id, m.mode, m.weaponId, m.participantIds);
           this.actionsEl.appendChild(b);
         }
       }

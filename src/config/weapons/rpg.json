@@ -1,0 +1,8 @@
+{
+  "id": "rpg",
+  "modes": ["ACTIVE"],
+  "kind": "SHOOT",
+  "diceCount": 5,
+  "threshold": 5,
+  "descriptors": ["BLAST", "ARMOR_PIERCE:2", "RELOAD"]
+}

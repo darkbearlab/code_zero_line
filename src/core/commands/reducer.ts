@@ -465,6 +465,7 @@ const resolveReactionPlan = (
       shooterId: m.shooterId,
       targetId,
       mode: m.mode,
+      weaponId: m.weaponId,
       participantIds: m.participantIds,
       weaponMode: 'REACTION',
       rngLabel: `reaction:${cmdIndex}:m${originalIndex}`,
@@ -582,6 +583,7 @@ const resolveGroupReactionPlan = (
       shooterId: m.shooterId,
       targetId,
       mode: m.mode,
+      weaponId: m.weaponId,
       participantIds: m.participantIds,
       weaponMode: 'REACTION',
       rngLabel: `command-reaction:${cmdIndex}:m${originalIndex}`,
@@ -1607,7 +1609,13 @@ const rallyAction = (
 
 const shootAction = (
   s: GameState,
-  cmd: { shooterId: string; targetId: string; mode: ShootMode; participantIds?: ReadonlyArray<string> },
+  cmd: {
+    shooterId: string;
+    targetId: string;
+    mode: ShootMode;
+    weaponId?: string;
+    participantIds?: ReadonlyArray<string>;
+  },
   cmdIndex: number,
 ): CommandResult => {
   const act = s.initiative.activeActivation;
@@ -1643,6 +1651,7 @@ const shootAction = (
     shooterId: cmd.shooterId,
     targetId: cmd.targetId,
     mode: cmd.mode,
+    weaponId: cmd.weaponId,
     participantIds,
     weaponMode: 'ACTIVE',
     rngLabel: 'shoot',
