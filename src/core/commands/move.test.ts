@@ -221,6 +221,50 @@ describe('MOVE command', () => {
     expect(a1.position.x).toBeGreaterThan(0);
   });
 
+  it('move backs off short of a friendly at the target (rule 4.2A)', () => {
+    const s0: GameState = {
+      ...makeState(),
+      units: [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(0, 0) }),
+        // Friendly sitting AT the move target.
+        makeUnit({ id: 'a2', faction: 'A', position: v2(100, 0) }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(500, 0) }),
+      ],
+    };
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'MOVE', unitId: 'a1', target: v2(100, 0) },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    const a2 = r.state.units.find((u) => u.id === 'a2')!;
+    const dist = Math.hypot(
+      a1.position.x - a2.position.x,
+      a1.position.y - a2.position.y,
+    );
+    // Final positions must not overlap (distance ≥ sum of radii minus ε).
+    expect(dist).toBeGreaterThanOrEqual(a1.radius + a2.radius - 1);
+  });
+
+  it('move PASSES THROUGH friendlies along the path (rule 4.2A — 友軍可自由穿過)', () => {
+    const s0: GameState = {
+      ...makeState(),
+      units: [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(0, 0) }),
+        // Friendly in the middle of the path — mover passes through it.
+        makeUnit({ id: 'a2', faction: 'A', position: v2(100, 0) }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(500, 0) }),
+      ],
+    };
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'MOVE', unitId: 'a1', target: v2(200, 0) },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    // Final at or near 200 (slight back-off if a2 is close to it, but our
+    // a2 at x=100 is well clear of x=200 → no back-off needed).
+    expect(a1.position.x).toBeGreaterThan(180);
+  });
+
   it('endProne flag drops the unit prone at end of move (rule 4.5)', () => {
     const s0 = makeState();
     const r = applyCommands(s0, [

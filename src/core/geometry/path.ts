@@ -15,6 +15,13 @@ export interface PathResult {
 export interface ObstacleSpec {
   readonly polygons: ReadonlyArray<Polygon>;
   readonly enemyCircles: ReadonlyArray<Circle>;
+  /**
+   * Friendly units. Pass-through during movement, but the *final* position
+   * may not overlap any of them (rule 4.2A — "可自由穿過友軍模型，不視為
+   * 障礙" + the implicit "底板不能重疊" base-stacking constraint). The path
+   * backs off until clear.
+   */
+  readonly friendlyCircles?: ReadonlyArray<Circle>;
   readonly moverRadius: number;
 }
 
@@ -59,6 +66,42 @@ export const computeMovePath = (
     if (tHit !== null && tHit < bestT) {
       bestT = tHit;
       bestReason = 'ENEMY';
+    }
+  }
+
+  // Friendly end-overlap back-off: walk back from bestT until the mover's
+  // base no longer overlaps any friendly. Friendlies are pass-through during
+  // motion but cannot share a base position at rest.
+  if (obs.friendlyCircles && obs.friendlyCircles.length > 0) {
+    const overlapsAt = (t: number): boolean => {
+      const cx = from.x + (to.x - from.x) * t;
+      const cy = from.y + (to.y - from.y) * t;
+      for (const f of obs.friendlyCircles!) {
+        const dx = cx - f.center.x;
+        const dy = cy - f.center.y;
+        const minDist = obs.moverRadius + f.radius - 0.5; // small ε
+        if (dx * dx + dy * dy < minDist * minDist) return true;
+      }
+      return false;
+    };
+    if (overlapsAt(bestT)) {
+      // Linear scan back from bestT to find the largest sample t that's clear.
+      const samples = 128;
+      let clearT = -1;
+      for (let i = samples; i >= 0; i--) {
+        const t = (i / samples) * bestT;
+        if (!overlapsAt(t)) {
+          clearT = t;
+          break;
+        }
+      }
+      if (clearT < 0) {
+        // Mover started already overlapping (degenerate setup) — don't move.
+        return { endpoint: from, stopReason: 'OBSTACLE', t: 0, distance: 0 };
+      }
+      bestT = clearT;
+      // Keep bestReason — the original stop cause still applies semantically;
+      // the clipped position is just "as close as you can stop".
     }
   }
 

@@ -662,6 +662,13 @@ const moveAction = (
   const enemyCircles = s.units
     .filter((o) => o.faction !== u.faction && isUnitAlive(o))
     .map(getUnitCircle);
+  // Friendly bases (excluding self) — the mover may pass through them, but
+  // the final position must not overlap any (rule 4.2A).
+  const friendlyCircles = s.units
+    .filter(
+      (o) => o.faction === u.faction && o.id !== u.id && isUnitAlive(o),
+    )
+    .map(getUnitCircle);
   // Path stops at any terrain edge: HARD (collision), DIFFICULT/SOFT (rule 4.2C
   // and 9.3 — touching edge ends the move).
   const stoppingPolygons = s.terrain.map((t) => t.polygon);
@@ -672,6 +679,7 @@ const moveAction = (
   const path = computeMovePath(u.position, effectiveTarget, {
     polygons: stoppingPolygons,
     enemyCircles,
+    friendlyCircles,
     moverRadius: u.radius,
   });
 
@@ -802,11 +810,17 @@ const crawlAction = (
   const enemyCircles = s.units
     .filter((o) => o.faction !== u.faction && isUnitAlive(o))
     .map(getUnitCircle);
+  const friendlyCircles = s.units
+    .filter(
+      (o) => o.faction === u.faction && o.id !== u.id && isUnitAlive(o),
+    )
+    .map(getUnitCircle);
   const stoppingPolygons = s.terrain.map((t) => t.polygon);
 
   const path = computeMovePath(u.position, cappedTarget, {
     polygons: stoppingPolygons,
     enemyCircles,
+    friendlyCircles,
     moverRadius: u.radius,
   });
 
@@ -872,6 +886,32 @@ const crawlAction = (
 };
 
 /**
+ * Sanity check used by VAULT/CLIMB: their destination is geometrically
+ * derived (mirror or far-edge of the touched wall), so it could land on top
+ * of another unit. Reject the action with a friendly error rather than
+ * silently producing an overlap.
+ */
+const ensureLandingClear = (
+  s: GameState,
+  mover: Unit,
+  dest: Vec2,
+): void => {
+  for (const o of s.units) {
+    if (o.id === mover.id) continue;
+    if (!isUnitAlive(o)) continue;
+    const dx = o.position.x - dest.x;
+    const dy = o.position.y - dest.y;
+    const minDist = mover.radius + o.radius - 0.5;
+    if (dx * dx + dy * dy < minDist * minDist) {
+      throw new CommandError(
+        'LANDING_BLOCKED',
+        `Destination occupied by ${o.id}`,
+      );
+    }
+  }
+};
+
+/**
  * VAULT (rule 4.2 B): only valid when in contact with a HARD wall whose
  * height ≤ 1 unit-distance. Mover is placed on the opposite side; vault
  * counts as a movement, so reaction fire is allowed at the start (t=0) and
@@ -912,6 +952,7 @@ const vaultAction = (
   }
 
   const dest = vaultDestination(u, wall.polygon.vertices);
+  ensureLandingClear(s, u, dest);
 
   const reactionResult = resolveReactionPlan(
     s,
@@ -989,6 +1030,7 @@ const climbAction = (
   }
 
   const dest = climbDestination(u, wall.polygon.vertices);
+  ensureLandingClear(s, u, dest);
 
   const reactionResult = resolveReactionPlan(
     s,
@@ -1174,15 +1216,29 @@ const commandMoveAction = (
 
   // Compute paths for each mover.
   const stoppingPolygons = working.terrain.map((t) => t.polygon);
+  const moverIds = new Set(allMovers.map((m) => m.unitId));
   const specs: CommandMoveSpec[] = allMovers.map((m) => {
     const u = findUnit(working, m.unitId)!;
     const target = capForStance(u.position, m.target, m.stance);
     const enemyCircles = working.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
+    // Non-participating friendlies block end-overlap for each path. Other
+    // command-move participants are excluded since they are themselves
+    // moving — the user's target picker is responsible for keeping each
+    // participant's endpoint clear of the others.
+    const friendlyCircles = working.units
+      .filter(
+        (o) =>
+          o.faction === u.faction &&
+          !moverIds.has(o.id) &&
+          isUnitAlive(o),
+      )
+      .map(getUnitCircle);
     const path = computeMovePath(u.position, target, {
       polygons: stoppingPolygons,
       enemyCircles,
+      friendlyCircles,
       moverRadius: u.radius,
     });
     return {

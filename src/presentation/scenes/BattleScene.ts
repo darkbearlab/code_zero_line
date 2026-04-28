@@ -1700,9 +1700,15 @@ export class BattleScene extends Phaser.Scene {
     const enemyCircles = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
+    const friendlyCircles = this.gameState.units
+      .filter(
+        (o) => o.faction === u.faction && o.id !== u.id && isUnitAlive(o),
+      )
+      .map(getUnitCircle);
     const path = computeMovePath(u.position, effectiveTarget, {
       polygons: stoppingPolygons,
       enemyCircles,
+      friendlyCircles,
       moverRadius: u.radius,
     });
     const enemies = this.gameState.units
@@ -1834,7 +1840,9 @@ export class BattleScene extends Phaser.Scene {
 
     // Compute paths for officer + each participant (caps for crawl, edge stops).
     const stoppingPolygons = this.gameState.terrain.map((t) => t.polygon);
+    const moverIds = new Set<string>([officerId, ...participants.map((p) => p.unitId)]);
     const buildPath = (
+      moverId: string,
       from: Vec2,
       target: Vec2,
       stance: 'STANDING' | 'CRAWL',
@@ -1856,15 +1864,28 @@ export class BattleScene extends Phaser.Scene {
       const enemyCircles = this.gameState.units
         .filter((o) => o.faction !== moverFaction && isUnitAlive(o))
         .map(getUnitCircle);
+      // Friendlies = same-faction non-participant alive units (exclude self
+      // and other movers). Match reducer's command-move logic.
+      const friendlyCircles = this.gameState.units
+        .filter(
+          (o) =>
+            o.faction === moverFaction &&
+            !moverIds.has(o.id) &&
+            o.id !== moverId &&
+            isUnitAlive(o),
+        )
+        .map(getUnitCircle);
       const path = computeMovePath(from, effective, {
         polygons: stoppingPolygons,
         enemyCircles,
+        friendlyCircles,
         moverRadius,
       });
       return path.endpoint;
     };
 
     const officerEnd = buildPath(
+      officer.id,
       officer.position,
       officerTarget,
       officerStance,
@@ -1883,6 +1904,7 @@ export class BattleScene extends Phaser.Scene {
       const u = this.gameState.units.find((x) => x.id === p.unitId);
       if (!u) continue;
       const end = buildPath(
+        u.id,
         u.position,
         p.target,
         p.stance,
@@ -2139,9 +2161,15 @@ export class BattleScene extends Phaser.Scene {
     const enemyCircles = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
+    const friendlyCircles = this.gameState.units
+      .filter(
+        (o) => o.faction === u.faction && o.id !== u.id && isUnitAlive(o),
+      )
+      .map(getUnitCircle);
     const path = computeMovePath(u.position, target, {
       polygons: stoppingPolygons,
       enemyCircles,
+      friendlyCircles,
       moverRadius: u.radius,
     });
 
