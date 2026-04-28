@@ -13,6 +13,7 @@ import trooperJson from './units/trooper.json';
 import eliteJson from './units/elite.json';
 import conscriptJson from './units/conscript.json';
 import heavyGunnerJson from './units/heavy_gunner.json';
+import squadLeadJson from './units/squad_lead.json';
 
 import demoMapJson from './maps/demo.json';
 
@@ -41,6 +42,7 @@ const TEMPLATES: ReadonlyArray<UnitTemplate> = [
   eliteJson,
   conscriptJson,
   heavyGunnerJson,
+  squadLeadJson,
 ];
 
 export const getWeapon = (id: string): Weapon => {

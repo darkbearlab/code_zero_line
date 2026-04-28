@@ -204,6 +204,62 @@ describe('SHOOT command', () => {
     ).toThrow(/TOO_FAR_FOR_FOCUSED/);
   });
 
+  it('COMBINED fire requires officer-led shooter', () => {
+    const s0: GameState = {
+      ...makeState(),
+      units: [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(0, 0) }),
+        makeUnit({ id: 'a2', faction: 'A', position: v2(50, 0) }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(300, 0) }),
+      ],
+    };
+    const r1 = applyCommand(s0, { type: 'ACTIVATE_SPEND', unitId: 'a1' });
+    expect(() =>
+      applyCommand(r1.state, {
+        type: 'SHOOT',
+        mode: 'COMBINED',
+        shooterId: 'a1',
+        targetId: 'b1',
+        participantIds: ['a2'],
+      }),
+    ).toThrow(/NOT_OFFICER/);
+  });
+
+  it('COMBINED fire ignores 1-unit-distance constraint (vs FOCUSED)', () => {
+    const s0: GameState = {
+      ...makeState(),
+      units: [
+        makeUnit({
+          id: 'a1',
+          faction: 'A',
+          position: v2(0, 0),
+          traits: ['OFFICER'],
+        }),
+        makeUnit({
+          id: 'a2',
+          faction: 'A',
+          // Far from officer (>1 UD), but has LOS to officer + target.
+          position: v2(400, 0),
+        }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(800, 0) }),
+      ],
+    };
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      {
+        type: 'SHOOT',
+        mode: 'COMBINED',
+        shooterId: 'a1',
+        targetId: 'b1',
+        participantIds: ['a2'],
+      },
+    ]);
+    const shot = r.events.find((e) => e.type === 'SHOT_RESOLVED') as
+      | { diceCount: number }
+      | undefined;
+    expect(shot?.diceCount).toBe(10); // 5 + 5
+  });
+
   it('Suppressed unit cannot SHOOT', () => {
     const s0: GameState = {
       ...makeState(),

@@ -14,6 +14,11 @@ export type AimMode =
   | 'aim-move'
   | 'aim-shoot'
   | 'aim-melee'
+  | 'aim-command-rally'
+  | 'aim-command-move-officer-stance'
+  | 'aim-command-move-officer'
+  | 'aim-command-move-setup'
+  | 'aim-command-move-participant'
   | 'reaction-phase';
 
 export type ActionRequest =
@@ -23,9 +28,16 @@ export type ActionRequest =
   | 'REQUEST_MELEE'
   | 'REQUEST_VAULT'
   | 'REQUEST_CLIMB'
+  | 'REQUEST_COMMAND_RALLY'
+  | 'REQUEST_COMMAND_MOVE'
   | 'CHOOSE_MOVE_STANDING'
   | 'CHOOSE_MOVE_CRAWL'
+  | 'CHOOSE_CMD_MOVE_STANDING'
+  | 'CHOOSE_CMD_MOVE_CRAWL'
   | 'TOGGLE_END_PRONE'
+  | 'CONFIRM_COMMAND_RALLY'
+  | 'CONFIRM_COMMAND_MOVE'
+  | 'BACK_TO_CMD_MOVE_SETUP'
   | 'CANCEL_AIM'
   | 'CONFIRM_REACTION'
   | 'SKIP_REACTION'
@@ -46,6 +58,11 @@ export interface VisibleReactor {
   readonly modes: ReadonlyArray<ReactorMode>;
 }
 
+export interface ReactionTargetOption {
+  readonly unitId: string;
+  readonly selected: boolean;
+}
+
 export interface ReactionContext {
   readonly defenderFaction: 'A' | 'B';
   /** MOVE has a real path + scrubber; RALLY is stationary so scrubber hides. */
@@ -53,6 +70,11 @@ export interface ReactionContext {
   readonly markers: ReadonlyArray<ReactionMarker>;
   readonly currentT: number;
   readonly visibleReactors: ReadonlyArray<VisibleReactor>;
+  /**
+   * For command actions: list of all possible target movers. Defender picks
+   * one as the marker target before placing markers. Undefined for solo.
+   */
+  readonly commandMovers?: ReadonlyArray<ReactionTargetOption>;
 }
 
 export interface ShootCandidateMode {
@@ -94,12 +116,50 @@ export interface MovePreviewContext {
   readonly canEndProne: boolean;
 }
 
+export interface CommandRallyCandidate {
+  readonly id: string;
+  readonly note: string;
+  readonly isOfficer: boolean;
+  readonly damaged: boolean;
+  readonly selected: boolean;
+}
+
+export interface CommandRallyContext {
+  readonly officerId: string;
+  /** Includes officer (if damaged) + nearby allies. */
+  readonly candidates: ReadonlyArray<CommandRallyCandidate>;
+  /** Whether starting command activation is even possible (officer + ≥1 ally). */
+  readonly canStart: boolean;
+}
+
+export interface CommandMoveParticipant {
+  readonly unitId: string;
+  readonly note: string;
+  readonly included: boolean;
+  /** Local target chosen by player; null if not yet set. */
+  readonly target: { x: number; y: number } | null;
+  readonly targetValid: boolean;
+  readonly stance: 'STANDING' | 'CRAWL';
+}
+
+export interface CommandMoveContext {
+  readonly officerId: string;
+  /** Whether an officer-led command move is even possible (officer + ≥1 ally within 1 UD). */
+  readonly canStart: boolean;
+  /** Officer-side state when in setup phase. */
+  readonly officerTarget?: { x: number; y: number };
+  readonly officerStance?: 'STANDING' | 'CRAWL';
+  readonly participants: ReadonlyArray<CommandMoveParticipant>;
+}
+
 export interface HudContext {
   readonly reaction?: ReactionContext;
   readonly shoot?: ShootContext;
   readonly melee?: MeleeContext;
   readonly traversal?: TraversalContext;
   readonly movePreview?: MovePreviewContext;
+  readonly commandRally?: CommandRallyContext;
+  readonly commandMove?: CommandMoveContext;
 }
 
 export class Hud {
@@ -132,6 +192,10 @@ export class Hud {
       participantIds: ReadonlyArray<string>,
     ) => void,
     private onAiToggle: (faction: 'A' | 'B', enabled: boolean) => void,
+    private onCommandRallyToggle: (unitId: string) => void,
+    private onCommandMoveToggle: (unitId: string) => void,
+    private onCommandMoveAim: (unitId: string) => void,
+    private onSelectReactionTarget: (unitId: string) => void,
   ) {
     this.actionsEl = mustElement('hud-actions');
     this.logEl = mustElement('hud-log');
@@ -338,6 +402,57 @@ export class Hud {
       return;
     }
 
+    if (aimMode === 'aim-command-rally' && ctx?.commandRally) {
+      this.renderCommandRallyPanel(ctx.commandRally);
+      return;
+    }
+
+    if (aimMode === 'aim-command-move-officer-stance') {
+      const header = document.createElement('h3');
+      header.textContent = 'Command Move — officer stance';
+      this.actionsEl.appendChild(header);
+      this.addReqBtn('Standing — full distance', 'CHOOSE_CMD_MOVE_STANDING');
+      this.addReqBtn('Crawl — 1 unit, ends prone', 'CHOOSE_CMD_MOVE_CRAWL');
+      const cancel = document.createElement('button');
+      cancel.textContent = 'Cancel';
+      cancel.onclick = () => this.requestAction('CANCEL_AIM');
+      this.actionsEl.appendChild(cancel);
+      return;
+    }
+
+    if (aimMode === 'aim-command-move-officer') {
+      const note = document.createElement('div');
+      note.style.color = '#cfe8cf';
+      note.style.whiteSpace = 'pre-wrap';
+      note.textContent =
+        'Command Move — click map to confirm officer\'s endpoint.\nNearby allies will be able to pick targets within 1 UD of it.';
+      this.actionsEl.appendChild(note);
+      const cancel = document.createElement('button');
+      cancel.textContent = 'Cancel';
+      cancel.onclick = () => this.requestAction('CANCEL_AIM');
+      this.actionsEl.appendChild(cancel);
+      return;
+    }
+
+    if (aimMode === 'aim-command-move-setup' && ctx?.commandMove) {
+      this.renderCommandMoveSetupPanel(ctx.commandMove);
+      return;
+    }
+
+    if (aimMode === 'aim-command-move-participant' && ctx?.commandMove) {
+      const note = document.createElement('div');
+      note.style.color = '#cfe8cf';
+      note.style.whiteSpace = 'pre-wrap';
+      note.textContent =
+        'Click map to set this ally\'s endpoint.\nMust be within 1 unit-distance of officer\'s endpoint (green ring).';
+      this.actionsEl.appendChild(note);
+      const back = document.createElement('button');
+      back.textContent = '← Back to setup';
+      back.onclick = () => this.requestAction('BACK_TO_CMD_MOVE_SETUP');
+      this.actionsEl.appendChild(back);
+      return;
+    }
+
     const act = state.initiative.activeActivation;
     if (act) {
       this.renderActivationActions(state, act, ctx);
@@ -426,6 +541,18 @@ export class Hud {
       if (canMove && ctx?.traversal?.canClimb) {
         this.addReqBtn('Climb (high wall, ends activation)', 'REQUEST_CLIMB');
       }
+      if (ctx?.commandRally?.canStart) {
+        this.addReqBtn(
+          'Command Rally… (officer + nearby allies)',
+          'REQUEST_COMMAND_RALLY',
+        );
+      }
+      if (canMove && ctx?.commandMove?.canStart) {
+        this.addReqBtn(
+          'Command Move… (officer + nearby allies)',
+          'REQUEST_COMMAND_MOVE',
+        );
+      }
     }
     if (act.kind === 'CHECK_SUCCESS') {
       this.addBtn('End Activation', { type: 'END_ACTIVATION' });
@@ -513,6 +640,163 @@ export class Hud {
     this.actionsEl.appendChild(cancel);
   }
 
+  private renderCommandRallyPanel(ctx: CommandRallyContext): void {
+    const header = document.createElement('h3');
+    header.textContent = `Command Rally — ${ctx.officerId}`;
+    this.actionsEl.appendChild(header);
+    const help = document.createElement('div');
+    help.style.color = '#7a9a7a';
+    help.style.fontSize = '11px';
+    help.style.lineHeight = '1.4';
+    help.textContent =
+      'Select damaged units within 1 unit-distance. All roll a rally check using the officer\'s quality.';
+    this.actionsEl.appendChild(help);
+
+    if (ctx.candidates.length === 0) {
+      const empty = document.createElement('div');
+      empty.style.color = '#7a9a7a';
+      empty.textContent = '(no eligible units)';
+      this.actionsEl.appendChild(empty);
+    }
+
+    for (const c of ctx.candidates) {
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.gap = '6px';
+      row.style.padding = '4px 6px';
+      row.style.background = c.selected ? 'rgba(154, 240, 154, 0.10)' : 'transparent';
+      row.style.border = '1px solid #2a3a2a';
+      row.style.cursor = c.damaged ? 'pointer' : 'not-allowed';
+      row.style.opacity = c.damaged ? '1' : '0.5';
+      const checkBox = document.createElement('span');
+      checkBox.textContent = c.selected ? '☑' : '☐';
+      checkBox.style.fontSize = '14px';
+      const label = document.createElement('span');
+      label.style.fontSize = '12px';
+      label.textContent = `${c.id}${c.isOfficer ? ' ⭐' : ''} ${c.note}`;
+      row.appendChild(checkBox);
+      row.appendChild(label);
+      if (c.damaged) {
+        row.onclick = () => this.onCommandRallyToggle(c.id);
+      }
+      this.actionsEl.appendChild(row);
+    }
+
+    const sep = document.createElement('div');
+    sep.style.borderTop = '1px solid #2a3a2a';
+    sep.style.margin = '6px 0';
+    this.actionsEl.appendChild(sep);
+
+    const confirm = document.createElement('button');
+    const selectedCount = ctx.candidates.filter((c) => c.selected).length;
+    confirm.textContent = `Confirm (${selectedCount} units)`;
+    const officerSelected = ctx.candidates.some(
+      (c) => c.id === ctx.officerId && c.selected,
+    );
+    const officerCanRally = ctx.candidates.find(
+      (c) => c.id === ctx.officerId && c.damaged,
+    );
+    // Need at least 1 ally selected; officer is optional unless they're
+    // the only damaged one (then they're effectively soloing — but rule
+    // requires ≥1 ally, so block).
+    const allySelected = ctx.candidates.some(
+      (c) => c.id !== ctx.officerId && c.selected,
+    );
+    confirm.disabled = !allySelected;
+    confirm.onclick = () => this.requestAction('CONFIRM_COMMAND_RALLY');
+    this.actionsEl.appendChild(confirm);
+    void officerSelected;
+    void officerCanRally;
+
+    const cancel = document.createElement('button');
+    cancel.textContent = 'Cancel';
+    cancel.onclick = () => this.requestAction('CANCEL_AIM');
+    this.actionsEl.appendChild(cancel);
+  }
+
+  private renderCommandMoveSetupPanel(ctx: CommandMoveContext): void {
+    const header = document.createElement('h3');
+    header.textContent = `Command Move — ${ctx.officerId}`;
+    this.actionsEl.appendChild(header);
+    if (ctx.officerTarget && ctx.officerStance) {
+      const sub = document.createElement('div');
+      sub.style.fontSize = '11px';
+      sub.style.color = '#9af09a';
+      sub.textContent = `Officer endpoint set (${ctx.officerStance.toLowerCase()})`;
+      this.actionsEl.appendChild(sub);
+    }
+    const help = document.createElement('div');
+    help.style.color = '#7a9a7a';
+    help.style.fontSize = '11px';
+    help.style.marginTop = '4px';
+    help.textContent =
+      'Tick allies to include. For each, click "Aim" then click the map within the green ring.';
+    this.actionsEl.appendChild(help);
+
+    if (ctx.participants.length === 0) {
+      const empty = document.createElement('div');
+      empty.style.color = '#7a9a7a';
+      empty.textContent = '(no nearby allies)';
+      this.actionsEl.appendChild(empty);
+    }
+
+    for (const p of ctx.participants) {
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.alignItems = 'center';
+      row.style.gap = '6px';
+      row.style.padding = '4px 6px';
+      row.style.background = p.included ? 'rgba(154, 240, 154, 0.10)' : 'transparent';
+      row.style.border = '1px solid #2a3a2a';
+      const checkBox = document.createElement('span');
+      checkBox.textContent = p.included ? '☑' : '☐';
+      checkBox.style.fontSize = '14px';
+      checkBox.style.cursor = 'pointer';
+      checkBox.onclick = () => this.onCommandMoveToggle(p.unitId);
+      row.appendChild(checkBox);
+      const label = document.createElement('span');
+      label.style.fontSize = '12px';
+      label.style.flex = '1';
+      const targetIndicator = p.target
+        ? p.targetValid
+          ? '✓ target set'
+          : '✗ target out of range'
+        : '— no target —';
+      label.textContent = `${p.unitId} ${p.note} · ${targetIndicator}`;
+      label.style.color = p.target && !p.targetValid ? '#ff8a6a' : '#cfe8cf';
+      row.appendChild(label);
+      if (p.included) {
+        const aimBtn = document.createElement('button');
+        aimBtn.textContent = p.target ? 'Re-aim' : 'Aim';
+        aimBtn.style.padding = '2px 8px';
+        aimBtn.onclick = () => this.onCommandMoveAim(p.unitId);
+        row.appendChild(aimBtn);
+      }
+      this.actionsEl.appendChild(row);
+    }
+
+    const sep = document.createElement('div');
+    sep.style.borderTop = '1px solid #2a3a2a';
+    sep.style.margin = '6px 0';
+    this.actionsEl.appendChild(sep);
+
+    const includedCount = ctx.participants.filter((p) => p.included).length;
+    const allValid = ctx.participants.every(
+      (p) => !p.included || (p.target !== null && p.targetValid),
+    );
+    const confirm = document.createElement('button');
+    confirm.textContent = `Confirm (${includedCount} ally${includedCount === 1 ? '' : 's'})`;
+    confirm.disabled = includedCount === 0 || !allValid;
+    confirm.onclick = () => this.requestAction('CONFIRM_COMMAND_MOVE');
+    this.actionsEl.appendChild(confirm);
+
+    const cancel = document.createElement('button');
+    cancel.textContent = 'Cancel';
+    cancel.onclick = () => this.requestAction('CANCEL_AIM');
+    this.actionsEl.appendChild(cancel);
+  }
+
   private renderReactionPanel(reaction: ReactionContext): void {
     const header = document.createElement('h3');
     header.textContent =
@@ -520,6 +804,26 @@ export class Hud {
         ? `Reaction Phase — ${reaction.defenderFaction} defends move`
         : `Reaction Phase — ${reaction.defenderFaction} defends rally`;
     this.actionsEl.appendChild(header);
+
+    // Command-action target switcher: defender selects which mover the next
+    // marker(s) target. Markers carry the selected target via marker.targetUnitId.
+    if (reaction.commandMovers && reaction.commandMovers.length > 1) {
+      const switcherHeader = document.createElement('h3');
+      switcherHeader.textContent = 'Reaction target';
+      this.actionsEl.appendChild(switcherHeader);
+      const row = document.createElement('div');
+      row.style.display = 'flex';
+      row.style.flexWrap = 'wrap';
+      row.style.gap = '4px';
+      for (const opt of reaction.commandMovers) {
+        const btn = document.createElement('button');
+        btn.textContent = `${opt.selected ? '◉' : '○'} ${opt.unitId}`;
+        btn.style.background = opt.selected ? '#2a4a2a' : '#1a2a1a';
+        btn.onclick = () => this.onSelectReactionTarget(opt.unitId);
+        row.appendChild(btn);
+      }
+      this.actionsEl.appendChild(row);
+    }
 
     const help = document.createElement('div');
     help.style.color = '#7a9a7a';

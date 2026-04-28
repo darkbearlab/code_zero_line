@@ -470,6 +470,120 @@ const resolveReactionPlan = (
   };
 };
 
+interface MoverPath {
+  unitId: string;
+  pathStart: Vec2;
+  pathEnd: Vec2;
+}
+
+/**
+ * Group reaction resolver — used by command-activation actions where multiple
+ * movers share a single reaction plan. Each marker MUST specify
+ * `targetUnitId`. When a hit suppresses or kills, the group is interrupted
+ * at that t (the caller stops every mover at the same t).
+ */
+const resolveGroupReactionPlan = (
+  s: GameState,
+  movers: ReadonlyArray<MoverPath>,
+  plan: ReactionPlan | undefined,
+  cmdIndex: number,
+): ReactionResolveResult => {
+  const empty: ReactionResolveResult = {
+    state: s,
+    events: [],
+    interruptedByMarker: -1,
+    interruptT: null,
+    suppressOrKillCaused: false,
+  };
+  if (!plan || plan.markers.length === 0) return empty;
+
+  const sorted = [...plan.markers]
+    .map((m, originalIndex) => ({ m, originalIndex }))
+    .sort((a, b) => a.m.atT - b.m.atT);
+
+  let working = s;
+  const events: GameEvent[] = [];
+
+  for (const { m, originalIndex } of sorted) {
+    const targetId = m.targetUnitId;
+    if (!targetId) continue;
+    const moverInfo = movers.find((x) => x.unitId === targetId);
+    if (!moverInfo) continue;
+    const target = findUnit(working, targetId);
+    if (!target || !isUnitAlive(target)) continue;
+
+    const moverPos = v2Lerp(moverInfo.pathStart, moverInfo.pathEnd, m.atT);
+    const shooter = findUnit(working, m.shooterId);
+    if (!shooter) continue;
+    if (!isUnitAlive(shooter)) continue;
+    if (shooter.damage === 'SUPPRESSED') continue;
+    if (shooter.cannotReactThisRound) continue;
+    if (shooter.faction === target.faction) continue;
+
+    let participantsValid = true;
+    for (const pid of m.participantIds) {
+      if (pid === m.shooterId) continue;
+      const p = findUnit(working, pid);
+      if (
+        !p ||
+        !isUnitAlive(p) ||
+        p.damage === 'SUPPRESSED' ||
+        p.cannotReactThisRound ||
+        p.faction !== shooter.faction
+      ) {
+        participantsValid = false;
+        break;
+      }
+    }
+    if (!participantsValid) continue;
+
+    const visibleHere = hasLOS(
+      getUnitCircle(shooter),
+      { center: moverPos, radius: target.radius },
+      working.terrain,
+      { aProne: shooter.stance === 'PRONE', bProne: target.stance === 'PRONE' },
+    );
+    if (!visibleHere) continue;
+
+    const tempState = updateUnit(working, targetId, { position: moverPos });
+    const shot = resolveShot({
+      state: tempState,
+      shooterId: m.shooterId,
+      targetId,
+      mode: m.mode,
+      participantIds: m.participantIds,
+      weaponMode: 'REACTION',
+      rngLabel: `command-reaction:${cmdIndex}:m${originalIndex}`,
+      cmdIndex,
+    });
+    working = updateUnit(shot.state, targetId, { position: target.position });
+    events.push(...shot.events);
+
+    if (shot.hits === 0) {
+      working = updateUnit(working, m.shooterId, { cannotReactThisRound: true });
+      for (const pid of m.participantIds) {
+        if (pid === m.shooterId) continue;
+        working = updateUnit(working, pid, { cannotReactThisRound: true });
+      }
+      continue;
+    }
+    return {
+      state: working,
+      events,
+      interruptedByMarker: originalIndex,
+      interruptT: m.atT,
+      suppressOrKillCaused: shot.causedSuppressOrKill,
+    };
+  }
+  return {
+    state: working,
+    events,
+    interruptedByMarker: -1,
+    interruptT: null,
+    suppressOrKillCaused: false,
+  };
+};
+
 const moveAction = (
   s: GameState,
   unitId: string,
@@ -879,6 +993,349 @@ const climbAction = (
   };
 };
 
+/**
+ * Compute one mover's effective target accounting for stance choices:
+ *  - Crawl: cap to 1 unit-distance (rule 4.5).
+ */
+const capForStance = (
+  from: Vec2,
+  target: Vec2,
+  stance: 'STANDING' | 'CRAWL' | undefined,
+): Vec2 => {
+  if (stance !== 'CRAWL') return target;
+  const dx = target.x - from.x;
+  const dy = target.y - from.y;
+  const len = Math.hypot(dx, dy);
+  if (len <= CRAWL_MAX_DISTANCE_PIXELS) return target;
+  return {
+    x: from.x + (dx / len) * CRAWL_MAX_DISTANCE_PIXELS,
+    y: from.y + (dy / len) * CRAWL_MAX_DISTANCE_PIXELS,
+  };
+};
+
+interface CommandMoveSpec {
+  unitId: string;
+  pathStart: Vec2;
+  desiredEnd: Vec2;
+  pathEnd: Vec2; // after collision/clip
+  stopReason: 'TARGET' | 'OBSTACLE' | 'ENEMY';
+  isCrawl: boolean;
+  endProne: boolean;
+}
+
+/**
+ * COMMAND_MOVE (rule 3.1 — 指揮啟動 + 移動).
+ * Officer + selected allies all move along their own paths simultaneously.
+ * One shared reaction plan; if a marker hits, ALL movers stop at that t.
+ * Activation ends after this single composite action (no turnover).
+ */
+const commandMoveAction = (
+  s: GameState,
+  cmd: Extract<Command, { type: 'COMMAND_MOVE' }>,
+  cmdIndex: number,
+): CommandResult => {
+  const act = s.initiative.activeActivation;
+  if (!act || act.unitId !== cmd.officerId) {
+    throw new CommandError(
+      'NO_ACTIVE_UNIT',
+      `Officer ${cmd.officerId} is not the active unit`,
+    );
+  }
+  const officer = findUnit(s, cmd.officerId);
+  if (!officer) {
+    throw new CommandError('UNIT_NOT_FOUND', `${cmd.officerId} not found`);
+  }
+  if (!officer.traits.includes('OFFICER')) {
+    throw new CommandError(
+      'NOT_OFFICER',
+      `${cmd.officerId} lacks OFFICER trait`,
+    );
+  }
+  if (!isUnitAlive(officer)) {
+    throw new CommandError('UNIT_DEAD', `${cmd.officerId} is dead`);
+  }
+  if (officer.damage === 'IMPEDED' || officer.damage === 'SUPPRESSED') {
+    throw new CommandError(
+      'CANNOT_MOVE',
+      `Officer cannot move while ${officer.damage}`,
+    );
+  }
+  if (cmd.participants.length === 0) {
+    throw new CommandError(
+      'NO_PARTICIPANTS',
+      'Command activation requires at least one ally',
+    );
+  }
+
+  // Validate participants are within 1 UD of officer at start, alive,
+  // not suppressed, same faction. And their targets within 1 UD of officer
+  // target.
+  for (const p of cmd.participants) {
+    const pu = findUnit(s, p.unitId);
+    if (!pu) {
+      throw new CommandError('UNIT_NOT_FOUND', `Participant ${p.unitId}`);
+    }
+    if (pu.faction !== officer.faction) {
+      throw new CommandError(
+        'WRONG_FACTION',
+        `Participant ${p.unitId} not on officer's faction`,
+      );
+    }
+    if (!isUnitAlive(pu)) {
+      throw new CommandError('UNIT_DEAD', `Participant ${p.unitId} dead`);
+    }
+    if (pu.damage === 'IMPEDED' || pu.damage === 'SUPPRESSED') {
+      throw new CommandError(
+        'CANNOT_MOVE',
+        `Participant ${p.unitId} cannot move while ${pu.damage}`,
+      );
+    }
+    if (
+      v2Dist(pu.position, officer.position) > UNIT_DISTANCE_PIXELS + 0.5
+    ) {
+      throw new CommandError(
+        'PARTICIPANT_TOO_FAR',
+        `${p.unitId} not within 1 unit-distance of officer at start`,
+      );
+    }
+    if (
+      v2Dist(p.target, cmd.officerTarget) > UNIT_DISTANCE_PIXELS + 0.5
+    ) {
+      throw new CommandError(
+        'TARGET_TOO_FAR',
+        `${p.unitId}'s target not within 1 unit-distance of officer's target`,
+      );
+    }
+  }
+
+  // Apply stand-up / drop-prone for each unit's chosen stance.
+  let working = s;
+  const allMovers: Array<{
+    unitId: string;
+    target: Vec2;
+    stance: 'STANDING' | 'CRAWL' | undefined;
+    endProne: boolean;
+  }> = [
+    {
+      unitId: cmd.officerId,
+      target: cmd.officerTarget,
+      stance: cmd.officerStance,
+      endProne: !!cmd.officerEndProne,
+    },
+    ...cmd.participants.map((p) => ({
+      unitId: p.unitId,
+      target: p.target,
+      stance: p.stance,
+      endProne: !!p.endProne,
+    })),
+  ];
+
+  for (const m of allMovers) {
+    const u = findUnit(working, m.unitId)!;
+    if (m.stance === 'CRAWL' && u.stance !== 'PRONE') {
+      working = updateUnit(working, m.unitId, { stance: 'PRONE' });
+    } else if (m.stance !== 'CRAWL' && u.stance === 'PRONE') {
+      working = updateUnit(working, m.unitId, { stance: 'STANDING' });
+    }
+  }
+
+  // Compute paths for each mover.
+  const stoppingPolygons = working.terrain.map((t) => t.polygon);
+  const specs: CommandMoveSpec[] = allMovers.map((m) => {
+    const u = findUnit(working, m.unitId)!;
+    const target = capForStance(u.position, m.target, m.stance);
+    const enemyCircles = working.units
+      .filter((o) => o.faction !== u.faction && isUnitAlive(o))
+      .map(getUnitCircle);
+    const path = computeMovePath(u.position, target, {
+      polygons: stoppingPolygons,
+      enemyCircles,
+      moverRadius: u.radius,
+    });
+    return {
+      unitId: m.unitId,
+      pathStart: u.position,
+      desiredEnd: target,
+      pathEnd: path.endpoint,
+      stopReason: path.stopReason,
+      isCrawl: m.stance === 'CRAWL',
+      endProne: m.endProne,
+    };
+  });
+
+  // Run group reaction plan.
+  const moverPaths: MoverPath[] = specs.map((s) => ({
+    unitId: s.unitId,
+    pathStart: s.pathStart,
+    pathEnd: s.pathEnd,
+  }));
+  const groupReaction = resolveGroupReactionPlan(
+    working,
+    moverPaths,
+    cmd.reactionPlan,
+    cmdIndex,
+  );
+  let finalState = groupReaction.state;
+  const events: GameEvent[] = [...groupReaction.events];
+
+  const interruptT = groupReaction.interruptT;
+  for (const spec of specs) {
+    const finalEndpoint =
+      interruptT !== null
+        ? v2Lerp(spec.pathStart, spec.pathEnd, interruptT)
+        : spec.pathEnd;
+    finalState = updateUnit(finalState, spec.unitId, {
+      position: finalEndpoint,
+    });
+    if (spec.endProne || spec.isCrawl) {
+      const u = findUnit(finalState, spec.unitId);
+      if (u && u.damage !== 'KILLED') {
+        finalState = updateUnit(finalState, spec.unitId, { stance: 'PRONE' });
+      }
+    }
+    events.push({
+      type: 'MOVE_RESOLVED',
+      unitId: spec.unitId,
+      from: spec.pathStart,
+      to: finalEndpoint,
+      stopReason:
+        interruptT !== null && interruptT < 1 ? 'TARGET' : spec.stopReason,
+      distance: v2Dist(spec.pathStart, finalEndpoint),
+      reactionWindows: [],
+      interruptedByMarker: groupReaction.interruptedByMarker,
+    });
+  }
+
+  const outcome: ActionOutcome = groupReaction.suppressOrKillCaused
+    ? 'REACTION_HIT'
+    : 'FORCED_END';
+  const post = processPostAction(finalState, outcome);
+  return { state: post.state, events: [...events, ...post.events] };
+};
+
+/**
+ * COMMAND_RALLY (rule 3.1 + 4.6). Officer + selected allies each roll a
+ * rally check using the officer's quality. One shared reaction phase against
+ * stationary positions; interrupt aborts all checks. Activation ends after
+ * this single composite action without turnover (unless a reaction hit).
+ */
+const commandRallyAction = (
+  s: GameState,
+  cmd: Extract<Command, { type: 'COMMAND_RALLY' }>,
+  cmdIndex: number,
+): CommandResult => {
+  const act = s.initiative.activeActivation;
+  if (!act || act.unitId !== cmd.officerId) {
+    throw new CommandError(
+      'NO_ACTIVE_UNIT',
+      `Officer ${cmd.officerId} is not the active unit`,
+    );
+  }
+  const officer = findUnit(s, cmd.officerId);
+  if (!officer) {
+    throw new CommandError('UNIT_NOT_FOUND', `${cmd.officerId} not found`);
+  }
+  if (!officer.traits.includes('OFFICER')) {
+    throw new CommandError(
+      'NOT_OFFICER',
+      `${cmd.officerId} lacks OFFICER trait`,
+    );
+  }
+  if (!isUnitAlive(officer)) {
+    throw new CommandError('UNIT_DEAD', `${cmd.officerId} is dead`);
+  }
+  if (cmd.participantIds.length === 0) {
+    throw new CommandError(
+      'NO_PARTICIPANTS',
+      'Command rally requires at least one ally',
+    );
+  }
+
+  // Validate participants
+  const ralliers = [cmd.officerId, ...cmd.participantIds];
+  for (const pid of cmd.participantIds) {
+    const pu = findUnit(s, pid);
+    if (!pu) throw new CommandError('UNIT_NOT_FOUND', `Participant ${pid}`);
+    if (pu.faction !== officer.faction) {
+      throw new CommandError(
+        'WRONG_FACTION',
+        `${pid} not on officer's faction`,
+      );
+    }
+    if (!isUnitAlive(pu)) {
+      throw new CommandError('UNIT_DEAD', `${pid} dead`);
+    }
+    if (
+      v2Dist(pu.position, officer.position) > UNIT_DISTANCE_PIXELS + 0.5
+    ) {
+      throw new CommandError(
+        'PARTICIPANT_TOO_FAR',
+        `${pid} not within 1 unit-distance of officer`,
+      );
+    }
+  }
+
+  // Reaction phase: stationary paths per rallier (path.start === path.end).
+  const moverPaths: MoverPath[] = ralliers.map((id) => {
+    const u = findUnit(s, id)!;
+    return { unitId: id, pathStart: u.position, pathEnd: u.position };
+  });
+  const groupReaction = resolveGroupReactionPlan(
+    s,
+    moverPaths,
+    cmd.reactionPlan,
+    cmdIndex,
+  );
+  let finalState = groupReaction.state;
+  const events: GameEvent[] = [...groupReaction.events];
+
+  if (groupReaction.suppressOrKillCaused) {
+    const post = processPostAction(finalState, 'REACTION_HIT');
+    return { state: post.state, events: [...events, ...post.events] };
+  }
+
+  // Each unit with a removable damage state rolls a rally check using the
+  // officer's quality (rule 4.6 — "若 1 單位距離內有軍官，可改用軍官的素質").
+  const threshold = officer.quality;
+  for (const id of ralliers) {
+    const u = findUnit(finalState, id);
+    if (!u || !isUnitAlive(u) || u.damage === 'NONE') continue;
+    const rng = deriveRng(finalState.seed, cmdIndex, `command-rally:${id}`);
+    const roll = rng.rollDie(D6_SIDES);
+    const success = roll >= threshold;
+    const beforeDamage = u.damage;
+    let afterDamage: DamageState = beforeDamage;
+    if (success) {
+      if (u.damage === 'IMPEDED') afterDamage = 'NONE';
+      else if (u.damage === 'SUPPRESSED') afterDamage = 'IMPEDED';
+    }
+    events.push({
+      type: 'RALLY_ROLLED',
+      unitId: id,
+      threshold,
+      roll,
+      success,
+      officerUsed: id === cmd.officerId ? null : cmd.officerId,
+      beforeDamage,
+      afterDamage,
+    });
+    if (success) {
+      finalState = updateUnit(finalState, id, { damage: afterDamage });
+      if (afterDamage !== 'SUPPRESSED') {
+        finalState = updateUnit(finalState, id, {
+          damage: afterDamage,
+          stance: 'STANDING',
+        });
+      }
+    }
+  }
+
+  // Command rally always ends activation without turnover, even if some
+  // checks failed (per rule "行動完成後，軍官的啟動結束").
+  const post = processPostAction(finalState, 'FORCED_END');
+  return { state: post.state, events: [...events, ...post.events] };
+};
+
 const buildMeleePool = (
   s: GameState,
   unit: Unit,
@@ -1193,6 +1650,10 @@ export const applyCommand = (state: GameState, cmd: Command): CommandResult => {
       return vaultAction(s, cmd.unitId, cmd.reactionPlan, cmdIndex);
     case 'CLIMB':
       return climbAction(s, cmd.unitId, cmd.reactionPlan, cmdIndex);
+    case 'COMMAND_MOVE':
+      return commandMoveAction(s, cmd, cmdIndex);
+    case 'COMMAND_RALLY':
+      return commandRallyAction(s, cmd, cmdIndex);
     case 'SHOOT':
       return shootAction(s, cmd, cmdIndex);
     case 'MELEE':

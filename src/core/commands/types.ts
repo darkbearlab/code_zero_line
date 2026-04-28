@@ -17,6 +17,12 @@ export interface ReactionMarker {
   readonly mode: ShootMode;
   /** All firing units (includes shooterId for FOCUSED/COMBINED). */
   readonly participantIds: ReadonlyArray<string>;
+  /**
+   * For command-activation actions where multiple movers share one reaction
+   * plan, each marker must specify which mover it targets. For solo actions
+   * (regular MOVE/RALLY/etc.), this is optional and defaults to the mover.
+   */
+  readonly targetUnitId?: string;
 }
 
 export interface ReactionPlan {
@@ -40,6 +46,38 @@ export type Command =
   | { type: 'CRAWL'; unitId: string; target: Vec2; reactionPlan?: ReactionPlan }
   | { type: 'VAULT'; unitId: string; reactionPlan?: ReactionPlan }
   | { type: 'CLIMB'; unitId: string; reactionPlan?: ReactionPlan }
+  | {
+      /**
+       * Command Activation — Move (rule 3.1). Officer + selected allies all
+       * move simultaneously. Each ally must end within 1 unit-distance of
+       * the officer's chosen endpoint. Reaction fire targets a single chosen
+       * mover; if it suppresses/kills, the entire group stops at that t.
+       * Activation ends after this single action without turnover.
+       */
+      type: 'COMMAND_MOVE';
+      officerId: string;
+      officerTarget: Vec2;
+      officerStance?: 'STANDING' | 'CRAWL';
+      officerEndProne?: boolean;
+      participants: ReadonlyArray<{
+        unitId: string;
+        target: Vec2;
+        stance?: 'STANDING' | 'CRAWL';
+        endProne?: boolean;
+      }>;
+      reactionPlan?: ReactionPlan;
+    }
+  | {
+      /**
+       * Command Activation — Rally (rule 3.1 + 4.6). Officer + selected
+       * allies each roll a rally check using the officer's quality. Single
+       * shared reaction phase (path is stationary at each unit's position).
+       */
+      type: 'COMMAND_RALLY';
+      officerId: string;
+      participantIds: ReadonlyArray<string>;
+      reactionPlan?: ReactionPlan;
+    }
   | {
       type: 'SHOOT';
       mode: ShootMode;

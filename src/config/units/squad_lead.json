@@ -1,0 +1,7 @@
+{
+  "templateId": "squad_lead",
+  "displayName": "Squad Lead",
+  "quality": 2,
+  "weaponIds": ["rifle", "blade"],
+  "traits": ["OFFICER"]
+}

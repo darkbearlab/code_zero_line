@@ -35,6 +35,14 @@ const adjustDice = (u: Unit, base: number): number =>
   u.damage === 'IMPEDED' ? Math.max(0, base - 1) : base;
 
 /**
+ * Whether a COMBINED-fire participant needs LOS to the officer (rule 4.3
+ * "對軍官及目標皆有視線"). Default: yes. Hook for future traits that bypass
+ * this — e.g. a comms-relay specialist.
+ */
+const participantNeedsLosToOfficer = (u: Unit): boolean =>
+  !u.traits.includes('NO_OFFICER_LOS_FOR_COMBINED');
+
+/**
  * Enumerate the SHOOT modes available to `shooter` against `target`.
  * Returns one entry per viable mode with auto-selected participants.
  *
@@ -115,7 +123,9 @@ export const listAvailableShootModes = (
     }
   }
 
-  // COMBINED — officer-led, friendlies with LOS to officer AND target
+  // COMBINED — officer-led, friendlies with LOS to officer AND target.
+  // The "LOS to officer" requirement may be bypassed by future skills
+  // (e.g., dedicated comms operator) — gated through participantNeedsLosToOfficer.
   if (shooter.traits.includes('OFFICER')) {
     const cw = findShootWeapon(shooter, 'COMBINED', weaponMode);
     if (cw) {
@@ -127,7 +137,7 @@ export const listAvailableShootModes = (
           isUnitAlive(u) &&
           u.damage !== 'SUPPRESSED' &&
           (weaponMode === 'ACTIVE' || !u.cannotReactThisRound) &&
-          losTo(u, shooter) &&
+          (participantNeedsLosToOfficer(u) ? losTo(u, shooter) : true) &&
           losTo(u, target) &&
           findShootWeapon(u, 'COMBINED', weaponMode),
       );

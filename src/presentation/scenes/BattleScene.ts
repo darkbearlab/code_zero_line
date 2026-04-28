@@ -53,10 +53,17 @@ const FACTION_COLOR: Readonly<Record<'A' | 'B', number>> = {
   B: 0xcf5a4a,
 };
 
+interface CommandMover {
+  unitId: string;
+  start: Vec2;
+  end: Vec2;
+  radius: number;
+}
+
 interface ReactionPhaseState {
   intent: 'MOVE' | 'RALLY';
   /** Which command will be dispatched when the reaction phase confirms. */
-  commandType: 'MOVE' | 'CRAWL' | 'VAULT' | 'CLIMB' | 'RALLY';
+  commandType: 'MOVE' | 'CRAWL' | 'VAULT' | 'CLIMB' | 'RALLY' | 'COMMAND_MOVE' | 'COMMAND_RALLY';
   moverId: string;
   moverStart: Vec2;
   moverRadius: number;
@@ -66,6 +73,23 @@ interface ReactionPhaseState {
   windows: ReactionWindow[];
   markers: ReactionMarker[];
   scrubberT: number;
+  /** For command actions, all participating movers. Undefined for solo. */
+  commandMovers?: CommandMover[];
+  /** Currently selected mover for marker targeting. Defaults to moverId for solo. */
+  selectedTargetUnitId: string;
+  /** For COMMAND_MOVE confirmation, the original cmd payload (without reactionPlan). */
+  commandMovePayload?: {
+    officerStance?: 'STANDING' | 'CRAWL';
+    officerEndProne?: boolean;
+    participants: ReadonlyArray<{
+      unitId: string;
+      target: Vec2;
+      stance?: 'STANDING' | 'CRAWL';
+      endProne?: boolean;
+    }>;
+  };
+  /** For COMMAND_RALLY confirmation, the participant ids. */
+  commandRallyPayload?: { participantIds: ReadonlyArray<string> };
 }
 
 /** Visual-only meta about an in-flight move tween, used by auto-facing. */
@@ -95,6 +119,19 @@ export class BattleScene extends Phaser.Scene {
   private moveFacingDrag: { target: Vec2; angle: number | null } | null = null;
   private pendingMoveStance: 'STANDING' | 'CRAWL' | null = null;
   private pendingEndProne = false;
+  /** Selected participants while in aim-command-rally. Includes officer if checked. */
+  private pendingCommandRally: Set<string> = new Set();
+  /** In-flight command-move setup. */
+  private pendingCommandMove: {
+    officerStance: 'STANDING' | 'CRAWL';
+    officerTarget: Vec2 | null;
+    participants: Map<
+      string,
+      { included: boolean; target: Vec2 | null; stance: 'STANDING' | 'CRAWL' }
+    >;
+  } | null = null;
+  /** Which ally we're currently aiming for (in aim-command-move-participant). */
+  private cmdMoveAimUnitId: string | null = null;
   /** After dispatching MOVE, apply this facing on tween start. */
   private pendingMoverFacing: { unitId: string; angle: number } | null = null;
   /** Active move tweens used by per-frame auto-facing of LOS witnesses. */
@@ -136,6 +173,9 @@ export class BattleScene extends Phaser.Scene {
     this.pendingMoverFacing = null;
     this.pendingMoveStance = null;
     this.pendingEndProne = false;
+    this.pendingCommandRally = new Set();
+    this.pendingCommandMove = null;
+    this.cmdMoveAimUnitId = null;
     this.activeMovesMeta = new Map();
     this.movementTweens = 0;
     this.aiControlled = { A: false, B: false };
@@ -189,6 +229,10 @@ export class BattleScene extends Phaser.Scene {
         if (!enabled) this.cancelAiTick();
         this.maybeScheduleAiTick();
       },
+      (unitId) => this.toggleCommandRallyParticipant(unitId),
+      (unitId) => this.toggleCommandMoveParticipant(unitId),
+      (unitId) => this.startCommandMoveParticipantAim(unitId),
+      (unitId) => this.selectReactionTarget(unitId),
     );
     this.refreshHud();
   }
@@ -827,8 +871,152 @@ export class BattleScene extends Phaser.Scene {
       melee: this.buildMeleeContext(),
       traversal: this.buildTraversalContext(),
       movePreview: this.buildMovePreviewContext(),
+      commandRally: this.buildCommandRallyContext(),
+      commandMove: this.buildCommandMoveContext(),
     };
     this.hud.update(this.gameState, this.selectedUnitId, this.aimMode, ctx);
+  }
+
+  private buildCommandRallyContext():
+    | import('../ui/Hud').CommandRallyContext
+    | undefined {
+    const act = this.gameState.initiative.activeActivation;
+    if (!act) return undefined;
+    const officer = this.gameState.units.find((u) => u.id === act.unitId);
+    if (!officer || !officer.traits.includes('OFFICER')) return undefined;
+    if (!isUnitAlive(officer)) return undefined;
+    // Allies within 1 UD (alive, same faction, not officer).
+    const nearbyAllies = this.gameState.units.filter(
+      (u) =>
+        u.id !== officer.id &&
+        u.faction === officer.faction &&
+        isUnitAlive(u) &&
+        v2Dist(u.position, officer.position) <= UNIT_DISTANCE_PIXELS + 0.5,
+    );
+    const damagedExists =
+      officer.damage !== 'NONE' || nearbyAllies.some((a) => a.damage !== 'NONE');
+    const canStart = nearbyAllies.length > 0 && damagedExists;
+    const candidates: import('../ui/Hud').CommandRallyCandidate[] = [
+      {
+        id: officer.id,
+        note: `(q${officer.quality}+${officer.damage !== 'NONE' ? `, ${officer.damage}` : ''})`,
+        isOfficer: true,
+        damaged: officer.damage !== 'NONE',
+        selected: this.pendingCommandRally.has(officer.id),
+      },
+      ...nearbyAllies.map((u) => ({
+        id: u.id,
+        note: `(q${u.quality}+${u.damage !== 'NONE' ? `, ${u.damage}` : ''})`,
+        isOfficer: false,
+        damaged: u.damage !== 'NONE',
+        selected: this.pendingCommandRally.has(u.id),
+      })),
+    ];
+    return {
+      officerId: officer.id,
+      candidates,
+      canStart,
+    };
+  }
+
+  private selectReactionTarget(unitId: string): void {
+    if (!this.reaction) return;
+    if (!this.reaction.commandMovers) return;
+    if (!this.reaction.commandMovers.some((m) => m.unitId === unitId)) return;
+    this.reaction.selectedTargetUnitId = unitId;
+    this.drawReactionPreview();
+    this.refreshHud();
+  }
+
+  private toggleCommandRallyParticipant(unitId: string): void {
+    if (this.pendingCommandRally.has(unitId)) {
+      this.pendingCommandRally.delete(unitId);
+    } else {
+      this.pendingCommandRally.add(unitId);
+    }
+    this.refreshHud();
+  }
+
+  private buildCommandMoveContext():
+    | import('../ui/Hud').CommandMoveContext
+    | undefined {
+    const act = this.gameState.initiative.activeActivation;
+    if (!act) return undefined;
+    const officer = this.gameState.units.find((u) => u.id === act.unitId);
+    if (!officer || !officer.traits.includes('OFFICER')) return undefined;
+    if (!isUnitAlive(officer)) return undefined;
+    if (officer.damage !== 'NONE') return undefined;
+    const nearby = this.gameState.units.filter(
+      (u) =>
+        u.id !== officer.id &&
+        u.faction === officer.faction &&
+        isUnitAlive(u) &&
+        u.damage === 'NONE' &&
+        v2Dist(u.position, officer.position) <= UNIT_DISTANCE_PIXELS + 0.5,
+    );
+    const canStart = nearby.length > 0;
+    const pcm = this.pendingCommandMove;
+    const officerTarget = pcm?.officerTarget ?? undefined;
+    const officerStance = pcm?.officerStance;
+    const participants: import('../ui/Hud').CommandMoveParticipant[] = nearby.map(
+      (u) => {
+        const slot = pcm?.participants.get(u.id);
+        const target = slot?.target ?? null;
+        const targetValid =
+          !!target &&
+          !!officerTarget &&
+          v2Dist(target, officerTarget) <= UNIT_DISTANCE_PIXELS + 0.5;
+        return {
+          unitId: u.id,
+          note: `(q${u.quality}+)`,
+          included: slot?.included ?? false,
+          target: target ? { x: target.x, y: target.y } : null,
+          targetValid,
+          stance: slot?.stance ?? 'STANDING',
+        };
+      },
+    );
+    return {
+      officerId: officer.id,
+      canStart,
+      officerTarget: officerTarget
+        ? { x: officerTarget.x, y: officerTarget.y }
+        : undefined,
+      officerStance,
+      participants,
+    };
+  }
+
+  private toggleCommandMoveParticipant(unitId: string): void {
+    if (!this.pendingCommandMove) return;
+    const slot = this.pendingCommandMove.participants.get(unitId) ?? {
+      included: false,
+      target: null,
+      stance: 'STANDING' as const,
+    };
+    const next = { ...slot, included: !slot.included };
+    this.pendingCommandMove.participants.set(unitId, next);
+    this.refreshHud();
+    this.drawCommandMoveOverlay();
+  }
+
+  private startCommandMoveParticipantAim(unitId: string): void {
+    if (!this.pendingCommandMove) return;
+    if (!this.pendingCommandMove.officerTarget) return;
+    this.cmdMoveAimUnitId = unitId;
+    this.aimMode = 'aim-command-move-participant';
+    // Make sure the participant is included.
+    const slot = this.pendingCommandMove.participants.get(unitId) ?? {
+      included: true,
+      target: null,
+      stance: 'STANDING' as const,
+    };
+    this.pendingCommandMove.participants.set(unitId, {
+      ...slot,
+      included: true,
+    });
+    this.refreshHud();
+    this.drawCommandMoveOverlay();
   }
 
   private buildMovePreviewContext():
@@ -921,7 +1109,7 @@ export class BattleScene extends Phaser.Scene {
         const modes = listAvailableShootModes(
           this.virtualStateForReactor(),
           shooter.id,
-          r.moverId,
+          r.selectedTargetUnitId,
           'REACTION',
           committed,
         );
@@ -936,12 +1124,19 @@ export class BattleScene extends Phaser.Scene {
         };
       })
       .filter((r) => r.modes.length > 0);
+    const commandMovers = r.commandMovers
+      ? r.commandMovers.map((m) => ({
+          unitId: m.unitId,
+          selected: m.unitId === r.selectedTargetUnitId,
+        }))
+      : undefined;
     return {
       defenderFaction: r.moverFaction === 'A' ? 'B' : 'A',
       intent: r.intent,
       markers: r.markers,
       currentT: r.scrubberT,
       visibleReactors: reactors,
+      commandMovers,
     };
   }
 
@@ -953,11 +1148,23 @@ export class BattleScene extends Phaser.Scene {
   private virtualStateForReactor(): GameState {
     if (!this.reaction) return this.gameState;
     const r = this.reaction;
-    const moverPos = v2Lerp(r.moverStart, r.pathEndpoint, r.scrubberT);
+    // For command actions, position the *selected target* at scrubber t along
+    // its own path. Solo actions: same as before (only mover).
+    const targetId = r.selectedTargetUnitId;
+    let start = r.moverStart;
+    let end = r.pathEndpoint;
+    if (r.commandMovers) {
+      const cm = r.commandMovers.find((m) => m.unitId === targetId);
+      if (cm) {
+        start = cm.start;
+        end = cm.end;
+      }
+    }
+    const moverPos = v2Lerp(start, end, r.scrubberT);
     return {
       ...this.gameState,
       units: this.gameState.units.map((u) =>
-        u.id === r.moverId ? { ...u, position: moverPos } : u,
+        u.id === targetId ? { ...u, position: moverPos } : u,
       ),
     };
   }
@@ -1065,6 +1272,118 @@ export class BattleScene extends Phaser.Scene {
         this.enterVaultClimbReactionPhase('CLIMB');
         return;
       }
+      case 'REQUEST_COMMAND_RALLY': {
+        const act = this.gameState.initiative.activeActivation;
+        if (!act) return;
+        const officer = this.gameState.units.find((u) => u.id === act.unitId);
+        if (!officer || !officer.traits.includes('OFFICER')) return;
+        // Auto-select all damaged units within 1 UD by default.
+        this.pendingCommandRally = new Set();
+        if (officer.damage !== 'NONE')
+          this.pendingCommandRally.add(officer.id);
+        for (const u of this.gameState.units) {
+          if (
+            u.id !== officer.id &&
+            u.faction === officer.faction &&
+            isUnitAlive(u) &&
+            u.damage !== 'NONE' &&
+            v2Dist(u.position, officer.position) <=
+              UNIT_DISTANCE_PIXELS + 0.5
+          ) {
+            this.pendingCommandRally.add(u.id);
+          }
+        }
+        this.aimMode = 'aim-command-rally';
+        this.refreshHud();
+        return;
+      }
+      case 'REQUEST_COMMAND_MOVE': {
+        const act = this.gameState.initiative.activeActivation;
+        if (!act) return;
+        const officer = this.gameState.units.find((u) => u.id === act.unitId);
+        if (!officer || !officer.traits.includes('OFFICER')) return;
+        if (officer.damage !== 'NONE') return;
+        this.pendingCommandMove = {
+          officerStance: 'STANDING',
+          officerTarget: null,
+          participants: new Map(),
+        };
+        this.aimMode = 'aim-command-move-officer-stance';
+        this.refreshHud();
+        return;
+      }
+      case 'CHOOSE_CMD_MOVE_STANDING': {
+        if (!this.pendingCommandMove) return;
+        this.pendingCommandMove.officerStance = 'STANDING';
+        this.aimMode = 'aim-command-move-officer';
+        this.refreshHud();
+        return;
+      }
+      case 'CHOOSE_CMD_MOVE_CRAWL': {
+        if (!this.pendingCommandMove) return;
+        this.pendingCommandMove.officerStance = 'CRAWL';
+        this.aimMode = 'aim-command-move-officer';
+        this.refreshHud();
+        return;
+      }
+      case 'BACK_TO_CMD_MOVE_SETUP': {
+        if (!this.pendingCommandMove) return;
+        this.cmdMoveAimUnitId = null;
+        this.aimMode = 'aim-command-move-setup';
+        this.refreshHud();
+        this.drawCommandMoveOverlay();
+        return;
+      }
+      case 'CONFIRM_COMMAND_MOVE': {
+        const act = this.gameState.initiative.activeActivation;
+        if (!act || !this.pendingCommandMove) return;
+        const pcm = this.pendingCommandMove;
+        if (!pcm.officerTarget) {
+          this.hud.pushError('Officer target not set');
+          return;
+        }
+        const participants: Array<{
+          unitId: string;
+          target: Vec2;
+          stance: 'STANDING' | 'CRAWL';
+        }> = [];
+        for (const [id, slot] of pcm.participants) {
+          if (!slot.included) continue;
+          if (!slot.target) {
+            this.hud.pushError(`${id} has no target`);
+            return;
+          }
+          participants.push({ unitId: id, target: slot.target, stance: slot.stance });
+        }
+        if (participants.length === 0) {
+          this.hud.pushError('Pick at least one ally');
+          return;
+        }
+        // Enter group reaction phase. The actual dispatch happens after
+        // confirmReaction.
+        this.enterCommandMoveReactionPhase(
+          act.unitId,
+          pcm.officerStance,
+          pcm.officerTarget,
+          participants,
+        );
+        return;
+      }
+      case 'CONFIRM_COMMAND_RALLY': {
+        const act = this.gameState.initiative.activeActivation;
+        if (!act) return;
+        const officerId = act.unitId;
+        const allyIds = Array.from(this.pendingCommandRally).filter(
+          (id) => id !== officerId,
+        );
+        if (allyIds.length === 0) {
+          this.hud.pushError('Command Rally requires at least one ally');
+          return;
+        }
+        // Enter group reaction phase. Actual dispatch happens after confirm.
+        this.enterCommandRallyReactionPhase(officerId, allyIds);
+        return;
+      }
       case 'REQUEST_RALLY': {
         const act = this.gameState.initiative.activeActivation;
         if (!act) return;
@@ -1124,6 +1443,9 @@ export class BattleScene extends Phaser.Scene {
     this.moveFacingDrag = null;
     this.pendingMoveStance = null;
     this.pendingEndProne = false;
+    this.pendingCommandRally = new Set();
+    this.pendingCommandMove = null;
+    this.cmdMoveAimUnitId = null;
     this.clearTimer();
     this.refreshHud();
   }
@@ -1154,6 +1476,9 @@ export class BattleScene extends Phaser.Scene {
     const endProneUsed = this.pendingEndProne;
     this.pendingMoveStance = null;
     this.pendingEndProne = false;
+    this.pendingCommandMove = null;
+    this.cmdMoveAimUnitId = null;
+    this.pendingCommandRally = new Set();
     const plan: ReactionPlan = { markers: r.markers };
     switch (r.commandType) {
       case 'MOVE':
@@ -1194,11 +1519,45 @@ export class BattleScene extends Phaser.Scene {
           reactionPlan: plan,
         });
         break;
+      case 'COMMAND_MOVE':
+        if (r.commandMovePayload) {
+          this.dispatch({
+            type: 'COMMAND_MOVE',
+            officerId: r.moverId,
+            officerTarget: r.pathTarget,
+            officerStance: r.commandMovePayload.officerStance,
+            officerEndProne: r.commandMovePayload.officerEndProne,
+            participants: r.commandMovePayload.participants,
+            reactionPlan: plan,
+          });
+        }
+        break;
+      case 'COMMAND_RALLY':
+        if (r.commandRallyPayload) {
+          this.dispatch({
+            type: 'COMMAND_RALLY',
+            officerId: r.moverId,
+            participantIds: r.commandRallyPayload.participantIds,
+            reactionPlan: plan,
+          });
+        }
+        break;
     }
     void stanceUsed;
   }
 
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
+    if (this.aimMode === 'aim-command-move-officer') {
+      const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      this.updateMovePreview({ x: wp.x, y: wp.y });
+      return;
+    }
+    if (this.aimMode === 'aim-command-move-participant') {
+      this.drawCommandMoveOverlay();
+      const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      this.drawCommandMoveCursorPreview({ x: wp.x, y: wp.y });
+      return;
+    }
     if (this.aimMode !== 'aim-move') return;
     const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     if (this.moveFacingDrag) {
@@ -1217,6 +1576,53 @@ export class BattleScene extends Phaser.Scene {
     pointer: Phaser.Input.Pointer,
     targets: unknown[],
   ): void {
+    if (this.aimMode === 'aim-command-move-officer') {
+      if (pointer.rightButtonDown()) {
+        this.cancelAim();
+        return;
+      }
+      const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      if (!this.pendingCommandMove) return;
+      this.pendingCommandMove.officerTarget = { x: wp.x, y: wp.y };
+      this.aimMode = 'aim-command-move-setup';
+      this.refreshHud();
+      this.drawCommandMoveOverlay();
+      return;
+    }
+    if (this.aimMode === 'aim-command-move-participant') {
+      if (pointer.rightButtonDown()) {
+        this.cmdMoveAimUnitId = null;
+        this.aimMode = 'aim-command-move-setup';
+        this.refreshHud();
+        this.drawCommandMoveOverlay();
+        return;
+      }
+      if (!this.pendingCommandMove || !this.cmdMoveAimUnitId) return;
+      if (!this.pendingCommandMove.officerTarget) return;
+      const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+      const officerTarget = this.pendingCommandMove.officerTarget;
+      // Reject clicks > 1 UD from officer target.
+      if (
+        v2Dist({ x: wp.x, y: wp.y }, officerTarget) >
+        UNIT_DISTANCE_PIXELS + 0.5
+      ) {
+        this.hud.pushError('Outside the 1 unit-distance ring');
+        return;
+      }
+      const slot = this.pendingCommandMove.participants.get(
+        this.cmdMoveAimUnitId,
+      ) ?? { included: true, target: null, stance: 'STANDING' as const };
+      this.pendingCommandMove.participants.set(this.cmdMoveAimUnitId, {
+        ...slot,
+        included: true,
+        target: { x: wp.x, y: wp.y },
+      });
+      this.cmdMoveAimUnitId = null;
+      this.aimMode = 'aim-command-move-setup';
+      this.refreshHud();
+      this.drawCommandMoveOverlay();
+      return;
+    }
     if (this.aimMode === 'aim-move') {
       if (pointer.rightButtonDown()) {
         this.moveFacingDrag = null;
@@ -1316,6 +1722,7 @@ export class BattleScene extends Phaser.Scene {
       windows,
       markers: [],
       scrubberT: 0,
+      selectedTargetUnitId: u.id,
     };
     this.aimMode = 'reaction-phase';
     this.hud.setScrubberValue(0);
@@ -1377,6 +1784,202 @@ export class BattleScene extends Phaser.Scene {
       windows,
       markers: [],
       scrubberT: 0,
+      selectedTargetUnitId: u.id,
+    };
+    this.aimMode = 'reaction-phase';
+    this.hud.setScrubberValue(0);
+    this.drawReactionPreview();
+    this.renderUnits();
+    this.refreshHud();
+    this.startTimer(
+      'Reaction',
+      timersConfig.reactionPhaseSeconds,
+      () => this.confirmReaction(),
+    );
+    this.maybeScheduleAiTick();
+  }
+
+  /**
+   * Set up a multi-mover reaction phase for COMMAND_MOVE. Each participant
+   * (officer + selected allies) has its own path; the defender targets one
+   * of them per marker. Resolved by the reducer's group reaction handler;
+   * if any marker hits & suppresses/kills, the entire group stops at that t.
+   */
+  private enterCommandMoveReactionPhase(
+    officerId: string,
+    officerStance: 'STANDING' | 'CRAWL',
+    officerTarget: Vec2,
+    participants: ReadonlyArray<{
+      unitId: string;
+      target: Vec2;
+      stance: 'STANDING' | 'CRAWL';
+    }>,
+  ): void {
+    const officer = this.gameState.units.find((u) => u.id === officerId);
+    if (!officer) return;
+
+    // Compute paths for officer + each participant (caps for crawl, edge stops).
+    const stoppingPolygons = this.gameState.terrain.map((t) => t.polygon);
+    const buildPath = (
+      from: Vec2,
+      target: Vec2,
+      stance: 'STANDING' | 'CRAWL',
+      moverFaction: 'A' | 'B',
+      moverRadius: number,
+    ): Vec2 => {
+      let effective = target;
+      if (stance === 'CRAWL') {
+        const dx = target.x - from.x;
+        const dy = target.y - from.y;
+        const len = Math.hypot(dx, dy);
+        if (len > UNIT_DISTANCE_PIXELS) {
+          effective = {
+            x: from.x + (dx / len) * UNIT_DISTANCE_PIXELS,
+            y: from.y + (dy / len) * UNIT_DISTANCE_PIXELS,
+          };
+        }
+      }
+      const enemyCircles = this.gameState.units
+        .filter((o) => o.faction !== moverFaction && isUnitAlive(o))
+        .map(getUnitCircle);
+      const path = computeMovePath(from, effective, {
+        polygons: stoppingPolygons,
+        enemyCircles,
+        moverRadius,
+      });
+      return path.endpoint;
+    };
+
+    const officerEnd = buildPath(
+      officer.position,
+      officerTarget,
+      officerStance,
+      officer.faction,
+      officer.radius,
+    );
+    const movers: CommandMover[] = [
+      {
+        unitId: officer.id,
+        start: { ...officer.position },
+        end: officerEnd,
+        radius: officer.radius,
+      },
+    ];
+    for (const p of participants) {
+      const u = this.gameState.units.find((x) => x.id === p.unitId);
+      if (!u) continue;
+      const end = buildPath(
+        u.position,
+        p.target,
+        p.stance,
+        u.faction,
+        u.radius,
+      );
+      movers.push({
+        unitId: u.id,
+        start: { ...u.position },
+        end,
+        radius: u.radius,
+      });
+    }
+
+    // Reaction windows for the officer's path (used by the existing scrubber
+    // visualization). The new target switcher will refine LOS per selected
+    // target on demand.
+    const enemiesForLOS = this.gameState.units
+      .filter((o) => o.faction !== officer.faction && isUnitAlive(o))
+      .map((o) => ({
+        id: o.id,
+        circle: getUnitCircle(o),
+        prone: o.stance === 'PRONE',
+      }));
+    const windows = [
+      ...computeReactionWindows(
+        officer.position,
+        officerEnd,
+        officer.radius,
+        enemiesForLOS,
+        this.gameState.terrain,
+        { moverProne: officerStance === 'CRAWL' || officer.stance === 'PRONE' },
+      ),
+    ];
+
+    this.reaction = {
+      intent: 'MOVE',
+      commandType: 'COMMAND_MOVE',
+      moverId: officer.id,
+      moverStart: { ...officer.position },
+      moverRadius: officer.radius,
+      moverFaction: officer.faction,
+      pathTarget: officerTarget,
+      pathEndpoint: officerEnd,
+      windows,
+      markers: [],
+      scrubberT: 0,
+      selectedTargetUnitId: officer.id,
+      commandMovers: movers,
+      commandMovePayload: {
+        officerStance,
+        officerEndProne: false,
+        participants,
+      },
+    };
+    this.aimMode = 'reaction-phase';
+    this.hud.setScrubberValue(0);
+    this.drawReactionPreview();
+    this.renderUnits();
+    this.refreshHud();
+    this.startTimer(
+      'Reaction',
+      timersConfig.reactionPhaseSeconds,
+      () => this.confirmReaction(),
+    );
+    this.maybeScheduleAiTick();
+  }
+
+  /**
+   * Set up a multi-rallier reaction phase for COMMAND_RALLY. Stationary
+   * paths per rallier; defender picks one as target per marker.
+   */
+  private enterCommandRallyReactionPhase(
+    officerId: string,
+    participantIds: ReadonlyArray<string>,
+  ): void {
+    const officer = this.gameState.units.find((u) => u.id === officerId);
+    if (!officer) return;
+    const movers: CommandMover[] = [
+      {
+        unitId: officer.id,
+        start: { ...officer.position },
+        end: { ...officer.position },
+        radius: officer.radius,
+      },
+    ];
+    for (const pid of participantIds) {
+      const u = this.gameState.units.find((x) => x.id === pid);
+      if (!u) continue;
+      movers.push({
+        unitId: u.id,
+        start: { ...u.position },
+        end: { ...u.position },
+        radius: u.radius,
+      });
+    }
+    this.reaction = {
+      intent: 'RALLY',
+      commandType: 'COMMAND_RALLY',
+      moverId: officer.id,
+      moverStart: { ...officer.position },
+      moverRadius: officer.radius,
+      moverFaction: officer.faction,
+      pathTarget: { ...officer.position },
+      pathEndpoint: { ...officer.position },
+      windows: [],
+      markers: [],
+      scrubberT: 0,
+      selectedTargetUnitId: officer.id,
+      commandMovers: movers,
+      commandRallyPayload: { participantIds },
     };
     this.aimMode = 'reaction-phase';
     this.hud.setScrubberValue(0);
@@ -1413,6 +2016,7 @@ export class BattleScene extends Phaser.Scene {
       windows: [],
       markers: [],
       scrubberT: 0,
+      selectedTargetUnitId: u.id,
     };
     this.aimMode = 'reaction-phase';
     this.hud.setScrubberValue(0);
@@ -1456,6 +2060,7 @@ export class BattleScene extends Phaser.Scene {
       shooterId,
       mode,
       participantIds: [...participantIds],
+      targetUnitId: this.reaction.selectedTargetUnitId,
     };
     this.reaction.markers = [...this.reaction.markers, marker].sort(
       (a, b) => a.atT - b.atT,
@@ -1466,21 +2071,30 @@ export class BattleScene extends Phaser.Scene {
 
   private enemyVisibleAtCurrentScrubber(enemy: Unit): boolean {
     if (!this.reaction) return false;
-    const moverPos = v2Lerp(
-      this.reaction.moverStart,
-      this.reaction.pathEndpoint,
-      this.reaction.scrubberT,
-    );
-    const mover = this.gameState.units.find(
-      (x) => x.id === this.reaction!.moverId,
-    );
+    // For command actions, LOS is checked against the *currently selected*
+    // target mover, not the activating officer. Path lookup goes through
+    // commandMovers when present.
+    const targetId = this.reaction.selectedTargetUnitId;
+    let start = this.reaction.moverStart;
+    let end = this.reaction.pathEndpoint;
+    let radius = this.reaction.moverRadius;
+    if (this.reaction.commandMovers) {
+      const cm = this.reaction.commandMovers.find((m) => m.unitId === targetId);
+      if (cm) {
+        start = cm.start;
+        end = cm.end;
+        radius = cm.radius;
+      }
+    }
+    const targetPos = v2Lerp(start, end, this.reaction.scrubberT);
+    const targetUnit = this.gameState.units.find((x) => x.id === targetId);
     return hasLOS(
       getUnitCircle(enemy),
-      { center: moverPos, radius: this.reaction.moverRadius },
+      { center: targetPos, radius },
       this.gameState.terrain,
       {
         aProne: enemy.stance === 'PRONE',
-        bProne: mover?.stance === 'PRONE',
+        bProne: targetUnit?.stance === 'PRONE',
       },
     );
   }
@@ -1596,11 +2210,126 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
+  private drawCommandMoveOverlay(): void {
+    this.aimGfx.clear();
+    if (!this.pendingCommandMove) return;
+    const pcm = this.pendingCommandMove;
+    if (!pcm.officerTarget) return;
+    const act = this.gameState.initiative.activeActivation;
+    if (!act) return;
+    const officer = this.gameState.units.find((u) => u.id === act.unitId);
+    if (!officer) return;
+
+    // Officer's path
+    this.aimGfx.lineStyle(1.5, FACTION_COLOR[officer.faction], 0.9);
+    this.aimGfx.beginPath();
+    this.aimGfx.moveTo(officer.position.x, officer.position.y);
+    this.aimGfx.lineTo(pcm.officerTarget.x, pcm.officerTarget.y);
+    this.aimGfx.strokePath();
+    this.aimGfx.fillStyle(FACTION_COLOR[officer.faction], 0.35);
+    this.aimGfx.fillCircle(
+      pcm.officerTarget.x,
+      pcm.officerTarget.y,
+      officer.radius,
+    );
+
+    // Validity ring around officer's target (1 UD).
+    this.aimGfx.lineStyle(1.5, 0x9af09a, 0.85);
+    this.aimGfx.strokeCircle(
+      pcm.officerTarget.x,
+      pcm.officerTarget.y,
+      UNIT_DISTANCE_PIXELS,
+    );
+
+    // Each participant's planned target (if any).
+    for (const [id, slot] of pcm.participants) {
+      const u = this.gameState.units.find((x) => x.id === id);
+      if (!u || !slot.target) continue;
+      const valid = v2Dist(slot.target, pcm.officerTarget) <= UNIT_DISTANCE_PIXELS + 0.5;
+      const color = valid ? FACTION_COLOR[u.faction] : 0xff5555;
+      this.aimGfx.lineStyle(1.5, color, slot.included ? 0.85 : 0.35);
+      this.aimGfx.beginPath();
+      this.aimGfx.moveTo(u.position.x, u.position.y);
+      this.aimGfx.lineTo(slot.target.x, slot.target.y);
+      this.aimGfx.strokePath();
+      this.aimGfx.fillStyle(color, slot.included ? 0.35 : 0.15);
+      this.aimGfx.fillCircle(slot.target.x, slot.target.y, u.radius);
+    }
+  }
+
+  private drawCommandMoveCursorPreview(cursor: Vec2): void {
+    if (!this.pendingCommandMove) return;
+    const pcm = this.pendingCommandMove;
+    if (!pcm.officerTarget || !this.cmdMoveAimUnitId) return;
+    const u = this.gameState.units.find((x) => x.id === this.cmdMoveAimUnitId);
+    if (!u) return;
+    const valid =
+      v2Dist(cursor, pcm.officerTarget) <= UNIT_DISTANCE_PIXELS + 0.5;
+    const color = valid ? 0x9af09a : 0xff5555;
+    this.aimGfx.lineStyle(2, color, 0.95);
+    this.aimGfx.fillStyle(color, 0.25);
+    this.aimGfx.fillCircle(cursor.x, cursor.y, u.radius);
+    this.aimGfx.strokeCircle(cursor.x, cursor.y, u.radius);
+    this.aimGfx.beginPath();
+    this.aimGfx.moveTo(u.position.x, u.position.y);
+    this.aimGfx.lineTo(cursor.x, cursor.y);
+    this.aimGfx.strokePath();
+  }
+
   private drawReactionPreview(): void {
     this.aimGfx.clear();
     if (!this.reaction) return;
     const r = this.reaction;
     const moverColor = FACTION_COLOR[r.moverFaction];
+
+    // Multi-mover (command actions): draw each mover's path + ghost. Highlight
+    // the currently selected target.
+    if (r.commandMovers && r.commandMovers.length > 1) {
+      for (const cm of r.commandMovers) {
+        const isSelected = cm.unitId === r.selectedTargetUnitId;
+        const lineAlpha = isSelected ? 0.95 : 0.45;
+        const strokeAlpha = isSelected ? 0.95 : 0.4;
+        // Path tube.
+        this.aimGfx.lineStyle(cm.radius * 2, moverColor, 0.1);
+        this.aimGfx.beginPath();
+        this.aimGfx.moveTo(cm.start.x, cm.start.y);
+        this.aimGfx.lineTo(cm.end.x, cm.end.y);
+        this.aimGfx.strokePath();
+        // Path centerline.
+        this.aimGfx.lineStyle(1.5, 0xcfe8cf, lineAlpha);
+        this.aimGfx.beginPath();
+        this.aimGfx.moveTo(cm.start.x, cm.start.y);
+        this.aimGfx.lineTo(cm.end.x, cm.end.y);
+        this.aimGfx.strokePath();
+        // Endpoint ring.
+        this.aimGfx.lineStyle(1.5, moverColor, strokeAlpha);
+        this.aimGfx.strokeCircle(cm.end.x, cm.end.y, cm.radius);
+        // Ghost at scrubber t (only for selected, others get stationary mid).
+        if (isSelected) {
+          const ghost = v2Lerp(cm.start, cm.end, r.scrubberT);
+          this.aimGfx.fillStyle(moverColor, 0.55);
+          this.aimGfx.fillCircle(ghost.x, ghost.y, cm.radius);
+          this.aimGfx.lineStyle(2, 0xffd166, 0.95);
+          this.aimGfx.strokeCircle(ghost.x, ghost.y, cm.radius + 2);
+        } else {
+          const ghost = v2Lerp(cm.start, cm.end, r.scrubberT);
+          this.aimGfx.fillStyle(moverColor, 0.3);
+          this.aimGfx.fillCircle(ghost.x, ghost.y, cm.radius);
+        }
+      }
+      // Markers: draw each at their target's path-position, color-coded by target.
+      for (const m of r.markers) {
+        const targetId = m.targetUnitId ?? r.moverId;
+        const cm = r.commandMovers.find((x) => x.unitId === targetId);
+        if (!cm) continue;
+        const p = v2Lerp(cm.start, cm.end, m.atT);
+        this.aimGfx.fillStyle(0xffd166, 1);
+        this.aimGfx.fillCircle(p.x, p.y, 5);
+        this.aimGfx.lineStyle(1, 0x000000, 1);
+        this.aimGfx.strokeCircle(p.x, p.y, 5);
+      }
+      return;
+    }
 
     if (r.intent === 'MOVE') {
       this.aimGfx.fillStyle(moverColor, 0.12);
