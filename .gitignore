@@ -6,3 +6,5 @@ dist/
 .env
 .env.local
 logs/
+maps-local.json
+data-local/

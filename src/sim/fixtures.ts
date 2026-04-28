@@ -1,9 +1,12 @@
 import { v2 } from '../core/geometry/vec2';
 import { buildUnit, getMap } from '../config/loader';
 import { buildInitialState } from '../core/setup/buildState';
-import type { GameState } from '../core/state/GameState';
+import type { Vec2 } from '../core/geometry/types';
+import type { Faction, GameState } from '../core/state/GameState';
 import type {
   DeploymentBySide,
+  DeploymentZone,
+  RosterEntry,
   RostersBySide,
 } from '../core/setup/types';
 
@@ -76,27 +79,82 @@ export const namedFixtures: Record<string, MatchFixture> = {
   mirror: mirrorFixture,
 };
 
+const polygonAabb = (
+  verts: ReadonlyArray<Vec2>,
+): { minX: number; minY: number; maxX: number; maxY: number } => {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const v of verts) {
+    if (v.x < minX) minX = v.x;
+    if (v.x > maxX) maxX = v.x;
+    if (v.y < minY) minY = v.y;
+    if (v.y > maxY) maxY = v.y;
+  }
+  return { minX, minY, maxX, maxY };
+};
+
 /**
- * Build a deterministic initial state for the given fixture and seed. Position
- * placeholders in the fixture get replaced with real corner positions derived
- * from the chosen map's size — keeps the fixture file tiny and lets us swap
- * maps without rewriting deployment offsets.
+ * Spread N points evenly across the AABB centerline of the zone polygon.
+ * Works for the rectangular strip-zones that the editor produces. Caller is
+ * responsible for picking a map whose zones can fit `count` non-overlapping
+ * unit bases.
+ */
+const placeInZone = (
+  zone: DeploymentZone,
+  count: number,
+): Vec2[] => {
+  const { minX, minY, maxX, maxY } = polygonAabb(zone.polygon.vertices);
+  // Spread along the long axis; sit on the short-axis centerline.
+  const w = maxX - minX;
+  const h = maxY - minY;
+  const longHorizontal = w >= h;
+  const out: Vec2[] = [];
+  for (let i = 0; i < count; i++) {
+    const t = (i + 1) / (count + 1);
+    if (longHorizontal) {
+      out.push(v2(minX + w * t, (minY + maxY) / 2));
+    } else {
+      out.push(v2((minX + maxX) / 2, minY + h * t));
+    }
+  }
+  return out;
+};
+
+const placementsFor = (
+  faction: Faction,
+  roster: ReadonlyArray<RosterEntry>,
+  zones: ReadonlyArray<DeploymentZone>,
+  fixtureId: string,
+) => {
+  const zone = zones.find((z) => z.faction === faction);
+  if (!zone) {
+    throw new Error(
+      `Fixture "${fixtureId}" map has no deployment zone for faction ${faction}`,
+    );
+  }
+  const positions = placeInZone(zone, roster.length);
+  return roster.map((entry, i) => ({
+    rosterId: entry.id,
+    position: positions[i]!,
+  }));
+};
+
+/**
+ * Build a deterministic initial state for the given fixture and seed.
+ * Deployment positions are derived from the chosen map's actual zone
+ * polygons so any custom map (with valid A/B zones) works automatically —
+ * the fixture stays small and roster-only.
  */
 export const buildFixtureState = (
   fixture: MatchFixture,
   seed: string,
 ): GameState => {
   const map = getMap(fixture.mapId);
-  const size = map.size;
   const deployment: DeploymentBySide = {
-    A: [
-      { rosterId: 'blue-1', position: v2(size * 0.15, size * 0.85) },
-      { rosterId: 'blue-2', position: v2(size * 0.22, size * 0.78) },
-    ],
-    B: [
-      { rosterId: 'red-1', position: v2(size * 0.85, size * 0.15) },
-      { rosterId: 'red-2', position: v2(size * 0.78, size * 0.22) },
-    ],
+    A: placementsFor('A', fixture.rosters.A, map.deploymentZones, fixture.mapId),
+    B: placementsFor('B', fixture.rosters.B, map.deploymentZones, fixture.mapId),
   };
   return buildInitialState({
     seed,
