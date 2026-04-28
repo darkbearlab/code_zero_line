@@ -1,4 +1,4 @@
-import type { Command } from '../core/commands/types';
+import type { Command, ReactionPlan } from '../core/commands/types';
 import type { Faction, GameState } from '../core/state/GameState';
 
 /**
@@ -18,6 +18,27 @@ export type AiController = (
   actionsTakenThisActivation?: number,
 ) => Command | null;
 
+/**
+ * Defender-side reaction planner. Called when the OPPOSING faction issues a
+ * MOVE / CRAWL / RALLY etc. so the defender can place reaction markers on
+ * the path. Returning `{ markers: [] }` means "don't react".
+ */
+export type ReactionPlanner = (
+  state: GameState,
+  defenderFaction: Faction,
+  attackerCmd: Command,
+) => ReactionPlan;
+
+/**
+ * A bundle of (active decision-maker, optional reaction planner). Strategies
+ * keep both in one named entry so swapping AIs swaps both halves of play.
+ */
+export interface AiStrategy {
+  readonly decide: AiController;
+  /** Optional. If absent, no defender reactions are planned for this side. */
+  readonly react?: ReactionPlanner;
+}
+
 export interface AiRegistry {
-  readonly [name: string]: AiController;
+  readonly [name: string]: AiStrategy;
 }

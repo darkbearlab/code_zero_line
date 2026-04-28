@@ -21,7 +21,7 @@ describe('lookaheadController', () => {
 
   it('completes a full match against itself in finite time', () => {
     const s = buildFixtureState(demoFixture, 'la-3');
-    const ai = lookaheadController({ depth: 2, beam: 6 });
+    const ai = { decide: lookaheadController({ depth: 2, beam: 6 }) };
     const out = simulateMatch(s, ai, ai, { maxCommands: 5000 });
     expect(out.commandCount).toBeLessThanOrEqual(5000);
     expect(['A', 'B', 'DRAW']).toContain(out.winner);
@@ -29,9 +29,9 @@ describe('lookaheadController', () => {
 
   it('completes a full match against greedy in finite time', () => {
     const s = buildFixtureState(demoFixture, 'la-4');
-    const out = simulateMatch(s, greedyController, lookaheadController(), {
-      maxCommands: 5000,
-    });
+    const greedy = { decide: greedyController };
+    const lookA = { decide: lookaheadController() };
+    const out = simulateMatch(s, greedy, lookA, { maxCommands: 5000 });
     expect(out.commandCount).toBeLessThanOrEqual(5000);
   });
 });

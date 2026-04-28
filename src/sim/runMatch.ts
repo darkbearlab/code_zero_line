@@ -1,8 +1,12 @@
 import { applyCommand } from '../core/commands/reducer';
-import type { Command, GameEvent } from '../core/commands/types';
+import type {
+  Command,
+  GameEvent,
+  ReactionPlan,
+} from '../core/commands/types';
 import type { Faction, GameState } from '../core/state/GameState';
 import { isUnitAlive } from '../core/state/GameState';
-import type { AiController } from '../ai/types';
+import type { AiStrategy } from '../ai/types';
 
 export type MatchEndReason = 'ELIMINATED' | 'BOTH_PASSED' | 'MAX_COMMANDS';
 
@@ -47,10 +51,41 @@ const detectVictory = (state: GameState): Faction | null => {
  * Both AI controllers must be deterministic pure functions of `GameState` —
  * any internal randomness would break replay/A-B comparison guarantees.
  */
+/**
+ * Whether a command shape carries a defender reaction plan that the
+ * simulator should fill in (rule 4.4 — reaction fire on movement / rally).
+ * Currently MOVE & CRAWL only; VAULT/CLIMB/RALLY/COMMAND_* are reactable
+ * per rules but have non-trivial path semantics — follow-up work.
+ */
+const acceptsReactions = (
+  cmd: Command,
+): cmd is Extract<Command, { type: 'MOVE' | 'CRAWL' }> =>
+  cmd.type === 'MOVE' || cmd.type === 'CRAWL';
+
+const injectReactionPlan = (
+  state: GameState,
+  cmd: Command,
+  attackerFaction: Faction,
+  aiA: AiStrategy,
+  aiB: AiStrategy,
+): Command => {
+  if (!acceptsReactions(cmd)) return cmd;
+  // If the attacker AI explicitly populated a non-empty plan, respect it
+  // (e.g. a future AI that pre-commits to a reaction; today nobody does).
+  const existing: ReactionPlan | undefined = cmd.reactionPlan;
+  if (existing && existing.markers.length > 0) return cmd;
+  const defender: Faction = attackerFaction === 'A' ? 'B' : 'A';
+  const defenderStrategy = defender === 'A' ? aiA : aiB;
+  if (!defenderStrategy.react) return cmd;
+  const plan = defenderStrategy.react(state, defender, cmd);
+  if (plan.markers.length === 0) return cmd;
+  return { ...cmd, reactionPlan: plan };
+};
+
 export const simulateMatch = (
   initialState: GameState,
-  aiA: AiController,
-  aiB: AiController,
+  aiA: AiStrategy,
+  aiB: AiStrategy,
   opts: SimulateMatchOptions = {},
 ): MatchOutcome => {
   const maxCommands = opts.maxCommands ?? DEFAULT_MAX_COMMANDS;
@@ -70,7 +105,7 @@ export const simulateMatch = (
     }
 
     const faction = state.initiative.holder;
-    const ai = faction === 'A' ? aiA : aiB;
+    const strategy = faction === 'A' ? aiA : aiB;
 
     // Track per-activation action count (resets when activation changes).
     const currActiveId = state.initiative.activeActivation?.unitId ?? null;
@@ -79,7 +114,14 @@ export const simulateMatch = (
       lastActiveUnitId = currActiveId;
     }
 
-    const cmd: Command | null = ai(state, faction, actionsThisActivation);
+    const rawCmd: Command | null = strategy.decide(
+      state,
+      faction,
+      actionsThisActivation,
+    );
+    const cmd = rawCmd
+      ? injectReactionPlan(state, rawCmd, faction, aiA, aiB)
+      : null;
     if (!cmd) {
       // AI returned null when it shouldn't have — treat as a pass to avoid
       // infinite loops; will trigger BOTH_PASSED if it persists.
