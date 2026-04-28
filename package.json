@@ -8,13 +8,15 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "sim": "tsx src/sim/cli.ts"
   },
   "dependencies": {
     "phaser": "^3.80.1"
   },
   "devDependencies": {
     "@types/node": "^20.12.7",
+    "tsx": "^4.21.0",
     "typescript": "^5.4.5",
     "vite": "^5.2.10",
     "vitest": "^1.5.2"
