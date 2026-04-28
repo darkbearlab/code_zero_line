@@ -182,8 +182,11 @@ export class Hud {
   private aiToggleB: HTMLInputElement;
   private frameSvgEl: SVGSVGElement;
   private frameRectEl: SVGRectElement;
+  private frameGlowEl: HTMLElement;
   private frameLength = 0;
   private logLines: string[] = [];
+  private logWrapEl: HTMLElement;
+  private logToggleEl: HTMLButtonElement;
 
   constructor(
     private dispatch: DispatchFn,
@@ -224,6 +227,22 @@ export class Hud {
       this.onAiToggle('B', this.aiToggleB.checked);
     this.frameSvgEl = mustElement('hud-frame') as unknown as SVGSVGElement;
     this.frameRectEl = mustElement('hud-frame-rect') as unknown as SVGRectElement;
+    this.frameGlowEl = mustElement('hud-frame-glow');
+    this.logWrapEl = mustElement('hud-log-wrap');
+    this.logToggleEl = mustElement('hud-log-toggle') as HTMLButtonElement;
+    this.logToggleEl.onclick = () => this.toggleLogCollapsed();
+    // Restore last collapsed preference (Phaser keeps the DOM across scenes).
+    try {
+      if (localStorage.getItem('czl.logCollapsed') === '1') {
+        this.logWrapEl.classList.add('collapsed');
+        this.logToggleEl.textContent = '▲ log';
+      } else {
+        this.logWrapEl.classList.remove('collapsed');
+        this.logToggleEl.textContent = '▼ log';
+      }
+    } catch {
+      /* ignore */
+    }
     this.resizeFrame();
     // Use a single tracked window listener that always points at the latest
     // Hud instance so re-creating BattleScene doesn't stack handlers.
@@ -312,9 +331,14 @@ export class Hud {
   setFrame(faction: 'A' | 'B' | null, fraction?: number): void {
     if (!faction) {
       this.frameSvgEl.setAttribute('hidden', '');
+      this.frameGlowEl.setAttribute('hidden', '');
+      this.frameGlowEl.classList.remove('faction-A', 'faction-B');
       return;
     }
     this.frameSvgEl.removeAttribute('hidden');
+    this.frameGlowEl.removeAttribute('hidden');
+    this.frameGlowEl.classList.remove('faction-A', 'faction-B');
+    this.frameGlowEl.classList.add(`faction-${faction}`);
     this.frameRectEl.style.stroke =
       faction === 'A'
         ? 'rgba(106, 176, 255, 0.85)'
@@ -336,6 +360,16 @@ export class Hud {
     while (this.logLines.length > 100) this.logLines.shift();
     this.logEl.textContent = this.logLines.slice(-12).join('\n');
     this.logEl.scrollTop = this.logEl.scrollHeight;
+  }
+
+  private toggleLogCollapsed(): void {
+    const collapsed = this.logWrapEl.classList.toggle('collapsed');
+    this.logToggleEl.textContent = collapsed ? '▲ log' : '▼ log';
+    try {
+      localStorage.setItem('czl.logCollapsed', collapsed ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
   }
 
   pushError(message: string): void {

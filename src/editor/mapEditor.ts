@@ -697,8 +697,13 @@ const drawShape = (
   ctx.fillRect(-s.w / 2, -s.h / 2, s.w, s.h);
   ctx.strokeRect(-s.w / 2, -s.h / 2, s.w, s.h);
 
-  // Hatching for difficult terrain (simple visual hint)
+  // Hatching for difficult terrain (visual hint — clipped to the rect so it
+  // never reads as if the judgement area extends outside the box).
   if (s.tool === 'difficult') {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(-s.w / 2, -s.h / 2, s.w, s.h);
+    ctx.clip();
     ctx.strokeStyle = 'rgba(184, 136, 74, 0.55)';
     ctx.lineWidth = 0.8 / scale;
     const step = 10;
@@ -708,6 +713,7 @@ const drawShape = (
       ctx.lineTo(-s.w / 2 + off - s.h, s.h / 2);
     }
     ctx.stroke();
+    ctx.restore();
   }
 
   // Selection: rotation handle line + dot

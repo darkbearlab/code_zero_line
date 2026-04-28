@@ -150,6 +150,10 @@ export class BattleScene extends Phaser.Scene {
     onExpire: () => void;
   } | null = null;
   private timerEvent: Phaser.Time.TimerEvent | null = null;
+  /** Once user pans/zooms, fitCamera() stops auto-fitting on resize. R resets. */
+  private cameraManualOverride = false;
+  /** Middle-mouse pan state. */
+  private panDrag: { x: number; y: number; scrollX: number; scrollY: number } | null = null;
 
   constructor() {
     super({ key: 'Battle' });
@@ -186,6 +190,8 @@ export class BattleScene extends Phaser.Scene {
     this.victoryFired = false;
     this.currentTimer = null;
     this.timerEvent = null;
+    this.cameraManualOverride = false;
+    this.panDrag = null;
   }
 
   create(): void {
@@ -210,12 +216,29 @@ export class BattleScene extends Phaser.Scene {
     this.input.on('pointermove', this.onPointerMove, this);
     this.input.on('pointerdown', this.onPointerDown, this);
     this.input.on('pointerup', this.onPointerUp, this);
+    this.input.on(
+      'wheel',
+      (
+        _pointer: Phaser.Input.Pointer,
+        _objs: unknown,
+        _dx: number,
+        dy: number,
+      ) => {
+        const factor = dy > 0 ? 0.9 : 1.1;
+        this.zoomCameraAt(
+          this.input.activePointer.x,
+          this.input.activePointer.y,
+          factor,
+        );
+      },
+    );
     this.input.keyboard?.on('keydown-ESC', () => {
       // Reaction phase is intentionally not cancellable — handoff is final.
       if (this.aimMode === 'aim-move') this.cancelAim();
       else if (this.aimMode === 'aim-shoot' || this.aimMode === 'aim-melee')
         this.cancelAim();
     });
+    this.input.keyboard?.on('keydown-R', () => this.resetCamera());
 
     this.hud = new Hud(
       (cmd) => this.dispatch(cmd),
@@ -237,17 +260,56 @@ export class BattleScene extends Phaser.Scene {
     this.refreshHud();
   }
 
+  /** Approx HUD chrome we want to keep clear of the playfield. */
+  private static readonly HUD_RIGHT_PX = 260;
+  private static readonly HUD_TOP_PX = 48;
+  private static readonly HUD_BOTTOM_PX = 100;
+
   private fitCamera(): void {
+    if (this.cameraManualOverride) {
+      this.drawBoardEdge();
+      return;
+    }
     const cam = this.cameras.main;
-    const margin = 0.92;
+    const availW = Math.max(
+      200,
+      cam.width - BattleScene.HUD_RIGHT_PX,
+    );
+    const availH = Math.max(
+      200,
+      cam.height - BattleScene.HUD_TOP_PX - BattleScene.HUD_BOTTOM_PX,
+    );
+    const margin = 0.94;
     const zoom =
-      Math.min(
-        cam.width / BATTLEFIELD_SIZE_PIXELS,
-        cam.height / BATTLEFIELD_SIZE_PIXELS,
-      ) * margin;
+      Math.min(availW / BATTLEFIELD_SIZE_PIXELS, availH / BATTLEFIELD_SIZE_PIXELS) *
+      margin;
     cam.setZoom(zoom);
-    cam.centerOn(BATTLEFIELD_SIZE_PIXELS / 2, BATTLEFIELD_SIZE_PIXELS / 2);
+    // Centre the playfield within the visible (non-HUD) rectangle by shifting
+    // the camera target up-left to compensate for the right/bottom HUD strips.
+    const offsetX = -BattleScene.HUD_RIGHT_PX / 2;
+    const offsetY =
+      (BattleScene.HUD_TOP_PX - BattleScene.HUD_BOTTOM_PX) / 2;
+    cam.centerOn(
+      BATTLEFIELD_SIZE_PIXELS / 2 + offsetX / zoom,
+      BATTLEFIELD_SIZE_PIXELS / 2 + offsetY / zoom,
+    );
     this.drawBoardEdge();
+  }
+
+  private resetCamera(): void {
+    this.cameraManualOverride = false;
+    this.fitCamera();
+  }
+
+  private zoomCameraAt(screenX: number, screenY: number, factor: number): void {
+    const cam = this.cameras.main;
+    const before = cam.getWorldPoint(screenX, screenY);
+    const next = Phaser.Math.Clamp(cam.zoom * factor, 0.25, 4);
+    cam.setZoom(next);
+    const after = cam.getWorldPoint(screenX, screenY);
+    cam.scrollX += before.x - after.x;
+    cam.scrollY += before.y - after.y;
+    this.cameraManualOverride = true;
   }
 
   private drawBoardEdge(): void {
@@ -1561,6 +1623,12 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
+    if (this.panDrag) {
+      const cam = this.cameras.main;
+      cam.scrollX = this.panDrag.scrollX + (this.panDrag.x - pointer.x) / cam.zoom;
+      cam.scrollY = this.panDrag.scrollY + (this.panDrag.y - pointer.y) / cam.zoom;
+      return;
+    }
     if (this.aimMode === 'aim-command-move-officer') {
       const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       this.updateMovePreview({ x: wp.x, y: wp.y });
@@ -1590,6 +1658,18 @@ export class BattleScene extends Phaser.Scene {
     pointer: Phaser.Input.Pointer,
     targets: unknown[],
   ): void {
+    // Middle-mouse: start a camera pan, swallowing the click.
+    if (pointer.middleButtonDown()) {
+      const cam = this.cameras.main;
+      this.panDrag = {
+        x: pointer.x,
+        y: pointer.y,
+        scrollX: cam.scrollX,
+        scrollY: cam.scrollY,
+      };
+      this.cameraManualOverride = true;
+      return;
+    }
     if (this.aimMode === 'aim-command-move-officer') {
       if (pointer.rightButtonDown()) {
         this.cancelAim();
@@ -1656,6 +1736,10 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private onPointerUp(_pointer: Phaser.Input.Pointer): void {
+    if (this.panDrag) {
+      this.panDrag = null;
+      return;
+    }
     if (this.aimMode !== 'aim-move' || !this.moveFacingDrag) return;
     const drag = this.moveFacingDrag;
     this.moveFacingDrag = null;

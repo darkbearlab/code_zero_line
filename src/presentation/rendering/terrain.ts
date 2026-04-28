@@ -90,7 +90,65 @@ const strokePolygonDashed = (
   }
 };
 
-/** Draw a hatched cross-pattern across a polygon's bbox, clipped via fill alpha. */
+/**
+ * Cyrus–Beck line clip against a convex polygon. Returns the inside portion
+ * of segment p0→p1, or null if it never enters the polygon. Polygon winding
+ * may be CW or CW; outward normals are recovered by checking against the
+ * centroid.
+ */
+const clipSegmentToConvexPolygon = (
+  p0: { x: number; y: number },
+  p1: { x: number; y: number },
+  poly: ReadonlyArray<{ x: number; y: number }>,
+): { a: { x: number; y: number }; b: { x: number; y: number } } | null => {
+  let cx = 0;
+  let cy = 0;
+  for (const v of poly) {
+    cx += v.x;
+    cy += v.y;
+  }
+  cx /= poly.length;
+  cy /= poly.length;
+  const dx = p1.x - p0.x;
+  const dy = p1.y - p0.y;
+  let tIn = 0;
+  let tOut = 1;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    let nx = b.y - a.y;
+    let ny = -(b.x - a.x);
+    const ex = (a.x + b.x) / 2;
+    const ey = (a.y + b.y) / 2;
+    if ((cx - ex) * nx + (cy - ey) * ny > 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+    const num = nx * (a.x - p0.x) + ny * (a.y - p0.y);
+    const den = nx * dx + ny * dy;
+    if (Math.abs(den) < 1e-9) {
+      if (num < 0) return null;
+      continue;
+    }
+    const t = num / den;
+    if (den > 0) {
+      if (t < tOut) tOut = t;
+    } else {
+      if (t > tIn) tIn = t;
+    }
+  }
+  if (tIn > tOut) return null;
+  return {
+    a: { x: p0.x + dx * tIn, y: p0.y + dy * tIn },
+    b: { x: p0.x + dx * tOut, y: p0.y + dy * tOut },
+  };
+};
+
+/**
+ * Diagonal hatching across the polygon. Each hatch line is clipped to the
+ * convex polygon boundary so a rotated rectangle's hatch never extends past
+ * its actual judgement area (rule 4.7 difficult terrain).
+ */
 const drawHatch = (
   g: Phaser.GameObjects.Graphics,
   vertices: ReadonlyArray<{ x: number; y: number }>,
@@ -107,11 +165,18 @@ const drawHatch = (
     if (v.y > maxY) maxY = v.y;
   }
   const step = 8;
+  const height = maxY - minY;
   g.lineStyle(1, color, 0.45);
-  for (let x = minX; x < maxX + maxY - minY; x += step) {
+  for (let x = minX; x < maxX + height; x += step) {
+    const seg = clipSegmentToConvexPolygon(
+      { x, y: minY },
+      { x: x - height, y: maxY },
+      vertices,
+    );
+    if (!seg) continue;
     g.beginPath();
-    g.moveTo(x, minY);
-    g.lineTo(x - (maxY - minY), maxY);
+    g.moveTo(seg.a.x, seg.a.y);
+    g.lineTo(seg.b.x, seg.b.y);
     g.strokePath();
   }
 };
