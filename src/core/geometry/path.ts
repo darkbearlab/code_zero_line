@@ -13,7 +13,20 @@ export interface PathResult {
 }
 
 export interface ObstacleSpec {
+  /**
+   * Hard collision polygons (HARD walls). Path swept-circle stops when the
+   * mover's leading edge first touches any polygon edge — center remains
+   * outside by `moverRadius`.
+   */
   readonly polygons: ReadonlyArray<Polygon>;
+  /**
+   * Difficult-terrain polygons. Rule 4.2C: "移動路徑接觸困難地形邊緣 →
+   * 該次移動立即結束". The *center line* (not the swept circle) determines
+   * the stop point — the unit ends with its centre on the boundary, i.e.
+   * partially inside. Polygons that already contain `from` are ignored
+   * (the mover starts inside; the start-in cap is enforced separately).
+   */
+  readonly enterStopPolygons?: ReadonlyArray<Polygon>;
   readonly enemyCircles: ReadonlyArray<Circle>;
   /**
    * Friendly units. Pass-through during movement, but the *final* position
@@ -66,6 +79,20 @@ export const computeMovePath = (
     if (tHit !== null && tHit < bestT) {
       bestT = tHit;
       bestReason = 'ENEMY';
+    }
+  }
+
+  // Difficult-terrain entry stop: centre line crosses the polygon boundary.
+  // Skip polygons that already contain `from` (start-inside is governed by
+  // rule 4.2C max-1-UD cap, applied upstream).
+  if (obs.enterStopPolygons) {
+    for (const poly of obs.enterStopPolygons) {
+      if (pointInPolygon(from, poly)) continue;
+      const tHit = segmentVsPolygonFirstHit(from, to, poly);
+      if (tHit !== null && tHit < bestT) {
+        bestT = tHit;
+        bestReason = 'OBSTACLE';
+      }
     }
   }
 
@@ -162,6 +189,55 @@ const sweptCircleVsPolygon = (
     lastSafe = t;
   }
   return null;
+};
+
+/**
+ * Smallest t in (ε, 1] where segment from→to first crosses any edge of
+ * the polygon. Used for difficult-terrain entry stop where the *centre
+ * line* (not the swept circle) determines the end point. Returns null
+ * if the segment never crosses an edge within (ε, 1].
+ */
+const segmentVsPolygonFirstHit = (
+  from: Vec2,
+  to: Vec2,
+  poly: Polygon,
+): number | null => {
+  const verts = poly.vertices;
+  const n = verts.length;
+  if (n < 2) return null;
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  let bestT: number | null = null;
+  for (let i = 0; i < n; i++) {
+    const a = verts[i]!;
+    const b = verts[(i + 1) % n]!;
+    const ex = b.x - a.x;
+    const ey = b.y - a.y;
+    const denom = dx * ey - dy * ex;
+    if (Math.abs(denom) < 1e-9) continue;
+    const t = ((a.x - from.x) * ey - (a.y - from.y) * ex) / denom;
+    const u = ((a.x - from.x) * dy - (a.y - from.y) * dx) / denom;
+    if (t > 1e-6 && t <= 1 && u >= -1e-6 && u <= 1 + 1e-6) {
+      if (bestT === null || t < bestT) bestT = t;
+    }
+  }
+  return bestT;
+};
+
+const pointInPolygon = (p: Vec2, poly: Polygon): boolean => {
+  const verts = poly.vertices;
+  let inside = false;
+  for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+    const xi = verts[i]!.x;
+    const yi = verts[i]!.y;
+    const xj = verts[j]!.x;
+    const yj = verts[j]!.y;
+    const intersects =
+      yi > p.y !== yj > p.y &&
+      p.x < ((xj - xi) * (p.y - yi)) / (yj - yi + 1e-12) + xi;
+    if (intersects) inside = !inside;
+  }
+  return inside;
 };
 
 /**

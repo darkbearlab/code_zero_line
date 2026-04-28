@@ -669,15 +669,23 @@ const moveAction = (
       (o) => o.faction === u.faction && o.id !== u.id && isUnitAlive(o),
     )
     .map(getUnitCircle);
-  // Path stops at any terrain edge: HARD (collision), DIFFICULT/SOFT (rule 4.2C
-  // and 9.3 — touching edge ends the move).
-  const stoppingPolygons = s.terrain.map((t) => t.polygon);
+  // HARD walls block movement (rule 4.2A — base contact ends move).
+  // DIFFICULT terrain ends the move when its boundary is crossed (rule 4.2C —
+  // 進入與離開). SOFT terrain (smoke / smoke-equivalents) does NOT stop
+  // movement — it only affects LOS / cover.
+  const stoppingPolygons = s.terrain
+    .filter((t) => t.kind === 'HARD')
+    .map((t) => t.polygon);
+  const enterStopPolygons = s.terrain
+    .filter((t) => t.kind === 'DIFFICULT')
+    .map((t) => t.polygon);
   // LOS during movement only blocked by terrain that actually breaks vision —
   // computed inside the LOS helpers from terrains; for now we forward all.
   const losTerrains = s.terrain;
 
   const path = computeMovePath(u.position, effectiveTarget, {
     polygons: stoppingPolygons,
+    enterStopPolygons,
     enemyCircles,
     friendlyCircles,
     moverRadius: u.radius,
@@ -815,10 +823,16 @@ const crawlAction = (
       (o) => o.faction === u.faction && o.id !== u.id && isUnitAlive(o),
     )
     .map(getUnitCircle);
-  const stoppingPolygons = s.terrain.map((t) => t.polygon);
+  const stoppingPolygons = s.terrain
+    .filter((t) => t.kind === 'HARD')
+    .map((t) => t.polygon);
+  const enterStopPolygons = s.terrain
+    .filter((t) => t.kind === 'DIFFICULT')
+    .map((t) => t.polygon);
 
   const path = computeMovePath(u.position, cappedTarget, {
     polygons: stoppingPolygons,
+    enterStopPolygons,
     enemyCircles,
     friendlyCircles,
     moverRadius: u.radius,
@@ -1215,7 +1229,12 @@ const commandMoveAction = (
   }
 
   // Compute paths for each mover.
-  const stoppingPolygons = working.terrain.map((t) => t.polygon);
+  const stoppingPolygons = working.terrain
+    .filter((t) => t.kind === 'HARD')
+    .map((t) => t.polygon);
+  const enterStopPolygons = working.terrain
+    .filter((t) => t.kind === 'DIFFICULT')
+    .map((t) => t.polygon);
   const moverIds = new Set(allMovers.map((m) => m.unitId));
   const specs: CommandMoveSpec[] = allMovers.map((m) => {
     const u = findUnit(working, m.unitId)!;
@@ -1237,6 +1256,7 @@ const commandMoveAction = (
       .map(getUnitCircle);
     const path = computeMovePath(u.position, target, {
       polygons: stoppingPolygons,
+      enterStopPolygons,
       enemyCircles,
       friendlyCircles,
       moverRadius: u.radius,

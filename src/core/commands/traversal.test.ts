@@ -195,6 +195,39 @@ describe('CLIMB command', () => {
     expect(r.state.initiative.holder).toBe('A');
     expect(r.state.initiative.activeActivation).toBeNull();
   });
+
+  it('lands the mover ON TOP of a wide high wall (centred on its spine)', () => {
+    // Wide wall x∈[40,140] (100 long), y∈[-30,30] (60 thick — well over 2r).
+    // Climber arrives from y < -30 and should end up centred on the spine
+    // (y = 0), x preserved.
+    const wideWall: Terrain = {
+      id: 'platform',
+      kind: 'HARD',
+      height: 200,
+      polygon: {
+        vertices: [v2(40, -30), v2(140, -30), v2(140, 30), v2(40, 30)],
+      },
+    };
+    const s0 = baseState(
+      [
+        makeUnit({
+          id: 'a1',
+          faction: 'A',
+          position: v2(90, -30 - STANDARD_BASE_RADIUS_PIXELS + 2),
+          quality: 1,
+        }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(1000, 0) }),
+      ],
+      [wideWall],
+    );
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_CHECK', unitId: 'a1' },
+      { type: 'CLIMB', unitId: 'a1' },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    expect(a1.position.y).toBeCloseTo(0, 0);
+    expect(a1.position.x).toBeCloseTo(90, 0);
+  });
 });
 
 describe('Difficult-terrain start-in (rule 4.2C)', () => {

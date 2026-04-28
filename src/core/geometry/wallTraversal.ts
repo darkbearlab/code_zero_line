@@ -38,60 +38,137 @@ export const findContactedHardWall = (
 };
 
 /**
- * Vault destination: mirror unit across the wall's bbox center along the
- * wall's thin axis. Distance from the wall is preserved.
+ * Decompose a convex polygon into its principal axes by minimum-width
+ * direction. For a rectangle this recovers the rect's exact local frame
+ * (works for axis-aligned and rotated rects alike); for arbitrary convex
+ * polygons it returns the orientation that minimises perpendicular width.
+ */
+const polygonPrincipalAxes = (
+  verts: ReadonlyArray<Vec2>,
+): {
+  centroid: Vec2;
+  thinAxis: Vec2;
+  longAxis: Vec2;
+  thickness: number;
+  length: number;
+} => {
+  let cx = 0;
+  let cy = 0;
+  for (const v of verts) {
+    cx += v.x;
+    cy += v.y;
+  }
+  cx /= verts.length;
+  cy /= verts.length;
+
+  let bestThickness = Infinity;
+  let bestThinAxis: Vec2 = { x: 1, y: 0 };
+  let bestLongAxis: Vec2 = { x: 0, y: 1 };
+  let bestLength = 0;
+  for (let i = 0; i < verts.length; i++) {
+    const a = verts[i]!;
+    const b = verts[(i + 1) % verts.length]!;
+    const ex = b.x - a.x;
+    const ey = b.y - a.y;
+    const len = Math.hypot(ex, ey);
+    if (len < 1e-6) continue;
+    const ux = ex / len;
+    const uy = ey / len;
+    const nx = -uy;
+    const ny = ux;
+    let minU = Infinity;
+    let maxU = -Infinity;
+    let minN = Infinity;
+    let maxN = -Infinity;
+    for (const v of verts) {
+      const pu = v.x * ux + v.y * uy;
+      const pn = v.x * nx + v.y * ny;
+      if (pu < minU) minU = pu;
+      if (pu > maxU) maxU = pu;
+      if (pn < minN) minN = pn;
+      if (pn > maxN) maxN = pn;
+    }
+    const thickness = maxN - minN;
+    const lengthSpan = maxU - minU;
+    if (thickness < bestThickness) {
+      bestThickness = thickness;
+      bestThinAxis = { x: nx, y: ny };
+      bestLongAxis = { x: ux, y: uy };
+      bestLength = lengthSpan;
+    }
+  }
+  return {
+    centroid: { x: cx, y: cy },
+    thinAxis: bestThinAxis,
+    longAxis: bestLongAxis,
+    thickness: bestThickness,
+    length: bestLength,
+  };
+};
+
+/**
+ * Vault destination (rule 4.2B — 翻越):
+ * "模型放置於障礙物正對面緊鄰位置" — the unit ends up adjacent to the wall on
+ * the *opposite* side, mirrored across the wall's spine. Works for rotated
+ * walls because we project onto the wall's local thin axis.
  */
 export const vaultDestination = (
   unit: Unit,
   wallVerts: ReadonlyArray<Vec2>,
 ): Vec2 => {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const v of wallVerts) {
-    if (v.x < minX) minX = v.x;
-    if (v.x > maxX) maxX = v.x;
-    if (v.y < minY) minY = v.y;
-    if (v.y > maxY) maxY = v.y;
-  }
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  const w = maxX - minX;
-  const h = maxY - minY;
-  if (w <= h) {
-    // Vertical wall — mirror across X.
-    return { x: 2 * cx - unit.position.x, y: unit.position.y };
-  }
-  return { x: unit.position.x, y: 2 * cy - unit.position.y };
+  const axes = polygonPrincipalAxes(wallVerts);
+  const dx = unit.position.x - axes.centroid.x;
+  const dy = unit.position.y - axes.centroid.y;
+  const localT = dx * axes.thinAxis.x + dy * axes.thinAxis.y;
+  const localL = dx * axes.longAxis.x + dy * axes.longAxis.y;
+  // Mirror across the wall's spine (long axis through centroid).
+  const newT = -localT;
+  const newL = localL;
+  return {
+    x: axes.centroid.x + axes.thinAxis.x * newT + axes.longAxis.x * newL,
+    y: axes.centroid.y + axes.thinAxis.y * newT + axes.longAxis.y * newL,
+  };
 };
 
 /**
- * Climb destination: place the unit at the *far* edge of the wall (relative
- * to current position), conceptually "on top of" the wall in 2D.
+ * Climb destination (rule 4.2B — 攀爬):
+ * "放置於攀爬路徑頂端邊緣" — placed on top of the wall, at the edge contacted.
+ *
+ * In top-down 2D this means: if the wall's surface (footprint thickness) is
+ * wide enough to fit the unit's base, the unit stands ON the wall, centered
+ * over its spine at the contact point. If the wall is too thin to stand on,
+ * the unit ends up on the far side, just past the wall (which is the only
+ * place it can fit).
+ *
+ * The long-axis position is clamped to the wall's extent so the unit never
+ * dangles past either end.
  */
 export const climbDestination = (
   unit: Unit,
   wallVerts: ReadonlyArray<Vec2>,
 ): Vec2 => {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const v of wallVerts) {
-    if (v.x < minX) minX = v.x;
-    if (v.x > maxX) maxX = v.x;
-    if (v.y < minY) minY = v.y;
-    if (v.y > maxY) maxY = v.y;
+  const axes = polygonPrincipalAxes(wallVerts);
+  const r = unit.radius;
+  const dx = unit.position.x - axes.centroid.x;
+  const dy = unit.position.y - axes.centroid.y;
+  const localT = dx * axes.thinAxis.x + dy * axes.thinAxis.y;
+  const localL = dx * axes.longAxis.x + dy * axes.longAxis.y;
+  let newT: number;
+  if (axes.thickness >= 2 * r + 1) {
+    // Wall is wide enough to stand on — center the unit over the spine.
+    newT = 0;
+  } else {
+    // Wall is too thin to stand on — place the unit's centre on the far
+    // edge of the wall. The body straddles the wall (rule 4.2B "頂端邊緣"
+    // — the climb path's top edge), and from this position the unit is
+    // free to move forward on the next action.
+    const sign = localT < 0 ? 1 : -1;
+    newT = sign * (axes.thickness / 2);
   }
-  const cx = (minX + maxX) / 2;
-  const cy = (minY + maxY) / 2;
-  const w = maxX - minX;
-  const h = maxY - minY;
-  if (w <= h) {
-    const farX = unit.position.x < cx ? maxX : minX;
-    return { x: farX, y: unit.position.y };
-  }
-  const farY = unit.position.y < cy ? maxY : minY;
-  return { x: unit.position.x, y: farY };
+  const longCap = Math.max(0, axes.length / 2 - r);
+  const newL = Math.max(-longCap, Math.min(longCap, localL));
+  return {
+    x: axes.centroid.x + axes.thinAxis.x * newT + axes.longAxis.x * newL,
+    y: axes.centroid.y + axes.thinAxis.y * newT + axes.longAxis.y * newL,
+  };
 };

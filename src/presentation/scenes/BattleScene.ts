@@ -219,17 +219,24 @@ export class BattleScene extends Phaser.Scene {
     this.input.on(
       'wheel',
       (
-        _pointer: Phaser.Input.Pointer,
+        pointer: Phaser.Input.Pointer,
         _objs: unknown,
         _dx: number,
         dy: number,
       ) => {
         const factor = dy > 0 ? 0.9 : 1.1;
-        this.zoomCameraAt(
-          this.input.activePointer.x,
-          this.input.activePointer.y,
-          factor,
-        );
+        // Use the pointer that fired the event (its x/y is freshest).
+        // Phaser exposes `event` for the underlying WheelEvent; fall back
+        // to pointer.x/y, which is canvas-relative and matches getWorldPoint.
+        const evt = (pointer as unknown as { event?: WheelEvent }).event;
+        let sx = pointer.x;
+        let sy = pointer.y;
+        if (evt) {
+          const rect = (this.game.canvas as HTMLCanvasElement).getBoundingClientRect();
+          sx = evt.clientX - rect.left;
+          sy = evt.clientY - rect.top;
+        }
+        this.zoomCameraAt(sx, sy, factor);
       },
     );
     this.input.keyboard?.on('keydown-ESC', () => {
@@ -1780,7 +1787,12 @@ export class BattleScene extends Phaser.Scene {
         };
       }
     }
-    const stoppingPolygons = this.gameState.terrain.map((t) => t.polygon);
+    const stoppingPolygons = this.gameState.terrain
+      .filter((t) => t.kind === 'HARD')
+      .map((t) => t.polygon);
+    const enterStopPolygons = this.gameState.terrain
+      .filter((t) => t.kind === 'DIFFICULT')
+      .map((t) => t.polygon);
     const enemyCircles = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
@@ -1791,6 +1803,7 @@ export class BattleScene extends Phaser.Scene {
       .map(getUnitCircle);
     const path = computeMovePath(u.position, effectiveTarget, {
       polygons: stoppingPolygons,
+      enterStopPolygons,
       enemyCircles,
       friendlyCircles,
       moverRadius: u.radius,
@@ -1923,7 +1936,12 @@ export class BattleScene extends Phaser.Scene {
     if (!officer) return;
 
     // Compute paths for officer + each participant (caps for crawl, edge stops).
-    const stoppingPolygons = this.gameState.terrain.map((t) => t.polygon);
+    const stoppingPolygons = this.gameState.terrain
+      .filter((t) => t.kind === 'HARD')
+      .map((t) => t.polygon);
+    const enterStopPolygons = this.gameState.terrain
+      .filter((t) => t.kind === 'DIFFICULT')
+      .map((t) => t.polygon);
     const moverIds = new Set<string>([officerId, ...participants.map((p) => p.unitId)]);
     const buildPath = (
       moverId: string,
@@ -1961,6 +1979,7 @@ export class BattleScene extends Phaser.Scene {
         .map(getUnitCircle);
       const path = computeMovePath(from, effective, {
         polygons: stoppingPolygons,
+        enterStopPolygons,
         enemyCircles,
         friendlyCircles,
         moverRadius,
@@ -2241,7 +2260,12 @@ export class BattleScene extends Phaser.Scene {
       }
     }
 
-    const stoppingPolygons = this.gameState.terrain.map((t) => t.polygon);
+    const stoppingPolygons = this.gameState.terrain
+      .filter((t) => t.kind === 'HARD')
+      .map((t) => t.polygon);
+    const enterStopPolygons = this.gameState.terrain
+      .filter((t) => t.kind === 'DIFFICULT')
+      .map((t) => t.polygon);
     const enemyCircles = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
@@ -2252,6 +2276,7 @@ export class BattleScene extends Phaser.Scene {
       .map(getUnitCircle);
     const path = computeMovePath(u.position, target, {
       polygons: stoppingPolygons,
+      enterStopPolygons,
       enemyCircles,
       friendlyCircles,
       moverRadius: u.radius,

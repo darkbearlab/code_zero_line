@@ -199,7 +199,7 @@ describe('MOVE command', () => {
     expect(a1.position.x).toBeGreaterThan(0);
   });
 
-  it('move stops at SOFT terrain edge (rule 9.3 — entry ends move)', () => {
+  it('move passes through SOFT terrain (smoke does not block movement)', () => {
     const s0: GameState = {
       ...makeState(),
       terrain: [
@@ -217,8 +217,9 @@ describe('MOVE command', () => {
       { type: 'MOVE', unitId: 'a1', target: v2(200, 0) },
     ]);
     const a1 = r.state.units.find((u) => u.id === 'a1')!;
-    expect(a1.position.x).toBeLessThan(60);
-    expect(a1.position.x).toBeGreaterThan(0);
+    // SOFT (smoke) only affects LOS / cover — the unit walks all the way
+    // through to the target.
+    expect(a1.position.x).toBeCloseTo(200, 0);
   });
 
   it('move backs off short of a friendly at the target (rule 4.2A)', () => {
