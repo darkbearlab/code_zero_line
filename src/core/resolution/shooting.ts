@@ -18,6 +18,7 @@ import type { GameEvent, ShootMode } from '../commands/types';
 import { CommandError } from '../commands/types';
 import { applyHits } from './damage';
 import { targetHasCover } from './cover';
+import { sumTraitParams, unitHasTrait } from '../traits/types';
 
 export interface ResolveShotInput {
   readonly state: GameState;
@@ -159,10 +160,18 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
 
   const rng = deriveRng(s.seed, cmdIndex, `${rngLabel}:hits`);
   const rolls = rng.rollDice(totalDice, D6_SIDES);
-  const hits = countHits(rolls, threshold);
+  const rawHits = countHits(rolls, threshold);
+
+  // ARMOR(N) absorbs N hits before damage state is computed.
+  const armorN = sumTraitParams(target, 'ARMOR');
+  const hits = Math.max(0, rawHits - Math.max(0, armorN));
 
   const beforeDamage = target.damage;
-  const afterDamage = applyHits(beforeDamage, hits);
+  let afterDamage = applyHits(beforeDamage, hits);
+  // FRAGILE: a result of IMPEDED is upgraded to SUPPRESSED.
+  if (unitHasTrait(target, 'FRAGILE') && afterDamage === 'IMPEDED') {
+    afterDamage = 'SUPPRESSED';
+  }
 
   let next = updateUnit(s, targetId, { damage: afterDamage });
   if (afterDamage === 'SUPPRESSED' && beforeDamage !== 'SUPPRESSED') {

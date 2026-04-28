@@ -3,5 +3,5 @@
   "displayName": "Squad Lead",
   "quality": 2,
   "weaponIds": ["rifle", "blade"],
-  "traits": ["OFFICER"]
+  "traits": ["OFFICER", "STALWART"]
 }

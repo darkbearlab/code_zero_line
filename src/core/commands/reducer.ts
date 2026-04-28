@@ -2,6 +2,7 @@ import { hasLOS } from '../geometry/los';
 import { computeReactionWindows } from '../geometry/los_window';
 import { computeMovePath } from '../geometry/path';
 import { isPointInPolygon } from '../geometry/polygon';
+import { TRAITS } from '../traits/registry';
 import {
   climbDestination,
   findContactedHardWall,
@@ -43,6 +44,34 @@ import type {
 import { CommandError } from './types';
 
 const opponent = (f: Faction): Faction => (f === 'A' ? 'B' : 'A');
+
+/** True if any of `u`'s traits bypass the melee status penalty (STALWART). */
+const meleeIgnoresStatus = (u: Unit): boolean => {
+  for (const traitStr of u.traits) {
+    const id = traitStr.split(/[(:]/, 1)[0]!.trim();
+    if (TRAITS[id]?.meleeIgnoresStatusPenalty) return true;
+  }
+  return false;
+};
+
+/**
+ * Apply trait-based caps on `actionsRemaining` for an activation. Returns
+ * undefined when no trait cap applies (use the default for the activation
+ * kind).
+ */
+const capActionsForTraits = (u: Unit): number | undefined => {
+  let cap: number | undefined;
+  for (const traitStr of u.traits) {
+    const id = traitStr.split(/[(:]/, 1)[0]!.trim();
+    const def = TRAITS[id];
+    if (def?.maxActionsPerActivation !== undefined) {
+      cap = cap === undefined
+        ? def.maxActionsPerActivation
+        : Math.min(cap, def.maxActionsPerActivation);
+    }
+  }
+  return cap;
+};
 
 const bumpCommandCount = (s: GameState): GameState => ({
   ...s,
@@ -189,10 +218,12 @@ const activateCheck = (
   };
   if (success) {
     let next = markUnitActivated(s, u.id);
+    // Trait-based action cap (e.g., CUMBERSOME = 1) overrides unlimited.
+    const cap = capActionsForTraits(u);
     next = setActivation(next, {
       unitId: u.id,
       kind: 'CHECK_SUCCESS',
-      actionsRemaining: -1,
+      actionsRemaining: cap ?? -1,
       failureProtection: false,
       forcedTurnoverAfterAction: false,
     });
@@ -1359,9 +1390,11 @@ const buildMeleePool = (
       v2Dist(o.position, contactPoint) <= UNIT_DISTANCE_PIXELS,
   ).length;
   dice += Math.min(supports, MELEE_SUPPORT_CAP);
+  // Status penalty (rule 4.7): IMPEDED/SUPPRESSED → −1 die.
+  // STALWART (堅忍) bypasses the penalty.
   if (
     (unit.damage === 'IMPEDED' || unit.damage === 'SUPPRESSED') &&
-    !unit.traits.includes('STOIC')
+    !meleeIgnoresStatus(unit)
   ) {
     dice = Math.max(0, dice - 1);
   }

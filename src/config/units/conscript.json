@@ -3,5 +3,5 @@
   "displayName": "Conscript",
   "quality": 4,
   "weaponIds": ["smg", "blade"],
-  "traits": []
+  "traits": ["FRAGILE"]
 }

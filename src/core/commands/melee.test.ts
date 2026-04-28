@@ -141,23 +141,23 @@ describe('MELEE command', () => {
     expect(event?.defenderDice).toBe(3);
   });
 
-  it('STOIC trait ignores Impeded melee penalty', () => {
+  it('STALWART trait ignores Impeded melee penalty', () => {
     const s0 = baseState();
-    const stoicAttacker: GameState = {
+    const stalwartAttacker: GameState = {
       ...s0,
       units: [
-        { ...s0.units[0]!, damage: 'IMPEDED', traits: ['STOIC'] },
+        { ...s0.units[0]!, damage: 'IMPEDED', traits: ['STALWART'] },
         s0.units[1]!,
       ],
     };
-    const r = applyCommands(stoicAttacker, [
+    const r = applyCommands(stalwartAttacker, [
       { type: 'ACTIVATE_SPEND', unitId: 'a1' },
       { type: 'MELEE', attackerId: 'a1', defenderId: 'b1' },
     ]);
     const event = r.events.find((e) => e.type === 'MELEE_RESOLVED') as
       | { attackerDice: number }
       | undefined;
-    // 3 + 1 charge = 4 (no Impeded penalty thanks to STOIC).
+    // 3 + 1 charge = 4 (no Impeded penalty thanks to STALWART).
     expect(event?.attackerDice).toBe(4);
   });
 });
