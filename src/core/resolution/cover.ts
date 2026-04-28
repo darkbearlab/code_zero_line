@@ -3,22 +3,34 @@ import { segmentBlockedByPolygons } from '../geometry/segment';
 import type { Terrain, Unit } from '../state/GameState';
 
 /**
- * Phase 4 cover model:
- *  1. Target is inside DIFFICULT terrain → cover (rule 9.2 「處於困難地形內的模型視為處於『掩護』中」).
- *  2. Otherwise, if a HARD obstacle blocks the shooter→target center line
- *     (i.e. the shot is only possible via perimeter peek), target gets cover
- *     (rule 9.1 「攻擊方視線穿過掩體邊緣，該模型獲得掩體」).
+ * Whether the target gets the cover die-penalty (-1 die to attacker).
  *
- * SOFT cover is deferred — proper handling requires direction-aware checks.
+ * Rule sources:
+ *  - 4.5: prone "視為擁有掩體" (does not stack with terrain cover, but the
+ *    cumulative die effect is the same single -1).
+ *  - 9.1: target adjacent to hard cover with LOS crossing the cover edge.
+ *  - 9.2: target inside DIFFICULT terrain.
+ *  - 9.3: SOFT cover — both inside and outside benefit from cover when shot
+ *    crosses smoke (rule says "彼此視為處於『掩體』中" — implemented as: cover
+ *    when *either* shooter or target stands inside a soft polygon).
  */
 export const targetHasCover = (
   shooter: Unit,
   target: Unit,
   terrains: ReadonlyArray<Terrain>,
 ): boolean => {
+  if (target.stance === 'PRONE') return true;
   for (const t of terrains) {
     if (t.kind === 'DIFFICULT' && isPointInPolygon(target.position, t.polygon)) {
       return true;
+    }
+    if (t.kind === 'SOFT') {
+      if (
+        isPointInPolygon(target.position, t.polygon) ||
+        isPointInPolygon(shooter.position, t.polygon)
+      ) {
+        return true;
+      }
     }
   }
   const hardPolys = terrains

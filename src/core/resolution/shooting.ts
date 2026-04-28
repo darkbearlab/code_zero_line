@@ -86,10 +86,19 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
     throw new CommandError('NOT_OFFICER', 'Combined fire requires an officer');
   }
 
-  const losObstacles = s.terrain
-    .filter((t) => t.kind === 'HARD')
-    .map((t) => t.polygon);
-  if (!hasLOS(getUnitCircle(shooter), getUnitCircle(target), losObstacles)) {
+  const losTerrain = s.terrain;
+  const stanceOpts = (a: Unit, b: Unit) => ({
+    aProne: a.stance === 'PRONE',
+    bProne: b.stance === 'PRONE',
+  });
+  if (
+    !hasLOS(
+      getUnitCircle(shooter),
+      getUnitCircle(target),
+      losTerrain,
+      stanceOpts(shooter, target),
+    )
+  ) {
     throw new CommandError('NO_LOS', `${shooterId} has no LOS to ${targetId}`);
   }
 
@@ -105,7 +114,14 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
     if (p.faction !== shooter.faction) {
       throw new CommandError('FRIENDLY_FIRE', `${pid} on different faction`);
     }
-    if (!hasLOS(getUnitCircle(p), getUnitCircle(target), losObstacles)) {
+    if (
+      !hasLOS(
+        getUnitCircle(p),
+        getUnitCircle(target),
+        losTerrain,
+        stanceOpts(p, target),
+      )
+    ) {
       throw new CommandError('NO_LOS', `Participant ${pid} has no LOS`);
     }
     participants.push(p);

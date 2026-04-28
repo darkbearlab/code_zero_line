@@ -4,8 +4,9 @@ import type { GameEvent } from '../../core/commands/types';
 import { CommandError } from '../../core/commands/types';
 import type { Vec2 } from '../../core/geometry/types';
 import { UNIT_DISTANCE_PIXELS } from '../../core/rules/constants';
-import type { GameState, Terrain, Unit } from '../../core/state/GameState';
+import type { GameState, Unit } from '../../core/state/GameState';
 import { isUnitAlive } from '../../core/state/GameState';
+import { drawTerrain } from '../rendering/terrain';
 import type { ReplayLog } from '../../core/replay/log';
 import { loadLatestReplay } from '../../core/replay/storage';
 import { BATTLEFIELD_SIZE_PIXELS } from '../state/setupBattleState';
@@ -15,17 +16,6 @@ const FACTION_COLOR: Readonly<Record<'A' | 'B', number>> = {
   B: 0xcf5a4a,
 };
 
-const TERRAIN_COLOR: Readonly<Record<'HARD' | 'DIFFICULT' | 'SOFT', number>> = {
-  HARD: 0x4a4a4a,
-  DIFFICULT: 0x3a4a3a,
-  SOFT: 0x6a6a8a,
-};
-
-const TERRAIN_ALPHA: Readonly<Record<'HARD' | 'DIFFICULT' | 'SOFT', number>> = {
-  HARD: 1,
-  DIFFICULT: 0.6,
-  SOFT: 0.4,
-};
 
 const STEP_INTERVAL_MS = 800;
 
@@ -48,6 +38,13 @@ export class ReplayScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Reset per scene entry (Phaser reuses scene instances).
+    this.commandIndex = 0;
+    this.unitContainers = new Map();
+    this.logLines = [];
+    this.playing = false;
+    this.pendingTween = 0;
+    this.stepEvent = null;
     this.log = loadLatestReplay();
     this.cameras.main.setBackgroundColor('#0a0c0a');
     this.boardEdgeGfx = this.add.graphics();
@@ -55,9 +52,15 @@ export class ReplayScene extends Phaser.Scene {
     this.unitLayer = this.add.container();
 
     this.fitCamera();
-    this.scale.on('resize', () => this.fitCamera());
+    const resizeHandler = () => this.fitCamera();
+    this.scale.on('resize', resizeHandler);
+    this.events.once('shutdown', () => this.scale.off('resize', resizeHandler));
 
     this.overlayEl = this.makeOverlay();
+    this.events.once('shutdown', () => {
+      this.overlayEl?.remove();
+      document.getElementById('replay-log')?.remove();
+    });
 
     if (!this.log) {
       this.appendLog('No replay available — go back to battle and save one first.');
@@ -122,22 +125,7 @@ export class ReplayScene extends Phaser.Scene {
 
   private renderTerrain(): void {
     this.terrainGfx.clear();
-    for (const t of this.gameState.terrain) this.drawTerrain(t);
-  }
-
-  private drawTerrain(t: Terrain): void {
-    const verts = t.polygon.vertices;
-    if (verts.length === 0) return;
-    this.terrainGfx.fillStyle(TERRAIN_COLOR[t.kind], TERRAIN_ALPHA[t.kind]);
-    this.terrainGfx.lineStyle(1, 0x6a6a6a, 1);
-    this.terrainGfx.beginPath();
-    this.terrainGfx.moveTo(verts[0]!.x, verts[0]!.y);
-    for (let i = 1; i < verts.length; i++) {
-      this.terrainGfx.lineTo(verts[i]!.x, verts[i]!.y);
-    }
-    this.terrainGfx.closePath();
-    this.terrainGfx.fillPath();
-    this.terrainGfx.strokePath();
+    for (const t of this.gameState.terrain) drawTerrain(this.terrainGfx, t);
   }
 
   private renderUnits(): void {
@@ -296,7 +284,7 @@ export class ReplayScene extends Phaser.Scene {
   }
 
   private panCameraTo(target: Vec2): void {
-    this.cameras.main.pan(target.x, target.y, 400, 'Sine.InOut', true);
+    this.cameras.main.pan(target.x, target.y, 400, 'Sine.easeInOut', true);
   }
 
   private makeOverlay(): HTMLElement {
@@ -376,11 +364,8 @@ export class ReplayScene extends Phaser.Scene {
 
   private exitToBattle(): void {
     document.getElementById('replay-log')?.remove();
-    const hud = document.getElementById('hud');
-    if (hud) hud.style.display = '';
-    const frame = document.getElementById('hud-frame');
-    if (frame) (frame as HTMLElement).style.display = '';
-    this.scene.start('Battle');
+    this.overlayEl?.remove();
+    this.scene.start('Roster');
   }
 }
 

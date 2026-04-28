@@ -23,3 +23,16 @@ export const TURNOVER_MOMENTUM_GRANT = 2;
 
 /** Melee support cap (rule 4.7 A). */
 export const MELEE_SUPPORT_CAP = 3;
+
+/**
+ * Vault threshold (rule 4.2 B). HARD terrain whose height is at or below this
+ * is vault-able (low wall); above, climb-able (high wall).
+ * = 1 unit distance.
+ */
+export const VAULT_HEIGHT_THRESHOLD_PIXELS = UNIT_DISTANCE_PIXELS;
+
+/** Crawl maximum distance (rule 4.5 — 匍匐). */
+export const CRAWL_MAX_DISTANCE_PIXELS = UNIT_DISTANCE_PIXELS;
+
+/** Difficult-terrain start-in move cap (rule 4.2 C — 穿越與脫離). */
+export const DIFFICULT_TERRAIN_START_IN_CAP_PIXELS = UNIT_DISTANCE_PIXELS;

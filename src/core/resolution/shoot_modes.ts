@@ -63,10 +63,12 @@ export const listAvailableShootModes = (
   // For REACTION fires, the shooter must not have already failed a reaction.
   if (weaponMode === 'REACTION' && shooter.cannotReactThisRound) return [];
 
-  const hardObs = state.terrain
-    .filter((t) => t.kind === 'HARD')
-    .map((t) => t.polygon);
-  if (!hasLOS(getUnitCircle(shooter), getUnitCircle(target), hardObs)) {
+  const losTo = (from: Unit, to: Unit): boolean =>
+    hasLOS(getUnitCircle(from), getUnitCircle(to), state.terrain, {
+      aProne: from.stance === 'PRONE',
+      bProne: to.stance === 'PRONE',
+    });
+  if (!losTo(shooter, target)) {
     return [];
   }
 
@@ -95,7 +97,7 @@ export const listAvailableShootModes = (
         u.damage !== 'SUPPRESSED' &&
         (weaponMode === 'ACTIVE' || !u.cannotReactThisRound) &&
         v2Dist(u.position, shooter.position) <= UNIT_DISTANCE_PIXELS &&
-        hasLOS(getUnitCircle(u), getUnitCircle(target), hardObs) &&
+        losTo(u, target) &&
         findShootWeapon(u, 'FOCUSED', weaponMode),
     );
     if (parts.length > 0) {
@@ -125,8 +127,8 @@ export const listAvailableShootModes = (
           isUnitAlive(u) &&
           u.damage !== 'SUPPRESSED' &&
           (weaponMode === 'ACTIVE' || !u.cannotReactThisRound) &&
-          hasLOS(getUnitCircle(u), getUnitCircle(shooter), hardObs) &&
-          hasLOS(getUnitCircle(u), getUnitCircle(target), hardObs) &&
+          losTo(u, shooter) &&
+          losTo(u, target) &&
           findShootWeapon(u, 'COMBINED', weaponMode),
       );
       if (parts.length > 0) {

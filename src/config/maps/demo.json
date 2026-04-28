@@ -1,0 +1,101 @@
+{
+  "id": "demo",
+  "displayName": "Demo Field",
+  "size": 768,
+  "terrain": [
+    {
+      "id": "low-wall-mid",
+      "kind": "HARD",
+      "height": 24,
+      "displayName": "矮牆",
+      "polygon": {
+        "vertices": [
+          { "x": 307.2, "y": 322.56 },
+          { "x": 460.8, "y": 322.56 },
+          { "x": 460.8, "y": 334.56 },
+          { "x": 307.2, "y": 334.56 }
+        ]
+      }
+    },
+    {
+      "id": "high-wall-left",
+      "kind": "HARD",
+      "height": 200,
+      "displayName": "高牆",
+      "polygon": {
+        "vertices": [
+          { "x": 92.16, "y": 384 },
+          { "x": 104.16, "y": 384 },
+          { "x": 104.16, "y": 522.24 },
+          { "x": 92.16, "y": 522.24 }
+        ]
+      }
+    },
+    {
+      "id": "high-wall-right",
+      "kind": "HARD",
+      "height": 200,
+      "displayName": "高牆",
+      "polygon": {
+        "vertices": [
+          { "x": 660.48, "y": 245.76 },
+          { "x": 672.48, "y": 245.76 },
+          { "x": 672.48, "y": 384 },
+          { "x": 660.48, "y": 384 }
+        ]
+      }
+    },
+    {
+      "id": "rubble-mid",
+      "kind": "DIFFICULT",
+      "displayName": "瓦礫堆",
+      "polygon": {
+        "vertices": [
+          { "x": 220, "y": 420 },
+          { "x": 320, "y": 420 },
+          { "x": 320, "y": 510 },
+          { "x": 220, "y": 510 }
+        ]
+      }
+    },
+    {
+      "id": "smoke-right",
+      "kind": "SOFT",
+      "displayName": "煙幕",
+      "polygon": {
+        "vertices": [
+          { "x": 470, "y": 430 },
+          { "x": 580, "y": 430 },
+          { "x": 580, "y": 530 },
+          { "x": 470, "y": 530 }
+        ]
+      }
+    }
+  ],
+  "deploymentZones": [
+    {
+      "id": "zone-a",
+      "faction": "A",
+      "polygon": {
+        "vertices": [
+          { "x": 32, "y": 576 },
+          { "x": 736, "y": 576 },
+          { "x": 736, "y": 736 },
+          { "x": 32, "y": 736 }
+        ]
+      }
+    },
+    {
+      "id": "zone-b",
+      "faction": "B",
+      "polygon": {
+        "vertices": [
+          { "x": 32, "y": 32 },
+          { "x": 736, "y": 32 },
+          { "x": 736, "y": 192 },
+          { "x": 32, "y": 192 }
+        ]
+      }
+    }
+  ]
+}

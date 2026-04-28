@@ -2,10 +2,24 @@ import { describe, it, expect } from 'vitest';
 import { computeReactionWindows } from './los_window';
 import type { EnemyForLOS } from './los_window';
 import { v2 } from './vec2';
+import type { Terrain } from '../state/GameState';
 
 const enemy = (id: string, x: number, y: number, r = 10): EnemyForLOS => ({
   id,
   circle: { center: v2(x, y), radius: r },
+});
+
+const highWall = (
+  id: string,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): Terrain => ({
+  id,
+  kind: 'HARD',
+  height: 200,
+  polygon: { vertices: [v2(x1, y1), v2(x2, y1), v2(x2, y2), v2(x1, y2)] },
 });
 
 describe('computeReactionWindows', () => {
@@ -29,35 +43,26 @@ describe('computeReactionWindows', () => {
   });
 
   it('full-cover wall hides the entire path → no window', () => {
-    // Long wall between mover (y=0) and enemy (y=200), spanning the whole x range.
-    const wall = {
-      vertices: [v2(-200, 90), v2(200, 90), v2(200, 110), v2(-200, 110)],
-    };
     const w = computeReactionWindows(
       v2(0, 0),
       v2(100, 0),
       10,
       [enemy('e1', 50, 200)],
-      [wall],
+      [highWall('w', -200, 90, 200, 110)],
     );
     expect(w).toEqual([]);
   });
 
   it('wall covers middle of path → split into two windows', () => {
-    // Wall covers x ∈ [40, 60], blocking visibility from enemy at (50, 200) only
-    // when the mover is roughly under the wall.
-    const wall = {
-      vertices: [v2(40, 90), v2(60, 90), v2(60, 110), v2(40, 110)],
-    };
     const w = computeReactionWindows(
       v2(0, 0),
       v2(100, 0),
       5,
       [enemy('e1', 50, 200, 5)],
-      [wall],
+      [highWall('w', 40, 90, 60, 110)],
+      {},
       64,
     );
-    // Expect at least one window before and one after the covered middle.
     expect(w.length).toBeGreaterThanOrEqual(1);
     if (w.length === 2) {
       expect(w[0]!.endT).toBeLessThan(w[1]!.startT);

@@ -1,6 +1,12 @@
 import Phaser from 'phaser';
 import { chooseAiCommand } from '../../ai/controller';
 import { applyCommand } from '../../core/commands/reducer';
+import { isPointInPolygon } from '../../core/geometry/polygon';
+import {
+  climbDestination,
+  vaultDestination,
+} from '../../core/geometry/wallTraversal';
+import { drawTerrain, polygonCentroid } from '../rendering/terrain';
 import {
   appendCommand,
   createReplayLog,
@@ -25,7 +31,7 @@ import type { Vec2 } from '../../core/geometry/types';
 import { v2Dist, v2Lerp } from '../../core/geometry/vec2';
 import { listAvailableShootModes } from '../../core/resolution/shoot_modes';
 import { UNIT_DISTANCE_PIXELS } from '../../core/rules/constants';
-import type { GameState, Terrain, Unit } from '../../core/state/GameState';
+import type { GameState, Unit } from '../../core/state/GameState';
 import { getUnitCircle, isUnitAlive } from '../../core/state/GameState';
 import timersConfig from '../../config/timers.json';
 import type {
@@ -47,20 +53,10 @@ const FACTION_COLOR: Readonly<Record<'A' | 'B', number>> = {
   B: 0xcf5a4a,
 };
 
-const TERRAIN_COLOR: Readonly<Record<'HARD' | 'DIFFICULT' | 'SOFT', number>> = {
-  HARD: 0x4a4a4a,
-  DIFFICULT: 0x3a4a3a,
-  SOFT: 0x6a6a8a,
-};
-
-const TERRAIN_ALPHA: Readonly<Record<'HARD' | 'DIFFICULT' | 'SOFT', number>> = {
-  HARD: 1,
-  DIFFICULT: 0.6,
-  SOFT: 0.4,
-};
-
 interface ReactionPhaseState {
   intent: 'MOVE' | 'RALLY';
+  /** Which command will be dispatched when the reaction phase confirms. */
+  commandType: 'MOVE' | 'CRAWL' | 'VAULT' | 'CLIMB' | 'RALLY';
   moverId: string;
   moverStart: Vec2;
   moverRadius: number;
@@ -72,9 +68,18 @@ interface ReactionPhaseState {
   scrubberT: number;
 }
 
+/** Visual-only meta about an in-flight move tween, used by auto-facing. */
+interface ActiveMoveMeta {
+  from: Vec2;
+  to: Vec2;
+  windows: ReadonlyArray<ReactionWindow>;
+  tween: Phaser.Tweens.Tween;
+}
+
 export class BattleScene extends Phaser.Scene {
   private gameState!: GameState;
   private terrainGfx!: Phaser.GameObjects.Graphics;
+  private terrainLabels: Phaser.GameObjects.Text[] = [];
   private boardEdgeGfx!: Phaser.GameObjects.Graphics;
   private aimGfx!: Phaser.GameObjects.Graphics;
   private unitLayer!: Phaser.GameObjects.Container;
@@ -84,6 +89,16 @@ export class BattleScene extends Phaser.Scene {
   private reaction: ReactionPhaseState | null = null;
   /** Persistent per-unit Container for tween-able position updates. */
   private unitContainers = new Map<string, Phaser.GameObjects.Container>();
+  /** Visual-only facing per unit, in radians (no rules effect). */
+  private unitFacings = new Map<string, number>();
+  /** Mid-aim-move drag state: target locked at press, angle from drag. */
+  private moveFacingDrag: { target: Vec2; angle: number | null } | null = null;
+  private pendingMoveStance: 'STANDING' | 'CRAWL' | null = null;
+  private pendingEndProne = false;
+  /** After dispatching MOVE, apply this facing on tween start. */
+  private pendingMoverFacing: { unitId: string; angle: number } | null = null;
+  /** Active move tweens used by per-frame auto-facing of LOS witnesses. */
+  private activeMovesMeta = new Map<string, ActiveMoveMeta>();
   private movementTweens = 0;
   private aiControlled: Record<'A' | 'B', boolean> = { A: false, B: false };
   private aiPending = false;
@@ -103,8 +118,38 @@ export class BattleScene extends Phaser.Scene {
     super({ key: 'Battle' });
   }
 
+  init(data: { initialState?: GameState }): void {
+    if (data?.initialState) {
+      this.gameState = data.initialState;
+    } else {
+      this.gameState = setupDemoState();
+    }
+    // Phaser reuses scene instances across scene.start() calls, so all stateful
+    // fields must be reset here per match. Field initializers only run once.
+    this.selectedUnitId = null;
+    this.aimMode = 'idle';
+    this.reaction = null;
+    this.unitContainers = new Map();
+    this.terrainLabels = [];
+    this.unitFacings = new Map();
+    this.moveFacingDrag = null;
+    this.pendingMoverFacing = null;
+    this.pendingMoveStance = null;
+    this.pendingEndProne = false;
+    this.activeMovesMeta = new Map();
+    this.movementTweens = 0;
+    this.aiControlled = { A: false, B: false };
+    this.aiPending = false;
+    this.aiTickEvent = null;
+    this.aiActiveUnitId = null;
+    this.aiActionsThisActivation = 0;
+    this.victoryFired = false;
+    this.currentTimer = null;
+    this.timerEvent = null;
+  }
+
   create(): void {
-    this.gameState = setupDemoState();
+    showBattleHud();
     this.replayLog = createReplayLog(this.gameState);
     this.cameras.main.setBackgroundColor('#0a0c0a');
 
@@ -114,7 +159,9 @@ export class BattleScene extends Phaser.Scene {
     this.aimGfx = this.add.graphics();
 
     this.fitCamera();
-    this.scale.on('resize', () => this.fitCamera());
+    const resizeHandler = () => this.fitCamera();
+    this.scale.on('resize', resizeHandler);
+    this.events.once('shutdown', () => this.scale.off('resize', resizeHandler));
 
     this.renderTerrain();
     this.renderUnits();
@@ -122,6 +169,7 @@ export class BattleScene extends Phaser.Scene {
     this.input.mouse?.disableContextMenu();
     this.input.on('pointermove', this.onPointerMove, this);
     this.input.on('pointerdown', this.onPointerDown, this);
+    this.input.on('pointerup', this.onPointerUp, this);
     this.input.keyboard?.on('keydown-ESC', () => {
       // Reaction phase is intentionally not cancellable — handoff is final.
       if (this.aimMode === 'aim-move') this.cancelAim();
@@ -171,22 +219,23 @@ export class BattleScene extends Phaser.Scene {
 
   private renderTerrain(): void {
     this.terrainGfx.clear();
-    for (const t of this.gameState.terrain) this.drawTerrain(t);
-  }
-
-  private drawTerrain(t: Terrain): void {
-    const verts = t.polygon.vertices;
-    if (verts.length === 0) return;
-    this.terrainGfx.fillStyle(TERRAIN_COLOR[t.kind], TERRAIN_ALPHA[t.kind]);
-    this.terrainGfx.lineStyle(1, 0x6a6a6a, 1);
-    this.terrainGfx.beginPath();
-    this.terrainGfx.moveTo(verts[0]!.x, verts[0]!.y);
-    for (let i = 1; i < verts.length; i++) {
-      this.terrainGfx.lineTo(verts[i]!.x, verts[i]!.y);
+    // Destroy old terrain labels if any.
+    for (const lbl of this.terrainLabels) lbl.destroy();
+    this.terrainLabels = [];
+    for (const t of this.gameState.terrain) {
+      drawTerrain(this.terrainGfx, t);
+      if (t.displayName) {
+        const c = polygonCentroid(t.polygon.vertices);
+        const lbl = this.add.text(c.x, c.y, t.displayName, {
+          fontFamily: 'ui-monospace, monospace',
+          fontSize: '9px',
+          color: '#cfe8cf',
+        });
+        lbl.setOrigin(0.5);
+        lbl.setAlpha(0.6);
+        this.terrainLabels.push(lbl);
+      }
     }
-    this.terrainGfx.closePath();
-    this.terrainGfx.fillPath();
-    this.terrainGfx.strokePath();
   }
 
   private renderUnits(): void {
@@ -216,6 +265,26 @@ export class BattleScene extends Phaser.Scene {
 
   private createUnitContainer(u: Unit): Phaser.GameObjects.Container {
     const container = this.add.container(u.position.x, u.position.y);
+
+    // Facing chevron (purely cosmetic — not in GameState). Wrapped in a
+    // sub-container so we can rotate around the unit's true center (0,0)
+    // instead of the triangle's bounding-box center.
+    const facingPivot = this.add.container(0, 0);
+    const tri = this.add.triangle(
+      0,
+      0,
+      u.radius * 1.45,
+      0,
+      -u.radius * 0.25,
+      -u.radius * 0.5,
+      -u.radius * 0.25,
+      u.radius * 0.5,
+      0xfff5cf,
+    );
+    tri.setAlpha(0.9);
+    facingPivot.add(tri);
+    facingPivot.setName('facing');
+    container.add(facingPivot);
 
     const arc = this.add.circle(0, 0, u.radius, FACTION_COLOR[u.faction]);
     arc.setName('arc');
@@ -251,7 +320,33 @@ export class BattleScene extends Phaser.Scene {
     label.setOrigin(0.5);
     container.add(label);
 
+    // Default facing: A points up (-y), B points down (+y) — toward each
+    // other given top/bottom deployment zones. Existing facing is preserved
+    // when the container is recreated.
+    const initial =
+      this.unitFacings.get(u.id) ??
+      (u.faction === 'A' ? -Math.PI / 2 : Math.PI / 2);
+    this.unitFacings.set(u.id, initial);
+    facingPivot.rotation = initial;
+
     return container;
+  }
+
+  private setUnitFacing(unitId: string, angle: number): void {
+    this.unitFacings.set(unitId, angle);
+    const c = this.unitContainers.get(unitId);
+    if (!c) return;
+    const chev = c.getByName('facing') as Phaser.GameObjects.Container | null;
+    if (chev) chev.rotation = angle;
+  }
+
+  private faceUnitTowardPoint(unitId: string, target: Vec2): void {
+    const u = this.gameState.units.find((x) => x.id === unitId);
+    if (!u) return;
+    const dx = target.x - u.position.x;
+    const dy = target.y - u.position.y;
+    if (Math.hypot(dx, dy) < 0.5) return;
+    this.setUnitFacing(unitId, Math.atan2(dy, dx));
   }
 
   private updateUnitVisuals(
@@ -293,6 +388,33 @@ export class BattleScene extends Phaser.Scene {
       }
     }
     arc.setStrokeStyle(strokeWidth, strokeColor);
+
+    // Prone visual: dim fill + show "PRONE" stance tag. Chevron also dims so
+    // the unit reads as low-profile from above.
+    const proneAlpha = u.stance === 'PRONE' ? 0.55 : 1;
+    arc.setFillStyle(FACTION_COLOR[u.faction], proneAlpha);
+    const facingPivot = container.getByName('facing') as
+      | Phaser.GameObjects.Container
+      | null;
+    if (facingPivot) facingPivot.setAlpha(u.stance === 'PRONE' ? 0.45 : 0.9);
+
+    let stanceTag = container.getByName('stance-tag') as
+      | Phaser.GameObjects.Text
+      | null;
+    if (u.stance === 'PRONE') {
+      if (!stanceTag) {
+        stanceTag = this.add.text(0, u.radius + 14, 'PRONE', {
+          fontFamily: 'ui-monospace, monospace',
+          fontSize: '8px',
+          color: '#ffae6a',
+        });
+        stanceTag.setName('stance-tag');
+        stanceTag.setOrigin(0.5);
+        container.add(stanceTag);
+      }
+    } else if (stanceTag) {
+      stanceTag.destroy();
+    }
 
     // Damage tag (optional child).
     let tag = container.getByName('damage-tag') as
@@ -375,6 +497,30 @@ export class BattleScene extends Phaser.Scene {
       // No timer — static border in operator's color.
       this.hud.setFrame(operator);
     }
+    if (this.activeMovesMeta.size > 0) this.tickAutoFacing();
+  }
+
+  /**
+   * Visual-only: while a unit is sliding along its move tween, any defender
+   * whose LOS window covers the current t turns to face the mover. Uses the
+   * precomputed reaction windows so this is O(windows) per frame, no LOS
+   * calls in the hot loop.
+   */
+  private tickAutoFacing(): void {
+    for (const info of this.activeMovesMeta.values()) {
+      const t = info.tween.progress;
+      const moverPos = v2Lerp(info.from, info.to, t);
+      for (const w of info.windows) {
+        if (t < w.startT || t > w.endT) continue;
+        const def = this.gameState.units.find((x) => x.id === w.enemyUnitId);
+        if (!def || !isUnitAlive(def)) continue;
+        const angle = Math.atan2(
+          moverPos.y - def.position.y,
+          moverPos.x - def.position.x,
+        );
+        this.setUnitFacing(def.id, angle);
+      }
+    }
   }
 
   private currentOperatorFaction(): 'A' | 'B' {
@@ -411,17 +557,78 @@ export class BattleScene extends Phaser.Scene {
       let overlayIndex = 0;
       for (const ev of result.events) {
         if (ev.type === 'MOVE_RESOLVED') {
-          this.animateMove(ev.unitId, ev.to);
+          this.animateMove(ev.unitId, ev.from, ev.to, ev.reactionWindows);
+        }
+        if (ev.type === 'SHOT_RESOLVED') {
+          const targetPos = this.gameState.units.find(
+            (u) => u.id === ev.targetId,
+          )?.position;
+          if (targetPos) {
+            this.faceUnitTowardPoint(ev.shooterId, targetPos);
+            for (const pid of ev.participantIds) {
+              this.faceUnitTowardPoint(pid, targetPos);
+            }
+          }
+        }
+        if (ev.type === 'MELEE_RESOLVED') {
+          const att = this.gameState.units.find(
+            (u) => u.id === ev.attackerId,
+          );
+          const def = this.gameState.units.find(
+            (u) => u.id === ev.defenderId,
+          );
+          if (att) this.faceUnitTowardPoint(ev.attackerId, def?.position ?? att.position);
+          if (def) this.faceUnitTowardPoint(ev.defenderId, att?.position ?? def.position);
         }
         if (this.isRollEvent(ev)) {
           this.showRollOverlay(ev, overlayIndex++);
         }
       }
       this.maybeScheduleAiTick();
+      this.checkVictory();
     } catch (e) {
       const message = e instanceof CommandError ? e.message : String(e);
       this.hud.pushError(message);
     }
+  }
+
+  private victoryFired = false;
+  private static readonly ROUND_LIMIT = 8;
+
+  /**
+   * Victory rules (Phase 9 v1):
+   *  - Side has no living units → that side loses.
+   *  - Side has living units but every one is SUPPRESSED → that side loses
+   *    (treat as "no one able to act" — they cannot rally without RALLY which
+   *    requires activation; for v1 we accept a soft check).
+   *  - At round > ROUND_LIMIT, side with more living-and-not-suppressed units
+   *    wins; tie → DRAW.
+   */
+  private checkVictory(): void {
+    if (this.victoryFired) return;
+    const counts = countSideHealth(this.gameState);
+    let winner: 'A' | 'B' | 'DRAW' | null = null;
+    if (counts.A.alive === 0 && counts.B.alive === 0) winner = 'DRAW';
+    else if (counts.A.alive === 0) winner = 'B';
+    else if (counts.B.alive === 0) winner = 'A';
+    else if (this.gameState.initiative.round > BattleScene.ROUND_LIMIT) {
+      const aScore = counts.A.alive - counts.A.suppressed;
+      const bScore = counts.B.alive - counts.B.suppressed;
+      if (aScore > bScore) winner = 'A';
+      else if (bScore > aScore) winner = 'B';
+      else winner = 'DRAW';
+    }
+    if (!winner) return;
+    this.victoryFired = true;
+    this.cancelAiTick();
+    this.clearTimer();
+    const summary = {
+      winner,
+      counts,
+      finalRound: this.gameState.initiative.round,
+      replayLog: this.replayLog,
+    };
+    this.time.delayedCall(800, () => this.scene.start('Result', summary));
   }
 
   /**
@@ -494,16 +701,39 @@ export class BattleScene extends Phaser.Scene {
     );
   }
 
-  private animateMove(unitId: string, to: Vec2): void {
+  private animateMove(
+    unitId: string,
+    from: Vec2,
+    to: Vec2,
+    windows: ReadonlyArray<ReactionWindow>,
+  ): void {
     const container = this.unitContainers.get(unitId);
     if (!container) return;
     const dx = to.x - container.x;
     const dy = to.y - container.y;
     const dist = Math.hypot(dx, dy);
     if (dist < 0.5) return;
+
+    // Drag-chosen facing applies at *end* of tween, so during motion the unit
+    // visibly faces forward.
+    let endFacing: number | null = null;
+    if (
+      this.pendingMoverFacing &&
+      this.pendingMoverFacing.unitId === unitId
+    ) {
+      endFacing = this.pendingMoverFacing.angle;
+      this.pendingMoverFacing = null;
+    }
+    if (Math.hypot(to.x - from.x, to.y - from.y) > 0.5) {
+      this.setUnitFacing(
+        unitId,
+        Math.atan2(to.y - from.y, to.x - from.x),
+      );
+    }
+
     const duration = Math.max(140, (dist / UNIT_DISTANCE_PIXELS) * 220);
     this.movementTweens++;
-    this.tweens.add({
+    const tween = this.tweens.add({
       targets: container,
       x: to.x,
       y: to.y,
@@ -511,9 +741,12 @@ export class BattleScene extends Phaser.Scene {
       ease: 'Sine.InOut',
       onComplete: () => {
         this.movementTweens = Math.max(0, this.movementTweens - 1);
+        this.activeMovesMeta.delete(unitId);
+        if (endFacing !== null) this.setUnitFacing(unitId, endFacing);
         if (this.movementTweens === 0) this.maybeScheduleAiTick();
       },
     });
+    this.activeMovesMeta.set(unitId, { from, to, windows, tween });
   }
 
   private isRollEvent(ev: GameEvent): boolean {
@@ -592,8 +825,75 @@ export class BattleScene extends Phaser.Scene {
       reaction: this.buildReactionContext(),
       shoot: this.buildShootContext(),
       melee: this.buildMeleeContext(),
+      traversal: this.buildTraversalContext(),
+      movePreview: this.buildMovePreviewContext(),
     };
     this.hud.update(this.gameState, this.selectedUnitId, this.aimMode, ctx);
+  }
+
+  private buildMovePreviewContext():
+    | import('../ui/Hud').MovePreviewContext
+    | undefined {
+    if (this.aimMode !== 'aim-move') return undefined;
+    if (this.pendingMoveStance !== 'STANDING') {
+      return { endProne: false, canEndProne: false };
+    }
+    const act = this.gameState.initiative.activeActivation;
+    if (!act) return { endProne: false, canEndProne: false };
+    const u = this.gameState.units.find((x) => x.id === act.unitId);
+    if (!u) return { endProne: false, canEndProne: false };
+    const inDifficult = this.gameState.terrain.some(
+      (t) => t.kind === 'DIFFICULT' && isPointInPolygon(u.position, t.polygon),
+    );
+    return {
+      endProne: this.pendingEndProne,
+      canEndProne: !inDifficult,
+    };
+  }
+
+  private buildTraversalContext():
+    | import('../ui/Hud').TraversalContext
+    | undefined {
+    const act = this.gameState.initiative.activeActivation;
+    if (!act) return undefined;
+    const u = this.gameState.units.find((x) => x.id === act.unitId);
+    if (!u || !isUnitAlive(u)) return undefined;
+    if (u.damage !== 'NONE') return undefined;
+    const wall = this.findContactedHardWallForUnit(u);
+    if (!wall) return { canVault: false, canClimb: false };
+    const isLow =
+      wall.height !== undefined && wall.height <= UNIT_DISTANCE_PIXELS;
+    return { canVault: isLow, canClimb: !isLow };
+  }
+
+  private findContactedHardWallForUnit(
+    u: Unit,
+  ): import('../../core/state/GameState').Terrain | null {
+    const epsilon = 4;
+    for (const t of this.gameState.terrain) {
+      if (t.kind !== 'HARD') continue;
+      const verts = t.polygon.vertices;
+      for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+        const a = verts[j]!;
+        const b = verts[i]!;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const lenSq = dx * dx + dy * dy;
+        if (lenSq === 0) continue;
+        const tt = Math.max(
+          0,
+          Math.min(
+            1,
+            ((u.position.x - a.x) * dx + (u.position.y - a.y) * dy) / lenSq,
+          ),
+        );
+        const px = a.x + dx * tt;
+        const py = a.y + dy * tt;
+        const dist = Math.hypot(u.position.x - px, u.position.y - py);
+        if (dist <= u.radius + epsilon) return t;
+      }
+    }
+    return null;
   }
 
   private buildReactionContext(): ReactionContext | undefined {
@@ -723,11 +1023,46 @@ export class BattleScene extends Phaser.Scene {
       case 'REQUEST_MOVE': {
         const act = this.gameState.initiative.activeActivation;
         if (!act) return;
+        this.aimMode = 'aim-move-stance';
+        this.pendingMoveStance = null;
+        this.pendingEndProne = false;
+        this.refreshHud();
+        return;
+      }
+      case 'TOGGLE_END_PRONE':
+        this.pendingEndProne = !this.pendingEndProne;
+        this.refreshHud();
+        return;
+      case 'CHOOSE_MOVE_STANDING': {
+        if (this.aimMode !== 'aim-move-stance') return;
+        this.pendingMoveStance = 'STANDING';
         this.aimMode = 'aim-move';
         this.refreshHud();
         this.startTimer('Move target', timersConfig.moveTargetSeconds, () =>
           this.cancelAim(),
         );
+        return;
+      }
+      case 'CHOOSE_MOVE_CRAWL': {
+        if (this.aimMode !== 'aim-move-stance') return;
+        this.pendingMoveStance = 'CRAWL';
+        this.aimMode = 'aim-move';
+        this.refreshHud();
+        this.startTimer('Move target', timersConfig.moveTargetSeconds, () =>
+          this.cancelAim(),
+        );
+        return;
+      }
+      case 'REQUEST_VAULT': {
+        const act = this.gameState.initiative.activeActivation;
+        if (!act) return;
+        this.enterVaultClimbReactionPhase('VAULT');
+        return;
+      }
+      case 'REQUEST_CLIMB': {
+        const act = this.gameState.initiative.activeActivation;
+        if (!act) return;
+        this.enterVaultClimbReactionPhase('CLIMB');
         return;
       }
       case 'REQUEST_RALLY': {
@@ -769,6 +1104,8 @@ export class BattleScene extends Phaser.Scene {
       case 'PLAY_LAST_REPLAY':
         this.scene.start('Replay');
         return;
+      default:
+        return;
     }
   }
 
@@ -784,6 +1121,9 @@ export class BattleScene extends Phaser.Scene {
   private cancelAim(): void {
     this.aimMode = 'idle';
     this.aimGfx.clear();
+    this.moveFacingDrag = null;
+    this.pendingMoveStance = null;
+    this.pendingEndProne = false;
     this.clearTimer();
     this.refreshHud();
   }
@@ -810,27 +1150,67 @@ export class BattleScene extends Phaser.Scene {
     this.reaction = null;
     this.aimMode = 'idle';
     this.aimGfx.clear();
+    const stanceUsed = this.pendingMoveStance;
+    const endProneUsed = this.pendingEndProne;
+    this.pendingMoveStance = null;
+    this.pendingEndProne = false;
     const plan: ReactionPlan = { markers: r.markers };
-    if (r.intent === 'MOVE') {
-      this.dispatch({
-        type: 'MOVE',
-        unitId: r.moverId,
-        target: r.pathTarget,
-        reactionPlan: plan,
-      });
-    } else {
-      this.dispatch({
-        type: 'RALLY',
-        unitId: r.moverId,
-        reactionPlan: plan,
-      });
+    switch (r.commandType) {
+      case 'MOVE':
+        this.dispatch({
+          type: 'MOVE',
+          unitId: r.moverId,
+          target: r.pathTarget,
+          reactionPlan: plan,
+          endProne: endProneUsed,
+        });
+        break;
+      case 'CRAWL':
+        this.dispatch({
+          type: 'CRAWL',
+          unitId: r.moverId,
+          target: r.pathTarget,
+          reactionPlan: plan,
+        });
+        break;
+      case 'VAULT':
+        this.dispatch({
+          type: 'VAULT',
+          unitId: r.moverId,
+          reactionPlan: plan,
+        });
+        break;
+      case 'CLIMB':
+        this.dispatch({
+          type: 'CLIMB',
+          unitId: r.moverId,
+          reactionPlan: plan,
+        });
+        break;
+      case 'RALLY':
+        this.dispatch({
+          type: 'RALLY',
+          unitId: r.moverId,
+          reactionPlan: plan,
+        });
+        break;
     }
+    void stanceUsed;
   }
 
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
     if (this.aimMode !== 'aim-move') return;
     const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-    this.updateMovePreview({ x: wp.x, y: wp.y });
+    if (this.moveFacingDrag) {
+      const dx = wp.x - this.moveFacingDrag.target.x;
+      const dy = wp.y - this.moveFacingDrag.target.y;
+      const dist = Math.hypot(dx, dy);
+      // Dead zone: small drags don't change angle (avoid jitter on click).
+      this.moveFacingDrag.angle = dist > 6 ? Math.atan2(dy, dx) : null;
+      this.updateMovePreview(this.moveFacingDrag.target);
+    } else {
+      this.updateMovePreview({ x: wp.x, y: wp.y });
+    }
   }
 
   private onPointerDown(
@@ -839,16 +1219,35 @@ export class BattleScene extends Phaser.Scene {
   ): void {
     if (this.aimMode === 'aim-move') {
       if (pointer.rightButtonDown()) {
+        this.moveFacingDrag = null;
         this.cancelAim();
         return;
       }
       const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-      this.enterReactionPhase({ x: wp.x, y: wp.y });
+      // Lock the move target at press; drag the mouse to choose facing.
+      // Released in onPointerUp → enters reaction phase with chosen facing.
+      this.moveFacingDrag = { target: { x: wp.x, y: wp.y }, angle: null };
+      this.updateMovePreview(this.moveFacingDrag.target);
       return;
     }
     if (this.aimMode === 'reaction-phase') return;
     if (this.aimMode === 'aim-shoot' || this.aimMode === 'aim-melee') return;
     if (targets.length === 0) this.selectUnit(null);
+  }
+
+  private onPointerUp(_pointer: Phaser.Input.Pointer): void {
+    if (this.aimMode !== 'aim-move' || !this.moveFacingDrag) return;
+    const drag = this.moveFacingDrag;
+    this.moveFacingDrag = null;
+    const act = this.gameState.initiative.activeActivation;
+    if (act) {
+      // No drag → default facing = direction of motion (computed when MOVE
+      // resolves, since we don't yet know the clipped endpoint here).
+      if (drag.angle !== null) {
+        this.pendingMoverFacing = { unitId: act.unitId, angle: drag.angle };
+      }
+    }
+    this.enterReactionPhase(drag.target);
   }
 
   private enterReactionPhase(target: Vec2): void {
@@ -863,38 +1262,118 @@ export class BattleScene extends Phaser.Scene {
       return;
     }
 
-    const hardObs = this.gameState.terrain
-      .filter((t) => t.kind === 'HARD')
-      .map((t) => t.polygon);
+    // Crawl: cap target distance to 1 unit-distance.
+    const isCrawl = this.pendingMoveStance === 'CRAWL';
+    let effectiveTarget = target;
+    if (isCrawl) {
+      const dx = target.x - u.position.x;
+      const dy = target.y - u.position.y;
+      const len = Math.hypot(dx, dy);
+      if (len > UNIT_DISTANCE_PIXELS) {
+        effectiveTarget = {
+          x: u.position.x + (dx / len) * UNIT_DISTANCE_PIXELS,
+          y: u.position.y + (dy / len) * UNIT_DISTANCE_PIXELS,
+        };
+      }
+    }
+    const stoppingPolygons = this.gameState.terrain.map((t) => t.polygon);
     const enemyCircles = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
-    const path = computeMovePath(u.position, target, {
-      polygons: hardObs,
+    const path = computeMovePath(u.position, effectiveTarget, {
+      polygons: stoppingPolygons,
       enemyCircles,
       moverRadius: u.radius,
     });
     const enemies = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
-      .map((o) => ({ id: o.id, circle: getUnitCircle(o) }));
+      .map((o) => ({
+        id: o.id,
+        circle: getUnitCircle(o),
+        prone: o.stance === 'PRONE',
+      }));
+    const moverProne = isCrawl || u.stance === 'PRONE';
     const windows = [
       ...computeReactionWindows(
         u.position,
         path.endpoint,
         u.radius,
         enemies,
-        hardObs,
+        this.gameState.terrain,
+        { moverProne },
       ),
     ];
 
     this.reaction = {
       intent: 'MOVE',
+      commandType: isCrawl ? 'CRAWL' : 'MOVE',
       moverId: u.id,
       moverStart: { ...u.position },
       moverRadius: u.radius,
       moverFaction: u.faction,
-      pathTarget: target,
+      pathTarget: effectiveTarget,
       pathEndpoint: path.endpoint,
+      windows,
+      markers: [],
+      scrubberT: 0,
+    };
+    this.aimMode = 'reaction-phase';
+    this.hud.setScrubberValue(0);
+    this.drawReactionPreview();
+    this.renderUnits();
+    this.refreshHud();
+    this.startTimer(
+      'Reaction',
+      timersConfig.reactionPhaseSeconds,
+      () => this.confirmReaction(),
+    );
+    this.maybeScheduleAiTick();
+  }
+
+  private enterVaultClimbReactionPhase(commandType: 'VAULT' | 'CLIMB'): void {
+    const act = this.gameState.initiative.activeActivation;
+    if (!act) return;
+    const u = this.gameState.units.find((x) => x.id === act.unitId);
+    if (!u) return;
+    const wall = this.findContactedHardWallForUnit(u);
+    if (!wall) {
+      this.hud.pushError(`${u.id} not touching a wall`);
+      return;
+    }
+    const dest =
+      commandType === 'VAULT'
+        ? vaultDestination(u, wall.polygon.vertices)
+        : climbDestination(u, wall.polygon.vertices);
+
+    const enemies = this.gameState.units
+      .filter((o) => o.faction !== u.faction && isUnitAlive(o))
+      .map((o) => ({
+        id: o.id,
+        circle: getUnitCircle(o),
+        prone: o.stance === 'PRONE',
+      }));
+    // Reaction windows along the short vault/climb path — only endpoints
+    // matter conceptually, but sampling the whole path is simpler.
+    const windows = [
+      ...computeReactionWindows(
+        u.position,
+        dest,
+        u.radius,
+        enemies,
+        this.gameState.terrain,
+        { moverProne: u.stance === 'PRONE' },
+      ),
+    ];
+
+    this.reaction = {
+      intent: 'MOVE',
+      commandType,
+      moverId: u.id,
+      moverStart: { ...u.position },
+      moverRadius: u.radius,
+      moverFaction: u.faction,
+      pathTarget: dest,
+      pathEndpoint: dest,
       windows,
       markers: [],
       scrubberT: 0,
@@ -924,6 +1403,7 @@ export class BattleScene extends Phaser.Scene {
 
     this.reaction = {
       intent: 'RALLY',
+      commandType: 'RALLY',
       moverId: u.id,
       moverStart: { ...u.position },
       moverRadius: u.radius,
@@ -991,13 +1471,17 @@ export class BattleScene extends Phaser.Scene {
       this.reaction.pathEndpoint,
       this.reaction.scrubberT,
     );
-    const hardObs = this.gameState.terrain
-      .filter((t) => t.kind === 'HARD')
-      .map((t) => t.polygon);
+    const mover = this.gameState.units.find(
+      (x) => x.id === this.reaction!.moverId,
+    );
     return hasLOS(
       getUnitCircle(enemy),
       { center: moverPos, radius: this.reaction.moverRadius },
-      hardObs,
+      this.gameState.terrain,
+      {
+        aProne: enemy.stance === 'PRONE',
+        bProne: mover?.stance === 'PRONE',
+      },
     );
   }
 
@@ -1008,14 +1492,25 @@ export class BattleScene extends Phaser.Scene {
     const u = this.gameState.units.find((x) => x.id === act.unitId);
     if (!u) return;
 
-    const hardObs = this.gameState.terrain
-      .filter((t) => t.kind === 'HARD')
-      .map((t) => t.polygon);
+    // For crawl, clamp the visualized target to the 1-unit-distance cap.
+    if (this.pendingMoveStance === 'CRAWL') {
+      const dx = target.x - u.position.x;
+      const dy = target.y - u.position.y;
+      const len = Math.hypot(dx, dy);
+      if (len > UNIT_DISTANCE_PIXELS) {
+        target = {
+          x: u.position.x + (dx / len) * UNIT_DISTANCE_PIXELS,
+          y: u.position.y + (dy / len) * UNIT_DISTANCE_PIXELS,
+        };
+      }
+    }
+
+    const stoppingPolygons = this.gameState.terrain.map((t) => t.polygon);
     const enemyCircles = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
     const path = computeMovePath(u.position, target, {
-      polygons: hardObs,
+      polygons: stoppingPolygons,
       enemyCircles,
       moverRadius: u.radius,
     });
@@ -1042,13 +1537,18 @@ export class BattleScene extends Phaser.Scene {
 
     const enemies = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
-      .map((o) => ({ id: o.id, circle: getUnitCircle(o) }));
+      .map((o) => ({
+        id: o.id,
+        circle: getUnitCircle(o),
+        prone: o.stance === 'PRONE',
+      }));
     const windows = computeReactionWindows(
       u.position,
       path.endpoint,
       u.radius,
       enemies,
-      hardObs,
+      this.gameState.terrain,
+      { moverProne: u.stance === 'PRONE' },
     );
     this.aimGfx.lineStyle(4, 0xff5555, 0.7);
     for (const w of windows) {
@@ -1069,6 +1569,31 @@ export class BattleScene extends Phaser.Scene {
     }
     this.aimGfx.lineStyle(1.5, FACTION_COLOR[u.faction], 0.7);
     this.aimGfx.strokeCircle(path.endpoint.x, path.endpoint.y, u.radius);
+
+    // Facing arrow: visible while pressing+dragging from the endpoint.
+    if (this.moveFacingDrag && this.moveFacingDrag.angle !== null) {
+      const angle = this.moveFacingDrag.angle;
+      const len = u.radius * 2.2;
+      const tipX = path.endpoint.x + Math.cos(angle) * len;
+      const tipY = path.endpoint.y + Math.sin(angle) * len;
+      this.aimGfx.lineStyle(2.5, 0xfff5cf, 0.95);
+      this.aimGfx.beginPath();
+      this.aimGfx.moveTo(path.endpoint.x, path.endpoint.y);
+      this.aimGfx.lineTo(tipX, tipY);
+      this.aimGfx.strokePath();
+      // Arrowhead.
+      const head = 6;
+      const ah1x = tipX - Math.cos(angle - Math.PI / 6) * head;
+      const ah1y = tipY - Math.sin(angle - Math.PI / 6) * head;
+      const ah2x = tipX - Math.cos(angle + Math.PI / 6) * head;
+      const ah2y = tipY - Math.sin(angle + Math.PI / 6) * head;
+      this.aimGfx.beginPath();
+      this.aimGfx.moveTo(tipX, tipY);
+      this.aimGfx.lineTo(ah1x, ah1y);
+      this.aimGfx.moveTo(tipX, tipY);
+      this.aimGfx.lineTo(ah2x, ah2y);
+      this.aimGfx.strokePath();
+    }
   }
 
   private drawReactionPreview(): void {
@@ -1127,3 +1652,32 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 }
+
+export interface SideHealthCount {
+  alive: number;
+  suppressed: number;
+  killed: number;
+}
+
+export const countSideHealth = (
+  state: GameState,
+): { A: SideHealthCount; B: SideHealthCount } => {
+  const init = (): SideHealthCount => ({ alive: 0, suppressed: 0, killed: 0 });
+  const out = { A: init(), B: init() };
+  for (const u of state.units) {
+    const side = out[u.faction];
+    if (u.damage === 'KILLED') side.killed += 1;
+    else {
+      side.alive += 1;
+      if (u.damage === 'SUPPRESSED') side.suppressed += 1;
+    }
+  }
+  return out;
+};
+
+const showBattleHud = (): void => {
+  const hud = document.getElementById('hud');
+  if (hud) hud.style.display = '';
+  const frame = document.getElementById('hud-frame');
+  if (frame) (frame as HTMLElement).style.display = '';
+};

@@ -171,6 +171,105 @@
         margin-top: 6px;
         line-height: 1.4;
       }
+      .setup-root {
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        background: rgba(10, 14, 10, 0.9);
+        color: #cfe8cf;
+      }
+      .setup-root h1 {
+        margin: 0;
+        padding: 16px 24px;
+        border-bottom: 1px solid #2a3a2a;
+        font-size: 18px;
+        font-weight: normal;
+        letter-spacing: 1px;
+      }
+      .setup-root .setup-body {
+        flex: 1;
+        padding: 16px 24px;
+        overflow-y: auto;
+      }
+      .setup-root .setup-footer {
+        padding: 12px 24px;
+        border-top: 1px solid #2a3a2a;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      .setup-root button {
+        background: #1a2a1a;
+        color: #cfe8cf;
+        border: 1px solid #3a5a3a;
+        padding: 6px 14px;
+        font: inherit;
+        cursor: pointer;
+      }
+      .setup-root button:hover {
+        background: #2a4a2a;
+      }
+      .setup-root button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .setup-root select {
+        background: #1a2a1a;
+        color: #cfe8cf;
+        border: 1px solid #3a5a3a;
+        padding: 4px 8px;
+        font: inherit;
+      }
+      .roster-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+      }
+      .roster-side {
+        background: rgba(20, 30, 20, 0.5);
+        border: 1px solid #2a3a2a;
+        padding: 12px 16px;
+      }
+      .roster-side.faction-A {
+        border-left: 3px solid #6ab0ff;
+      }
+      .roster-side.faction-B {
+        border-left: 3px solid #ff8a6a;
+      }
+      .roster-side h2 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: normal;
+      }
+      .roster-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        margin-bottom: 12px;
+        min-height: 60px;
+      }
+      .roster-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 8px;
+        background: rgba(10, 14, 10, 0.6);
+        border: 1px solid #2a3a2a;
+        font-size: 12px;
+      }
+      .roster-add {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .roster-count {
+        margin-left: auto;
+        font-size: 12px;
+        color: #7a9a7a;
+      }
     </style>
   </head>
   <body>

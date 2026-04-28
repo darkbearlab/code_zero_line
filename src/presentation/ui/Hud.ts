@@ -10,6 +10,7 @@ export type DispatchFn = (cmd: Command) => void;
 
 export type AimMode =
   | 'idle'
+  | 'aim-move-stance'
   | 'aim-move'
   | 'aim-shoot'
   | 'aim-melee'
@@ -20,6 +21,11 @@ export type ActionRequest =
   | 'REQUEST_RALLY'
   | 'REQUEST_SHOOT'
   | 'REQUEST_MELEE'
+  | 'REQUEST_VAULT'
+  | 'REQUEST_CLIMB'
+  | 'CHOOSE_MOVE_STANDING'
+  | 'CHOOSE_MOVE_CRAWL'
+  | 'TOGGLE_END_PRONE'
   | 'CANCEL_AIM'
   | 'CONFIRM_REACTION'
   | 'SKIP_REACTION'
@@ -76,10 +82,24 @@ export interface MeleeContext {
   readonly candidates: ReadonlyArray<MeleeCandidate>;
 }
 
+export interface TraversalContext {
+  readonly canVault: boolean;
+  readonly canClimb: boolean;
+}
+
+export interface MovePreviewContext {
+  /** Whether "End prone" is currently toggled on for the in-progress move. */
+  readonly endProne: boolean;
+  /** Allow showing the end-prone toggle (false e.g. when in difficult terrain). */
+  readonly canEndProne: boolean;
+}
+
 export interface HudContext {
   readonly reaction?: ReactionContext;
   readonly shoot?: ShootContext;
   readonly melee?: MeleeContext;
+  readonly traversal?: TraversalContext;
+  readonly movePreview?: MovePreviewContext;
 }
 
 export class Hud {
@@ -126,22 +146,31 @@ export class Hud {
     this.timerEl = mustElement('hud-timer');
     this.aiToggleA = mustElement('hud-ai-a') as HTMLInputElement;
     this.aiToggleB = mustElement('hud-ai-b') as HTMLInputElement;
-    this.aiToggleA.addEventListener('change', () =>
-      this.onAiToggle('A', this.aiToggleA.checked),
-    );
-    this.aiToggleB.addEventListener('change', () =>
-      this.onAiToggle('B', this.aiToggleB.checked),
-    );
+    // Reset checkboxes for a fresh battle (Phaser keeps the DOM around).
+    this.aiToggleA.checked = false;
+    this.aiToggleB.checked = false;
+    this.aiToggleA.onchange = () =>
+      this.onAiToggle('A', this.aiToggleA.checked);
+    this.aiToggleB.onchange = () =>
+      this.onAiToggle('B', this.aiToggleB.checked);
     this.frameSvgEl = mustElement('hud-frame') as unknown as SVGSVGElement;
     this.frameRectEl = mustElement('hud-frame-rect') as unknown as SVGRectElement;
     this.resizeFrame();
-    window.addEventListener('resize', () => this.resizeFrame());
+    // Use a single tracked window listener that always points at the latest
+    // Hud instance so re-creating BattleScene doesn't stack handlers.
+    if (windowResizeHandler) {
+      window.removeEventListener('resize', windowResizeHandler);
+    }
+    windowResizeHandler = () => this.resizeFrame();
+    window.addEventListener('resize', windowResizeHandler);
 
-    this.scrubberInputEl.addEventListener('input', () => {
+    // For DOM elements that persist across scene re-creation we use `oninput`
+    // / `onchange` (single-slot) instead of addEventListener (stacks).
+    this.scrubberInputEl.oninput = () => {
       const t = parseFloat(this.scrubberInputEl.value);
       this.scrubberLabelEl.textContent = `Reaction t = ${t.toFixed(2)}`;
       this.onScrubberChange(t);
-    });
+    };
   }
 
   update(
@@ -160,7 +189,9 @@ export class Hud {
     if (act) {
       const remaining =
         act.actionsRemaining === -1 ? '∞' : String(act.actionsRemaining);
-      this.activeEl.textContent = `· ${act.unitId} active (${act.kind}, ${remaining} left)`;
+      const u = state.units.find((x) => x.id === act.unitId);
+      const stance = u?.stance === 'PRONE' ? ' · prone' : '';
+      this.activeEl.textContent = `· ${act.unitId} active (${act.kind}, ${remaining} left${stance})`;
     } else {
       this.activeEl.textContent = '';
     }
@@ -253,6 +284,19 @@ export class Hud {
   ): void {
     this.actionsEl.innerHTML = '';
 
+    if (aimMode === 'aim-move-stance') {
+      const header = document.createElement('h3');
+      header.textContent = 'Choose movement stance';
+      this.actionsEl.appendChild(header);
+      this.addReqBtn('Standing — full distance', 'CHOOSE_MOVE_STANDING');
+      this.addReqBtn('Crawl — 1 unit, ends prone', 'CHOOSE_MOVE_CRAWL');
+      const cancel = document.createElement('button');
+      cancel.textContent = 'Cancel';
+      cancel.onclick = () => this.requestAction('CANCEL_AIM');
+      this.actionsEl.appendChild(cancel);
+      return;
+    }
+
     if (aimMode === 'aim-move') {
       const note = document.createElement('div');
       note.style.color = '#cfe8cf';
@@ -260,6 +304,18 @@ export class Hud {
       note.textContent =
         'Click map to confirm move target.\nRed segments = enemy LOS windows.\nESC or right-click to cancel.';
       this.actionsEl.appendChild(note);
+      // End-of-move stance toggle — visible only for standing moves where the
+      // rule allows ending prone.
+      if (ctx?.movePreview?.canEndProne) {
+        const toggle = document.createElement('button');
+        const on = ctx.movePreview.endProne;
+        toggle.textContent = on
+          ? '✓ End prone (drop after move)'
+          : '☐ End prone (drop after move)';
+        toggle.style.background = on ? '#2a4a2a' : '#1a2a1a';
+        toggle.onclick = () => this.requestAction('TOGGLE_END_PRONE');
+        this.actionsEl.appendChild(toggle);
+      }
       const cancel = document.createElement('button');
       cancel.textContent = 'Cancel';
       cancel.onclick = () => this.requestAction('CANCEL_AIM');
@@ -338,7 +394,6 @@ export class Hud {
     replayHeader.textContent = 'Replay';
     this.actionsEl.appendChild(replayHeader);
     this.addReqBtn('Save current battle', 'SAVE_REPLAY');
-    this.addReqBtn('Play last replay', 'PLAY_LAST_REPLAY');
   }
 
   private renderActivationActions(
@@ -365,6 +420,12 @@ export class Hud {
       if (canShoot) this.addReqBtn('Shoot…', 'REQUEST_SHOOT');
       if (canMelee) this.addReqBtn('Melee…', 'REQUEST_MELEE');
       if (canRally) this.addReqBtn('Rally', 'REQUEST_RALLY');
+      if (canMove && ctx?.traversal?.canVault) {
+        this.addReqBtn('Vault (over low wall)', 'REQUEST_VAULT');
+      }
+      if (canMove && ctx?.traversal?.canClimb) {
+        this.addReqBtn('Climb (high wall, ends activation)', 'REQUEST_CLIMB');
+      }
     }
     if (act.kind === 'CHECK_SUCCESS') {
       this.addBtn('End Activation', { type: 'END_ACTIVATION' });
@@ -582,6 +643,8 @@ export class Hud {
     this.actionsEl.appendChild(b);
   }
 }
+
+let windowResizeHandler: (() => void) | null = null;
 
 const mustElement = (id: string): HTMLElement => {
   const el = document.getElementById(id);

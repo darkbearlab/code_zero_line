@@ -1,23 +1,77 @@
 import type { Circle, Polygon, Vec2 } from './types';
 import { segmentBlockedByPolygons } from './segment';
+import { isPointInPolygon } from './polygon';
 import { v2Sub } from './vec2';
+import {
+  isHighWall,
+  isLowWall,
+  type Terrain,
+} from '../state/GameState';
+import { VAULT_HEIGHT_THRESHOLD_PIXELS } from '../rules/constants';
 
 const SAMPLE_COUNT = 16;
 
+export interface LOSOptions {
+  /** Endpoint A's unit is prone — low walls then block LOS from A's side. */
+  readonly aProne?: boolean;
+  /** Endpoint B's unit is prone — low walls block LOS toward B. */
+  readonly bProne?: boolean;
+}
+
 /**
- * Test LOS between two circles by sampling perimeter points on the half
- * facing the other circle. Returns true if any unblocked perimeter-to-perimeter
- * ray exists.
+ * Compute the polygon list that effectively blocks LOS for a given pair of
+ * endpoints, according to rules 4.5 (prone vs low walls) and 9.3 (soft cover):
  *
- * Models the "soldiers shift their bodies" rule: if any line between any two
- * points on the bases is clear, LOS is granted.
+ *  - HIGH walls (height > 1 unit-distance) always block.
+ *  - LOW walls (height ≤ 1 unit-distance) block only when at least one
+ *    endpoint is prone (the prone model is base-height — below the wall —
+ *    so its line of sight is occluded).
+ *  - SOFT cover (smoke / fog) blocks only when *both* endpoints are outside
+ *    the polygon. If either endpoint is inside, LOS passes through that
+ *    soft cover (and the cover bonus applies separately).
+ *  - DIFFICULT terrain never blocks LOS (only provides cover when target
+ *    inside).
+ */
+export const buildLosBlockers = (
+  a: Vec2,
+  b: Vec2,
+  terrains: ReadonlyArray<Terrain>,
+  options: LOSOptions = {},
+): Polygon[] => {
+  const blockers: Polygon[] = [];
+  for (const t of terrains) {
+    if (t.kind === 'HARD') {
+      if (isHighWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS)) {
+        blockers.push(t.polygon);
+      } else if (isLowWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS)) {
+        if (options.aProne || options.bProne) blockers.push(t.polygon);
+      }
+    } else if (t.kind === 'SOFT') {
+      const aIn = isPointInPolygon(a, t.polygon);
+      const bIn = isPointInPolygon(b, t.polygon);
+      if (!aIn && !bIn) blockers.push(t.polygon);
+    }
+    // DIFFICULT — no LOS effect.
+  }
+  return blockers;
+};
+
+/**
+ * Test LOS between two circles. Samples perimeter points on the half facing
+ * the other circle; LOS exists if any pair of opposing surface points is
+ * unblocked.
+ *
+ * The set of effective blockers depends on terrain types and per-endpoint
+ * stance — see `buildLosBlockers`.
  */
 export const hasLOS = (
   a: Circle,
   b: Circle,
-  obstacles: ReadonlyArray<Polygon>,
+  terrains: ReadonlyArray<Terrain>,
+  options?: LOSOptions,
 ): boolean => {
-  if (!segmentBlockedByPolygons(a.center, b.center, obstacles)) return true;
+  const blockers = buildLosBlockers(a.center, b.center, terrains, options);
+  if (!segmentBlockedByPolygons(a.center, b.center, blockers)) return true;
 
   const dir = v2Sub(b.center, a.center);
   const baseA = Math.atan2(dir.y, dir.x);
@@ -37,7 +91,7 @@ export const hasLOS = (
         x: b.center.x + Math.cos(angB) * b.radius,
         y: b.center.y + Math.sin(angB) * b.radius,
       };
-      if (!segmentBlockedByPolygons(pA, pB, obstacles)) return true;
+      if (!segmentBlockedByPolygons(pA, pB, blockers)) return true;
     }
   }
   return false;

@@ -176,6 +176,82 @@ describe('MOVE command', () => {
     );
   });
 
+  it('move stops at DIFFICULT terrain edge (rule 9.2 — entry ends move)', () => {
+    const s0: GameState = {
+      ...makeState(),
+      terrain: [
+        {
+          id: 'rubble',
+          kind: 'DIFFICULT',
+          polygon: {
+            vertices: [v2(50, -50), v2(150, -50), v2(150, 50), v2(50, 50)],
+          },
+        },
+      ],
+    };
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'MOVE', unitId: 'a1', target: v2(200, 0) },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    // Stop just before / at the leading edge of the difficult terrain.
+    expect(a1.position.x).toBeLessThan(60);
+    expect(a1.position.x).toBeGreaterThan(0);
+  });
+
+  it('move stops at SOFT terrain edge (rule 9.3 — entry ends move)', () => {
+    const s0: GameState = {
+      ...makeState(),
+      terrain: [
+        {
+          id: 'smoke',
+          kind: 'SOFT',
+          polygon: {
+            vertices: [v2(50, -50), v2(150, -50), v2(150, 50), v2(50, 50)],
+          },
+        },
+      ],
+    };
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'MOVE', unitId: 'a1', target: v2(200, 0) },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    expect(a1.position.x).toBeLessThan(60);
+    expect(a1.position.x).toBeGreaterThan(0);
+  });
+
+  it('endProne flag drops the unit prone at end of move (rule 4.5)', () => {
+    const s0 = makeState();
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      {
+        type: 'MOVE',
+        unitId: 'a1',
+        target: v2(80, 0),
+        endProne: true,
+      },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    expect(a1.stance).toBe('PRONE');
+  });
+
+  it('Standing MOVE auto-stands a prone unit (rule 4.5 — 起立)', () => {
+    const s0: GameState = {
+      ...makeState(),
+      units: [
+        makeUnit({ id: 'a1', faction: 'A', stance: 'PRONE', position: v2(0, 0) }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(500, 0) }),
+      ],
+    };
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'MOVE', unitId: 'a1', target: v2(80, 0) },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    expect(a1.stance).toBe('STANDING');
+  });
+
   it('reaction windows are emitted in MOVE_RESOLVED', () => {
     const s0: GameState = {
       ...makeState(),

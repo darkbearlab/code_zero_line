@@ -1,0 +1,66 @@
+import type { Faction, GameState, Unit } from '../state/GameState';
+import type { Vec2 } from '../geometry/types';
+import type {
+  DeploymentBySide,
+  MapDef,
+  RostersBySide,
+} from './types';
+
+export interface BuildInitialStateInput {
+  readonly seed: string;
+  readonly map: MapDef;
+  readonly rosters: RostersBySide;
+  readonly deployment: DeploymentBySide;
+  readonly firstHolder: Faction;
+  readonly buildUnit: (spawn: {
+    id: string;
+    templateId: string;
+    faction: Faction;
+    position: Vec2;
+  }) => Unit;
+}
+
+/**
+ * Compose a Battle-ready GameState from a fully resolved setup.
+ *
+ * Each placed roster entry becomes a unit at the chosen position; entries
+ * without a placement are skipped (the deployment UI is responsible for
+ * forcing every roster slot to be placed before allowing transition).
+ */
+export const buildInitialState = (input: BuildInitialStateInput): GameState => {
+  const units: Unit[] = [];
+  for (const faction of ['A', 'B'] as const) {
+    const placements = input.deployment[faction];
+    const roster = input.rosters[faction];
+    for (const p of placements) {
+      const entry = roster.find((r) => r.id === p.rosterId);
+      if (!entry) continue;
+      units.push(
+        input.buildUnit({
+          id: entry.id,
+          templateId: entry.templateId,
+          faction,
+          position: p.position,
+        }),
+      );
+    }
+  }
+  return {
+    seed: input.seed,
+    commandCount: 0,
+    units,
+    terrain: input.map.terrain.map((t) => ({
+      id: t.id,
+      kind: t.kind,
+      polygon: t.polygon,
+      ...(t.height !== undefined ? { height: t.height } : {}),
+      ...(t.displayName !== undefined ? { displayName: t.displayName } : {}),
+    })),
+    initiative: {
+      holder: input.firstHolder,
+      momentum: { A: 0, B: 0 },
+      round: 1,
+      activeActivation: null,
+    },
+  };
+};

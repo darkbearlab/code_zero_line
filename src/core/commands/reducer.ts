@@ -1,14 +1,22 @@
 import { hasLOS } from '../geometry/los';
 import { computeReactionWindows } from '../geometry/los_window';
 import { computeMovePath } from '../geometry/path';
+import { isPointInPolygon } from '../geometry/polygon';
+import {
+  climbDestination,
+  findContactedHardWall,
+  vaultDestination,
+} from '../geometry/wallTraversal';
 import type { Vec2 } from '../geometry/types';
 import { v2Dist, v2Lerp } from '../geometry/vec2';
 import { resolveShot } from '../resolution/shooting';
 import {
+  CRAWL_MAX_DISTANCE_PIXELS,
   D6_SIDES,
   MELEE_SUPPORT_CAP,
   TURNOVER_MOMENTUM_GRANT,
   UNIT_DISTANCE_PIXELS,
+  VAULT_HEIGHT_THRESHOLD_PIXELS,
 } from '../rules/constants';
 import { countHits, deriveRng } from '../rng/sfc32';
 import type {
@@ -265,7 +273,7 @@ const passInitiative = (s: GameState): CommandResult => {
   return turnover(s, 'VOLUNTARY', TURNOVER_MOMENTUM_GRANT);
 };
 
-type ActionOutcome = 'SUCCESS' | 'FAILURE' | 'REACTION_HIT';
+type ActionOutcome = 'SUCCESS' | 'FAILURE' | 'REACTION_HIT' | 'FORCED_END';
 
 /**
  * Apply per-action bookkeeping after an action command executes:
@@ -289,6 +297,19 @@ const processPostAction = (
   if (outcome === 'FAILURE' && !act.failureProtection) {
     const cleared = setActivation(s, null);
     return turnover(cleared, 'ACTION_FAILED', TURNOVER_MOMENTUM_GRANT);
+  }
+
+  // FORCED_END: action completed but activation ends without turnover (CRAWL,
+  // CLIMB). Distinct from `forcedTurnoverAfterAction` which DOES trigger
+  // turnover.
+  if (outcome === 'FORCED_END') {
+    const cleared = setActivation(s, null);
+    return {
+      state: cleared,
+      events: [
+        { type: 'ACTIVATION_ENDED', unitId: act.unitId, reason: 'NORMAL' },
+      ],
+    };
   }
 
   const remaining =
@@ -360,7 +381,6 @@ const resolveReactionPlan = (
   const target = findUnit(s, targetId);
   if (!target) return empty;
 
-  const hardObs = s.terrain.filter((t) => t.kind === 'HARD').map((t) => t.polygon);
   const sorted = [...plan.markers]
     .map((m, originalIndex) => ({ m, originalIndex }))
     .sort((a, b) => a.m.atT - b.m.atT);
@@ -400,7 +420,8 @@ const resolveReactionPlan = (
     const visibleHere = hasLOS(
       getUnitCircle(shooter),
       { center: moverPos, radius: target.radius },
-      hardObs,
+      working.terrain,
+      { aProne: shooter.stance === 'PRONE', bProne: target.stance === 'PRONE' },
     );
     if (!visibleHere) continue;
 
@@ -455,6 +476,7 @@ const moveAction = (
   target: Vec2,
   reactionPlan: ReactionPlan | undefined,
   cmdIndex: number,
+  endProne = false,
 ): CommandResult => {
   const act = s.initiative.activeActivation;
   if (!act || act.unitId !== unitId) {
@@ -473,32 +495,63 @@ const moveAction = (
     );
   }
 
+  // Difficult-terrain start-in restriction (rule 4.2C — 穿越與脫離).
+  const startedInDifficult = s.terrain.some(
+    (t) => t.kind === 'DIFFICULT' && isPointInPolygon(u.position, t.polygon),
+  );
+  let effectiveTarget = target;
+  if (startedInDifficult) {
+    const dx = target.x - u.position.x;
+    const dy = target.y - u.position.y;
+    const len = Math.hypot(dx, dy);
+    if (len > UNIT_DISTANCE_PIXELS) {
+      effectiveTarget = {
+        x: u.position.x + (dx / len) * UNIT_DISTANCE_PIXELS,
+        y: u.position.y + (dy / len) * UNIT_DISTANCE_PIXELS,
+      };
+    }
+  }
+
   const enemyCircles = s.units
     .filter((o) => o.faction !== u.faction && isUnitAlive(o))
     .map(getUnitCircle);
-  const hardObstacles = s.terrain
-    .filter((t) => t.kind === 'HARD')
-    .map((t) => t.polygon);
+  // Path stops at any terrain edge: HARD (collision), DIFFICULT/SOFT (rule 4.2C
+  // and 9.3 — touching edge ends the move).
+  const stoppingPolygons = s.terrain.map((t) => t.polygon);
+  // LOS during movement only blocked by terrain that actually breaks vision —
+  // computed inside the LOS helpers from terrains; for now we forward all.
+  const losTerrains = s.terrain;
 
-  const path = computeMovePath(u.position, target, {
-    polygons: hardObstacles,
+  const path = computeMovePath(u.position, effectiveTarget, {
+    polygons: stoppingPolygons,
     enemyCircles,
     moverRadius: u.radius,
   });
 
   const enemiesForLOS = s.units
     .filter((o) => o.faction !== u.faction && isUnitAlive(o))
-    .map((o) => ({ id: o.id, circle: getUnitCircle(o) }));
+    .map((o) => ({
+      id: o.id,
+      circle: getUnitCircle(o),
+      prone: o.stance === 'PRONE',
+    }));
   const reactionWindows = computeReactionWindows(
     u.position,
     path.endpoint,
     u.radius,
     enemiesForLOS,
-    hardObstacles,
+    losTerrains,
+    { moverProne: u.stance === 'PRONE' },
   );
 
+  // Stand-up at start (rule 4.5 — 起立: 移動行動開始時宣告). Standing MOVE
+  // implicitly stands the unit up if it was prone, so reaction LOS during the
+  // move uses standing semantics (low walls don't block, etc.).
+  const standingState =
+    u.stance === 'PRONE' ? updateUnit(s, unitId, { stance: 'STANDING' }) : s;
+
   const reactionResult = resolveReactionPlan(
-    s,
+    standingState,
     unitId,
     u.position,
     path.endpoint,
@@ -510,8 +563,14 @@ const moveAction = (
     reactionResult.interruptT !== null
       ? v2Lerp(u.position, path.endpoint, reactionResult.interruptT)
       : path.endpoint;
+  // End-of-move stance: explicit endProne flag → drop prone (rule 4.5).
+  // Forbidden when starting in difficult terrain (rule 4.2C). Suppression
+  // during reaction already sets PRONE via the shooting resolver, so we only
+  // need to apply the flag in the no-suppress path.
+  const wantEndProne = endProne && !startedInDifficult;
   const moved = updateUnit(reactionResult.state, unitId, {
     position: finalEndpoint,
+    ...(wantEndProne ? { stance: 'PRONE' as const } : {}),
   });
 
   const moveEvent: GameEvent = {
@@ -525,7 +584,294 @@ const moveAction = (
     interruptedByMarker: reactionResult.interruptedByMarker,
   };
 
-  const outcome = reactionResult.suppressOrKillCaused ? 'REACTION_HIT' : 'SUCCESS';
+  // Difficult-terrain start-in: activation must end after this single move
+  // (no turnover) — rule 4.2C "移動結束後該單位這個主動權不得在進行任何行動".
+  const outcome: ActionOutcome = reactionResult.suppressOrKillCaused
+    ? 'REACTION_HIT'
+    : startedInDifficult
+      ? 'FORCED_END'
+      : 'SUCCESS';
+  const post = processPostAction(moved, outcome);
+  return {
+    state: post.state,
+    events: [moveEvent, ...reactionResult.events, ...post.events],
+  };
+};
+
+/**
+ * CRAWL (rule 4.5 — 匍匐): max 1 unit-distance, ends with stance = PRONE,
+ * activation ends without turnover. Reaction windows behave like MOVE.
+ *
+ * Allowed regardless of starting stance — if standing, the unit drops prone
+ * for the action (UI sugar, simplifies pre-move stance picker per project
+ * design).
+ */
+const crawlAction = (
+  s: GameState,
+  unitId: string,
+  target: Vec2,
+  reactionPlan: ReactionPlan | undefined,
+  cmdIndex: number,
+): CommandResult => {
+  const act = s.initiative.activeActivation;
+  if (!act || act.unitId !== unitId) {
+    throw new CommandError(
+      'NO_ACTIVE_UNIT',
+      `Unit ${unitId} is not the active unit`,
+    );
+  }
+  const u = findUnit(s, unitId);
+  if (!u) throw new CommandError('UNIT_NOT_FOUND', `Unit ${unitId} not found`);
+  if (!isUnitAlive(u)) throw new CommandError('UNIT_DEAD', `Unit ${unitId} is dead`);
+  if (u.damage === 'IMPEDED' || u.damage === 'SUPPRESSED') {
+    throw new CommandError(
+      'CANNOT_MOVE',
+      `Unit ${unitId} cannot crawl while ${u.damage}`,
+    );
+  }
+  // Rule 4.2C — when starting inside difficult terrain, crawling is forbidden.
+  const startedInDifficult = s.terrain.some(
+    (t) => t.kind === 'DIFFICULT' && isPointInPolygon(u.position, t.polygon),
+  );
+  if (startedInDifficult) {
+    throw new CommandError(
+      'NO_CRAWL_FROM_DIFFICULT',
+      `Cannot crawl out of difficult terrain (rule 4.2C)`,
+    );
+  }
+
+  // Cap target to within CRAWL_MAX_DISTANCE_PIXELS of current position.
+  const dx = target.x - u.position.x;
+  const dy = target.y - u.position.y;
+  const len = Math.hypot(dx, dy);
+  const cappedTarget: Vec2 =
+    len <= CRAWL_MAX_DISTANCE_PIXELS
+      ? target
+      : {
+          x: u.position.x + (dx / len) * CRAWL_MAX_DISTANCE_PIXELS,
+          y: u.position.y + (dy / len) * CRAWL_MAX_DISTANCE_PIXELS,
+        };
+
+  const enemyCircles = s.units
+    .filter((o) => o.faction !== u.faction && isUnitAlive(o))
+    .map(getUnitCircle);
+  const stoppingPolygons = s.terrain.map((t) => t.polygon);
+
+  const path = computeMovePath(u.position, cappedTarget, {
+    polygons: stoppingPolygons,
+    enemyCircles,
+    moverRadius: u.radius,
+  });
+
+  // Mover is prone for the entire crawl (low walls block LOS, etc.).
+  const enemiesForLOS = s.units
+    .filter((o) => o.faction !== u.faction && isUnitAlive(o))
+    .map((o) => ({
+      id: o.id,
+      circle: getUnitCircle(o),
+      prone: o.stance === 'PRONE',
+    }));
+  const reactionWindows = computeReactionWindows(
+    u.position,
+    path.endpoint,
+    u.radius,
+    enemiesForLOS,
+    s.terrain,
+    { moverProne: true },
+  );
+
+  // Force unit to prone *before* reaction resolution so LOS checks during the
+  // crawl correctly use prone semantics (low-wall cover, etc.).
+  const proneState = updateUnit(s, unitId, { stance: 'PRONE' });
+  const reactionResult = resolveReactionPlan(
+    proneState,
+    unitId,
+    u.position,
+    path.endpoint,
+    reactionPlan,
+    cmdIndex,
+  );
+
+  const finalEndpoint =
+    reactionResult.interruptT !== null
+      ? v2Lerp(u.position, path.endpoint, reactionResult.interruptT)
+      : path.endpoint;
+  const moved = updateUnit(reactionResult.state, unitId, {
+    position: finalEndpoint,
+    stance: 'PRONE',
+  });
+
+  const moveEvent: GameEvent = {
+    type: 'MOVE_RESOLVED',
+    unitId,
+    from: u.position,
+    to: finalEndpoint,
+    stopReason: path.stopReason,
+    distance: v2Dist(u.position, finalEndpoint),
+    reactionWindows,
+    interruptedByMarker: reactionResult.interruptedByMarker,
+  };
+
+  // Crawl ends activation without turnover (rule 4.5 — 該輪次不可再行動，但
+  // 不易手). Reaction hits still cause turnover via REACTION_HIT.
+  const outcome: ActionOutcome = reactionResult.suppressOrKillCaused
+    ? 'REACTION_HIT'
+    : 'FORCED_END';
+  const post = processPostAction(moved, outcome);
+  return {
+    state: post.state,
+    events: [moveEvent, ...reactionResult.events, ...post.events],
+  };
+};
+
+/**
+ * VAULT (rule 4.2 B): only valid when in contact with a HARD wall whose
+ * height ≤ 1 unit-distance. Mover is placed on the opposite side; vault
+ * counts as a movement, so reaction fire is allowed at the start (t=0) and
+ * end (t=1) of the action — markers in the plan resolve at the relevant end.
+ */
+const vaultAction = (
+  s: GameState,
+  unitId: string,
+  reactionPlan: ReactionPlan | undefined,
+  cmdIndex: number,
+): CommandResult => {
+  const act = s.initiative.activeActivation;
+  if (!act || act.unitId !== unitId) {
+    throw new CommandError(
+      'NO_ACTIVE_UNIT',
+      `Unit ${unitId} is not the active unit`,
+    );
+  }
+  const u = findUnit(s, unitId);
+  if (!u) throw new CommandError('UNIT_NOT_FOUND', `Unit ${unitId} not found`);
+  if (!isUnitAlive(u)) throw new CommandError('UNIT_DEAD', `${unitId} is dead`);
+  if (u.damage === 'IMPEDED' || u.damage === 'SUPPRESSED') {
+    throw new CommandError('CANNOT_MOVE', `${unitId} cannot vault while ${u.damage}`);
+  }
+
+  const wall = findContactedHardWall(s.terrain, u);
+  if (!wall) {
+    throw new CommandError('NOT_TOUCHING_WALL', `${unitId} not in contact with any wall`);
+  }
+  if (
+    wall.height === undefined ||
+    wall.height > VAULT_HEIGHT_THRESHOLD_PIXELS
+  ) {
+    throw new CommandError(
+      'WALL_TOO_TALL',
+      `Wall ${wall.id} too tall to vault (height ${wall.height})`,
+    );
+  }
+
+  const dest = vaultDestination(u, wall.polygon.vertices);
+
+  const reactionResult = resolveReactionPlan(
+    s,
+    unitId,
+    u.position,
+    dest,
+    reactionPlan,
+    cmdIndex,
+  );
+
+  const finalEndpoint =
+    reactionResult.interruptT !== null
+      ? v2Lerp(u.position, dest, reactionResult.interruptT)
+      : dest;
+  const moved = updateUnit(reactionResult.state, unitId, { position: finalEndpoint });
+
+  const moveEvent: GameEvent = {
+    type: 'MOVE_RESOLVED',
+    unitId,
+    from: u.position,
+    to: finalEndpoint,
+    stopReason: 'TARGET',
+    distance: v2Dist(u.position, finalEndpoint),
+    reactionWindows: [],
+    interruptedByMarker: reactionResult.interruptedByMarker,
+  };
+
+  const outcome: ActionOutcome = reactionResult.suppressOrKillCaused
+    ? 'REACTION_HIT'
+    : 'SUCCESS';
+  const post = processPostAction(moved, outcome);
+  return {
+    state: post.state,
+    events: [moveEvent, ...reactionResult.events, ...post.events],
+  };
+};
+
+/**
+ * CLIMB (rule 4.2 B): only valid when in contact with a HARD wall whose
+ * height > 1 unit-distance. Mover ends on top of the far edge. Activation
+ * ends immediately without turnover — distinct from `forcedTurnoverAfterAction`.
+ */
+const climbAction = (
+  s: GameState,
+  unitId: string,
+  reactionPlan: ReactionPlan | undefined,
+  cmdIndex: number,
+): CommandResult => {
+  const act = s.initiative.activeActivation;
+  if (!act || act.unitId !== unitId) {
+    throw new CommandError(
+      'NO_ACTIVE_UNIT',
+      `Unit ${unitId} is not the active unit`,
+    );
+  }
+  const u = findUnit(s, unitId);
+  if (!u) throw new CommandError('UNIT_NOT_FOUND', `Unit ${unitId} not found`);
+  if (!isUnitAlive(u)) throw new CommandError('UNIT_DEAD', `${unitId} is dead`);
+  if (u.damage === 'IMPEDED' || u.damage === 'SUPPRESSED') {
+    throw new CommandError('CANNOT_MOVE', `${unitId} cannot climb while ${u.damage}`);
+  }
+
+  const wall = findContactedHardWall(s.terrain, u);
+  if (!wall) {
+    throw new CommandError('NOT_TOUCHING_WALL', `${unitId} not in contact with any wall`);
+  }
+  if (
+    wall.height === undefined ||
+    wall.height <= VAULT_HEIGHT_THRESHOLD_PIXELS
+  ) {
+    throw new CommandError(
+      'WALL_TOO_SHORT',
+      `Wall ${wall.id} too short to require climbing (height ${wall.height})`,
+    );
+  }
+
+  const dest = climbDestination(u, wall.polygon.vertices);
+
+  const reactionResult = resolveReactionPlan(
+    s,
+    unitId,
+    u.position,
+    dest,
+    reactionPlan,
+    cmdIndex,
+  );
+
+  const finalEndpoint =
+    reactionResult.interruptT !== null
+      ? v2Lerp(u.position, dest, reactionResult.interruptT)
+      : dest;
+  const moved = updateUnit(reactionResult.state, unitId, { position: finalEndpoint });
+
+  const moveEvent: GameEvent = {
+    type: 'MOVE_RESOLVED',
+    unitId,
+    from: u.position,
+    to: finalEndpoint,
+    stopReason: 'TARGET',
+    distance: v2Dist(u.position, finalEndpoint),
+    reactionWindows: [],
+    interruptedByMarker: reactionResult.interruptedByMarker,
+  };
+
+  const outcome: ActionOutcome = reactionResult.suppressOrKillCaused
+    ? 'REACTION_HIT'
+    : 'FORCED_END';
   const post = processPostAction(moved, outcome);
   return {
     state: post.state,
@@ -833,7 +1179,20 @@ export const applyCommand = (state: GameState, cmd: Command): CommandResult => {
     case 'PASS_INITIATIVE':
       return passInitiative(s);
     case 'MOVE':
-      return moveAction(s, cmd.unitId, cmd.target, cmd.reactionPlan, cmdIndex);
+      return moveAction(
+        s,
+        cmd.unitId,
+        cmd.target,
+        cmd.reactionPlan,
+        cmdIndex,
+        cmd.endProne,
+      );
+    case 'CRAWL':
+      return crawlAction(s, cmd.unitId, cmd.target, cmd.reactionPlan, cmdIndex);
+    case 'VAULT':
+      return vaultAction(s, cmd.unitId, cmd.reactionPlan, cmdIndex);
+    case 'CLIMB':
+      return climbAction(s, cmd.unitId, cmd.reactionPlan, cmdIndex);
     case 'SHOOT':
       return shootAction(s, cmd, cmdIndex);
     case 'MELEE':

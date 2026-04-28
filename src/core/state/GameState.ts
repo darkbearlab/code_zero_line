@@ -41,6 +41,15 @@ export interface Terrain {
   readonly id: string;
   readonly kind: CoverKind;
   readonly polygon: Polygon;
+  /**
+   * Pixel height, used only for HARD terrain.
+   * <= UNIT_DISTANCE_PIXELS → low wall (vault-able, blocks LOS only to prone).
+   * >  UNIT_DISTANCE_PIXELS → high wall (climb-able, blocks LOS always).
+   * Optional for non-HARD kinds.
+   */
+  readonly height?: number;
+  /** Human label for debug/UI ("矮牆" / "高牆" / "瓦礫" / "煙幕" etc.). */
+  readonly displayName?: string;
 }
 
 export type ActivationKind = 'SPEND' | 'CHECK_SUCCESS' | 'OVERDRAFT';
@@ -92,3 +101,24 @@ export const updateUnit = (
   ...s,
   units: s.units.map((u) => (u.id === id ? { ...u, ...patch } : u)),
 });
+
+/**
+ * A HARD terrain whose height is ≤ 1 unit-distance is considered a low wall:
+ * vault-able and blocks LOS *only* against prone targets (rule 4.5 — prone
+ * model "視為僅剩底板高度").
+ */
+export const isLowWall = (
+  t: Terrain,
+  vaultThresholdPx: number,
+): boolean =>
+  t.kind === 'HARD' && (t.height ?? Number.POSITIVE_INFINITY) <= vaultThresholdPx;
+
+/**
+ * A HARD terrain whose height is > 1 unit-distance is a high wall: climb-able
+ * and blocks LOS unconditionally.
+ */
+export const isHighWall = (
+  t: Terrain,
+  vaultThresholdPx: number,
+): boolean =>
+  t.kind === 'HARD' && (t.height ?? Number.POSITIVE_INFINITY) > vaultThresholdPx;

@@ -29,7 +29,17 @@ export type Command =
   | { type: 'ACTIVATE_OVERDRAFT'; unitId: string }
   | { type: 'END_ACTIVATION' }
   | { type: 'PASS_INITIATIVE' }
-  | { type: 'MOVE'; unitId: string; target: Vec2; reactionPlan?: ReactionPlan }
+  | {
+      type: 'MOVE';
+      unitId: string;
+      target: Vec2;
+      reactionPlan?: ReactionPlan;
+      /** Drop prone at end of move (rule 4.5 — 任意移動行動結束時可免費宣告). */
+      endProne?: boolean;
+    }
+  | { type: 'CRAWL'; unitId: string; target: Vec2; reactionPlan?: ReactionPlan }
+  | { type: 'VAULT'; unitId: string; reactionPlan?: ReactionPlan }
+  | { type: 'CLIMB'; unitId: string; reactionPlan?: ReactionPlan }
   | {
       type: 'SHOOT';
       mode: ShootMode;
