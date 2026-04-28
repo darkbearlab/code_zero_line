@@ -132,12 +132,33 @@ export const buildUnit = (spawn: UnitSpawn): Unit => {
 
 const BUNDLED_MAPS: ReadonlyArray<MapDef> = [demoMapJson as MapDef];
 
+/**
+ * Runtime-registered editor map docs — used by the headless sim CLI so
+ * Node can play maps that normally live in browser localStorage. Last-write
+ * wins on id collision.
+ */
+const runtimeMaps: EditorMapDoc[] = [];
+
+export const registerRuntimeMaps = (
+  docs: ReadonlyArray<EditorMapDoc>,
+): void => {
+  for (const d of docs) {
+    const idx = runtimeMaps.findIndex((x) => x.id === d.id);
+    if (idx >= 0) runtimeMaps.splice(idx, 1);
+    runtimeMaps.push(d);
+  }
+};
+
 const mergedMaps = (): ReadonlyArray<MapDef> => {
-  const customDocs = safeReadLocal<EditorMapDoc>(EDITOR_MAP_KEY);
-  if (customDocs.length === 0) return BUNDLED_MAPS;
+  const localDocs = safeReadLocal<EditorMapDoc>(EDITOR_MAP_KEY);
+  if (runtimeMaps.length === 0 && localDocs.length === 0) return BUNDLED_MAPS;
   const byId = new Map<string, MapDef>();
   for (const m of BUNDLED_MAPS) byId.set(m.id, m);
-  for (const d of customDocs) byId.set(d.id, docToMapDef(d));
+  // Order: localStorage overlays bundled, runtime overlays everything (CLI
+  // explicitly imported a JSON, so it should win over a stale localStorage
+  // entry of the same id).
+  for (const d of localDocs) byId.set(d.id, docToMapDef(d));
+  for (const d of runtimeMaps) byId.set(d.id, docToMapDef(d));
   return [...byId.values()];
 };
 

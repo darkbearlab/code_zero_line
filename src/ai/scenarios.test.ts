@@ -82,8 +82,9 @@ const baseState = (
       ? {
           unitId: activeUnitId,
           kind: 'SPEND',
-          remainingActions: 99,
-          actionsTaken: 0,
+          actionsRemaining: 99,
+          failureProtection: false,
+          forcedTurnoverAfterAction: false,
         }
       : null,
   },

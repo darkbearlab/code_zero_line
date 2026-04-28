@@ -10,11 +10,16 @@
  * seed-base produces a byte-identical log file (great for diffing across AI
  * code changes — anything that drifts is genuine signal, not noise).
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getAi } from '../ai/index';
-import { listUnitTemplates, listWeapons } from '../config/loader';
+import {
+  listUnitTemplates,
+  listWeapons,
+  registerRuntimeMaps,
+} from '../config/loader';
+import type { EditorMapDoc } from '../config/mapDoc';
 import { aggregateKpi } from './metrics';
 import { buildFixtureState, namedFixtures } from './fixtures';
 import { simulateMatch, type MatchOutcome } from './runMatch';
@@ -26,6 +31,8 @@ interface CliArgs {
   seedBase: string;
   maxCommands: number;
   fixture: string;
+  mapsFile: string | null;
+  mapId: string | null;
 }
 
 const parseArgs = (argv: ReadonlyArray<string>): CliArgs => {
@@ -36,6 +43,8 @@ const parseArgs = (argv: ReadonlyArray<string>): CliArgs => {
     seedBase: 'sim',
     maxCommands: 5000,
     fixture: 'mirror',
+    mapsFile: null,
+    mapId: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -63,6 +72,14 @@ const parseArgs = (argv: ReadonlyArray<string>): CliArgs => {
         break;
       case '--fixture':
         out.fixture = String(v);
+        i++;
+        break;
+      case '--maps-file':
+        out.mapsFile = String(v);
+        i++;
+        break;
+      case '--map':
+        out.mapId = String(v);
         i++;
         break;
       case '--help':
@@ -93,6 +110,9 @@ const printHelp = (): void => {
       '  --seed-base <s>       Seed prefix; per-match seed = <prefix>-<i>',
       '  --max-commands <n>    Hard cap per match (default: 5000)',
       '  --fixture <name>      mirror | demo  (default: mirror — symmetric loadout)',
+      '  --maps-file <path>    Load editor map docs from JSON (e.g. exported',
+      '                        from browser localStorage[czl.editor.maps.v1]).',
+      '  --map <id>            Override the fixture\'s map (defaults to fixture\'s).',
       '',
       'Output: console summary table + logs/sim-<timestamp>.json',
       '',
@@ -125,17 +145,31 @@ const fmt = (x: number, digits = 2): string => x.toFixed(digits);
 
 const run = (): void => {
   const args = parseArgs(process.argv.slice(2));
+
+  if (args.mapsFile) {
+    const raw = readFileSync(args.mapsFile, 'utf8');
+    const parsed = JSON.parse(raw) as EditorMapDoc[] | EditorMapDoc;
+    const docs = Array.isArray(parsed) ? parsed : [parsed];
+    registerRuntimeMaps(docs);
+    process.stdout.write(
+      `loaded ${docs.length} map(s) from ${args.mapsFile}: ${docs.map((d) => d.id).join(', ')}\n`,
+    );
+  }
+
   const aiA = getAi(args.aiA);
   const aiB = getAi(args.aiB);
   const rulesetVersion = computeRulesetVersion();
 
-  const fixture = namedFixtures[args.fixture];
-  if (!fixture) {
+  const baseFixture = namedFixtures[args.fixture];
+  if (!baseFixture) {
     process.stderr.write(
       `Unknown fixture "${args.fixture}". Available: ${Object.keys(namedFixtures).join(', ')}\n`,
     );
     process.exit(2);
   }
+  const fixture = args.mapId
+    ? { ...baseFixture, mapId: args.mapId }
+    : baseFixture;
 
   const t0 = Date.now();
   const outcomes: MatchOutcome[] = [];
@@ -154,7 +188,7 @@ const run = (): void => {
 
   const lines: string[] = [];
   lines.push(
-    `── A=${args.aiA} vs B=${args.aiB} on "${args.fixture}" — ${agg.matches} matches (ruleset ${rulesetVersion}, ${elapsedMs}ms) ──`,
+    `── A=${args.aiA} vs B=${args.aiB} on "${args.fixture}" map=${fixture.mapId} — ${agg.matches} matches (ruleset ${rulesetVersion}, ${elapsedMs}ms) ──`,
   );
   lines.push(
     `win rate            A: ${fmtPct(agg.winRateA)}   B: ${fmtPct(agg.winRateB)}   draw: ${fmtPct((agg.draws / Math.max(1, agg.matches)))}`,
