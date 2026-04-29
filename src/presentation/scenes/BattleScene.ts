@@ -7,6 +7,7 @@ import {
   vaultDestination,
 } from '../../core/geometry/wallTraversal';
 import { drawTerrain, polygonCentroid } from '../rendering/terrain';
+import { CombatEffects } from '../rendering/combatEffects';
 import {
   appendCommand,
   createReplayLog,
@@ -125,6 +126,8 @@ export class BattleScene extends Phaser.Scene {
   private boardEdgeGfx!: Phaser.GameObjects.Graphics;
   private aimGfx!: Phaser.GameObjects.Graphics;
   private unitLayer!: Phaser.GameObjects.Container;
+  private effectsLayer!: Phaser.GameObjects.Container;
+  private effects!: CombatEffects;
   private selectedUnitId: string | null = null;
   private hud!: Hud;
   private aimMode: AimMode = 'idle';
@@ -258,6 +261,8 @@ export class BattleScene extends Phaser.Scene {
     // material, never selection-blocking.
     this.losOverlayGfx = this.add.graphics();
     this.unitLayer = this.add.container();
+    this.effectsLayer = this.add.container();
+    this.effects = new CombatEffects(this, this.effectsLayer);
     this.aimGfx = this.add.graphics();
 
     this.fitCamera();
@@ -598,25 +603,19 @@ export class BattleScene extends Phaser.Scene {
   private createUnitContainer(u: Unit): Phaser.GameObjects.Container {
     const container = this.add.container(u.position.x, u.position.y);
 
-    // Facing chevron (purely cosmetic — not in GameState). Wrapped in a
-    // sub-container so we can rotate around the unit's true center (0,0)
-    // instead of the triangle's bounding-box center.
-    const facingPivot = this.add.container(0, 0);
-    const tri = this.add.triangle(
-      0,
-      0,
-      u.radius * 1.45,
-      0,
-      -u.radius * 0.25,
-      -u.radius * 0.5,
-      -u.radius * 0.25,
-      u.radius * 0.5,
-      0xfff5cf,
+    // Facing chevron — Graphics rotates predictably around its own (0,0)
+    // origin, so getByName('facing').rotation = angle pivots at unit center.
+    // (The previous Container+Triangle wrapper rotated around the triangle's
+    // bbox centroid which is offset from (0,0), making rotation appear stuck.)
+    const chev = this.add.graphics();
+    chev.fillStyle(0xfff5cf, 0.9);
+    chev.fillTriangle(
+      u.radius * 1.45, 0,
+      -u.radius * 0.25, -u.radius * 0.5,
+      -u.radius * 0.25, u.radius * 0.5,
     );
-    tri.setAlpha(0.9);
-    facingPivot.add(tri);
-    facingPivot.setName('facing');
-    container.add(facingPivot);
+    chev.setName('facing');
+    container.add(chev);
 
     const arc = this.add.circle(0, 0, u.radius, FACTION_COLOR[u.faction]);
     arc.setName('arc');
@@ -669,7 +668,7 @@ export class BattleScene extends Phaser.Scene {
       this.unitFacings.get(u.id) ??
       (u.faction === 'A' ? -Math.PI / 2 : Math.PI / 2);
     this.unitFacings.set(u.id, initial);
-    facingPivot.rotation = initial;
+    chev.rotation = initial;
 
     return container;
   }
@@ -678,7 +677,7 @@ export class BattleScene extends Phaser.Scene {
     this.unitFacings.set(unitId, angle);
     const c = this.unitContainers.get(unitId);
     if (!c) return;
-    const chev = c.getByName('facing') as Phaser.GameObjects.Container | null;
+    const chev = c.getByName('facing') as Phaser.GameObjects.Graphics | null;
     if (chev) chev.rotation = angle;
   }
 
@@ -735,10 +734,10 @@ export class BattleScene extends Phaser.Scene {
     // the unit reads as low-profile from above.
     const proneAlpha = u.stance === 'PRONE' ? 0.55 : 1;
     arc.setFillStyle(FACTION_COLOR[u.faction], proneAlpha);
-    const facingPivot = container.getByName('facing') as
-      | Phaser.GameObjects.Container
+    const facingChev = container.getByName('facing') as
+      | Phaser.GameObjects.Graphics
       | null;
-    if (facingPivot) facingPivot.setAlpha(u.stance === 'PRONE' ? 0.45 : 0.9);
+    if (facingChev) facingChev.setAlpha(u.stance === 'PRONE' ? 0.45 : 0.9);
 
     let stanceTag = container.getByName('stance-tag') as
       | Phaser.GameObjects.Text
@@ -758,24 +757,28 @@ export class BattleScene extends Phaser.Scene {
       stanceTag.destroy();
     }
 
-    // Damage tag (optional child).
+    // Damage tag — icon dots under the unit. 1 orange = IMPEDED, 2 red =
+    // SUPPRESSED. KILLED units are filtered out before this runs.
     let tag = container.getByName('damage-tag') as
-      | Phaser.GameObjects.Text
+      | Phaser.GameObjects.Graphics
       | null;
     if (u.damage === 'NONE') {
       if (tag) tag.destroy();
     } else {
       if (!tag) {
-        tag = this.add.text(0, u.radius + 4, u.damage, {
-          fontFamily: 'ui-monospace, monospace',
-          fontSize: '9px',
-          color: '#ffaa55',
-        });
+        tag = this.add.graphics();
         tag.setName('damage-tag');
-        tag.setOrigin(0.5);
         container.add(tag);
-      } else {
-        tag.setText(u.damage);
+      }
+      tag.clear();
+      const y = u.radius + 5.5;
+      if (u.damage === 'IMPEDED') {
+        tag.fillStyle(0xff9a3a, 1);
+        tag.fillCircle(0, y, 2.6);
+      } else if (u.damage === 'SUPPRESSED') {
+        tag.fillStyle(0xff4444, 1);
+        tag.fillCircle(-3.6, y, 2.6);
+        tag.fillCircle(3.6, y, 2.6);
       }
     }
   }
@@ -902,14 +905,18 @@ export class BattleScene extends Phaser.Scene {
           this.animateMove(ev.unitId, ev.from, ev.to, ev.reactionWindows);
         }
         if (ev.type === 'SHOT_RESOLVED') {
-          const targetPos = this.gameState.units.find(
+          const target = this.gameState.units.find(
             (u) => u.id === ev.targetId,
-          )?.position;
-          if (targetPos) {
-            this.faceUnitTowardPoint(ev.shooterId, targetPos);
+          );
+          const shooter = this.gameState.units.find(
+            (u) => u.id === ev.shooterId,
+          );
+          if (target && shooter) {
+            this.faceUnitTowardPoint(ev.shooterId, target.position);
             for (const pid of ev.participantIds) {
-              this.faceUnitTowardPoint(pid, targetPos);
+              this.faceUnitTowardPoint(pid, target.position);
             }
+            this.playShotEffects(ev, shooter, target);
           }
         }
         if (ev.type === 'MELEE_RESOLVED') {
@@ -921,6 +928,7 @@ export class BattleScene extends Phaser.Scene {
           );
           if (att) this.faceUnitTowardPoint(ev.attackerId, def?.position ?? att.position);
           if (def) this.faceUnitTowardPoint(ev.defenderId, att?.position ?? def.position);
+          if (att && def) this.playMeleeEffects(ev, att, def);
         }
         if (this.isRollEvent(ev)) {
           this.showRollOverlay(ev, overlayIndex++);
@@ -1136,6 +1144,127 @@ export class BattleScene extends Phaser.Scene {
       ev.type === 'MELEE_RESOLVED' ||
       ev.type === 'RALLY_ROLLED'
     );
+  }
+
+  /**
+   * Visual chain for a shot: muzzle flash + tracer per firing unit, then
+   * (after volley arrival delay) blood mist / hit floater on target, then
+   * escalate flash / death marker if damage state advanced. Pure cosmetic.
+   */
+  private playShotEffects(
+    ev: Extract<GameEvent, { type: 'SHOT_RESOLVED' }>,
+    shooter: Unit,
+    target: Unit,
+  ): void {
+    const shooters: Unit[] = [shooter];
+    for (const pid of ev.participantIds) {
+      if (pid === shooter.id) continue;
+      const p = this.gameState.units.find((u) => u.id === pid);
+      if (p) shooters.push(p);
+    }
+    let i = 0;
+    for (const sh of shooters) {
+      const facing = this.unitFacings.get(sh.id) ?? 0;
+      const tipOffset = sh.radius * 1.45;
+      const stagger = i * 35;
+      this.effects.muzzleFlash(sh.position, facing, tipOffset, stagger);
+      this.effects.tracer(sh.position, target.position, ev.hits, stagger + 30);
+      i += 1;
+    }
+    const arrivalDelay = (shooters.length - 1) * 35 + 130;
+    this.effects.bloodMist(target.position, ev.hits, arrivalDelay);
+    if (ev.hits > 0) {
+      this.effects.hitFloater(
+        target.position,
+        `+${ev.hits} HIT${ev.hits > 1 ? 'S' : ''}`,
+        '#ff8a6a',
+        arrivalDelay,
+      );
+    } else {
+      this.effects.hitFloater(
+        target.position,
+        'MISS',
+        '#aaaaaa',
+        arrivalDelay,
+      );
+    }
+    if (ev.afterDamage !== ev.beforeDamage) {
+      this.effects.escalateFlash(
+        target.position,
+        target.radius,
+        arrivalDelay + 80,
+      );
+      if (ev.afterDamage === 'KILLED') {
+        this.effects.deathMarker(
+          target.position,
+          target.radius,
+          arrivalDelay + 220,
+        );
+        this.effects.hitFloater(
+          target.position,
+          'KILL',
+          '#ff3a3a',
+          arrivalDelay + 240,
+        );
+      } else {
+        this.effects.hitFloater(
+          target.position,
+          ev.afterDamage,
+          '#ffaa55',
+          arrivalDelay + 220,
+        );
+      }
+    }
+  }
+
+  /**
+   * Visual chain for melee: clash flash at midpoint, hit-count floaters per
+   * side, then escalate / death marker on the loser. Melee event lacks an
+   * explicit beforeDamage so we approximate using the loser's current state.
+   */
+  private playMeleeEffects(
+    ev: Extract<GameEvent, { type: 'MELEE_RESOLVED' }>,
+    attacker: Unit,
+    defender: Unit,
+  ): void {
+    const mid = {
+      x: (attacker.position.x + defender.position.x) / 2,
+      y: (attacker.position.y + defender.position.y) / 2,
+    };
+    this.effects.escalateFlash(mid, 9, 0);
+    this.effects.hitFloater(
+      attacker.position,
+      `${ev.attackerHits}h`,
+      ev.winnerId === attacker.id ? '#9af09a' : '#aaaaaa',
+      40,
+    );
+    this.effects.hitFloater(
+      defender.position,
+      `${ev.defenderHits}h`,
+      ev.winnerId === defender.id ? '#9af09a' : '#aaaaaa',
+      40,
+    );
+    const loser = ev.loserId === attacker.id ? attacker : defender;
+    if (loser.damage !== 'NONE') {
+      this.effects.escalateFlash(loser.position, loser.radius, 200);
+      this.effects.bloodMist(loser.position, 1, 200);
+      if (loser.damage === 'KILLED') {
+        this.effects.deathMarker(loser.position, loser.radius, 360);
+        this.effects.hitFloater(
+          loser.position,
+          'KILL',
+          '#ff3a3a',
+          380,
+        );
+      } else {
+        this.effects.hitFloater(
+          loser.position,
+          loser.damage,
+          '#ffaa55',
+          360,
+        );
+      }
+    }
   }
 
   private showRollOverlay(ev: GameEvent, stackIndex: number): void {
@@ -2575,13 +2704,23 @@ export class BattleScene extends Phaser.Scene {
     this.aimGfx.lineTo(path.endpoint.x, path.endpoint.y);
     this.aimGfx.strokePath();
 
-    const enemies = this.gameState.units
-      .filter((o) => o.faction !== u.faction && isUnitAlive(o))
-      .map((o) => ({
-        id: o.id,
-        circle: getUnitCircle(o),
-        prone: o.stance === 'PRONE',
-      }));
+    // Reaction-threat preview: only enemies that COULD actually react are
+    // surfaced as red. SUPPRESSED, already-used-reaction, and weaponless
+    // enemies fall out — those windows would be cosmetic noise.
+    const reactionCapable = (o: Unit): boolean =>
+      isUnitAlive(o) &&
+      o.faction !== u.faction &&
+      o.damage !== 'SUPPRESSED' &&
+      !o.cannotReactThisRound &&
+      o.weapons.some(
+        (w) => w.kind === 'SHOOT' && w.modes.includes('REACTION'),
+      );
+    const threats = this.gameState.units.filter(reactionCapable);
+    const enemies = threats.map((o) => ({
+      id: o.id,
+      circle: getUnitCircle(o),
+      prone: o.stance === 'PRONE',
+    }));
     const windows = computeReactionWindows(
       u.position,
       path.endpoint,
@@ -2590,7 +2729,7 @@ export class BattleScene extends Phaser.Scene {
       this.gameState.terrain,
       { moverProne: u.stance === 'PRONE' },
     );
-    this.aimGfx.lineStyle(4, 0xff5555, 0.7);
+    this.aimGfx.lineStyle(4, 0xff5555, 0.75);
     for (const w of windows) {
       const startP = v2Lerp(u.position, path.endpoint, w.startT);
       const endP = v2Lerp(u.position, path.endpoint, w.endT);
@@ -2598,6 +2737,13 @@ export class BattleScene extends Phaser.Scene {
       this.aimGfx.moveTo(startP.x, startP.y);
       this.aimGfx.lineTo(endP.x, endP.y);
       this.aimGfx.strokePath();
+    }
+    // Warning ring around each reactor that has at least one window.
+    const reactingIds = new Set(windows.map((w) => w.enemyUnitId));
+    this.aimGfx.lineStyle(2, 0xff5555, 0.85);
+    for (const t of threats) {
+      if (!reactingIds.has(t.id)) continue;
+      this.aimGfx.strokeCircle(t.position.x, t.position.y, t.radius + 4);
     }
 
     if (path.stopReason === 'OBSTACLE') {
