@@ -77,6 +77,12 @@ export interface ReactionContext {
    * one as the marker target before placing markers. Undefined for solo.
    */
   readonly commandMovers?: ReadonlyArray<ReactionTargetOption>;
+  /**
+   * LOS-windows along the path expressed as t-ranges. Surfaced so the
+   * scrubber UI can mirror the path's red "visible to enemies" segments
+   * onto the time axis.
+   */
+  readonly windows?: ReadonlyArray<{ readonly startT: number; readonly endT: number }>;
 }
 
 export interface ShootCandidateMode {
@@ -177,6 +183,7 @@ export class Hud {
   private scrubberEl: HTMLElement;
   private scrubberInputEl: HTMLInputElement;
   private scrubberLabelEl: HTMLElement;
+  private scrubberWindowsEl: HTMLElement | null = null;
   private timerEl: HTMLElement;
   private aiToggleA: HTMLInputElement;
   private aiToggleB: HTMLInputElement;
@@ -215,6 +222,7 @@ export class Hud {
     this.scrubberEl = mustElement('hud-scrubber');
     this.scrubberInputEl = mustElement('hud-scrubber-input') as HTMLInputElement;
     this.scrubberLabelEl = mustElement('hud-scrubber-label');
+    this.scrubberWindowsEl = document.getElementById('hud-scrubber-windows');
     this.timerEl = mustElement('hud-timer');
     this.aiToggleA = mustElement('hud-ai-a') as HTMLInputElement;
     this.aiToggleB = mustElement('hud-ai-b') as HTMLInputElement;
@@ -287,8 +295,34 @@ export class Hud {
     const showScrubber =
       aimMode === 'reaction-phase' && ctx?.reaction?.intent === 'MOVE';
     this.scrubberEl.hidden = !showScrubber;
+    if (showScrubber) {
+      this.renderScrubberWindows(ctx?.reaction?.windows ?? []);
+    }
 
     this.renderActions(state, selectedUnitId, aimMode, ctx);
+  }
+
+  /**
+   * Mirror the path's red LOS-window segments onto the scrubber timeline.
+   * Each window becomes an absolutely-positioned red bar inside
+   * #hud-scrubber-windows so the player's eye can track time-on-axis the
+   * same way they track distance-on-path.
+   */
+  private renderScrubberWindows(
+    windows: ReadonlyArray<{ startT: number; endT: number }>,
+  ): void {
+    const host = this.scrubberWindowsEl;
+    if (!host) return;
+    host.innerHTML = '';
+    for (const w of windows) {
+      const bar = document.createElement('div');
+      bar.className = 'hud-scrubber-window';
+      const startPct = Math.max(0, Math.min(100, w.startT * 100));
+      const widthPct = Math.max(0, Math.min(100, (w.endT - w.startT) * 100));
+      bar.style.left = `${startPct}%`;
+      bar.style.width = `${widthPct}%`;
+      host.appendChild(bar);
+    }
   }
 
   setScrubberValue(t: number): void {

@@ -1108,7 +1108,8 @@ export class BattleScene extends Phaser.Scene {
       );
     }
 
-    const duration = Math.max(140, (dist / UNIT_DISTANCE_PIXELS) * 220);
+    // Snappier: ~110 ms per UD instead of 220, with 80 ms floor.
+    const duration = Math.max(80, (dist / UNIT_DISTANCE_PIXELS) * 110);
     this.movementTweens++;
     const tween = this.tweens.add({
       targets: container,
@@ -1472,6 +1473,7 @@ export class BattleScene extends Phaser.Scene {
       currentT: r.scrubberT,
       visibleReactors: reactors,
       commandMovers,
+      windows: r.windows.map((w) => ({ startT: w.startT, endT: w.endT })),
     };
   }
 
