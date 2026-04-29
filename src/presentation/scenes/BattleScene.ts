@@ -21,7 +21,10 @@ import type {
   ShootMode,
 } from '../../core/commands/types';
 import { CommandError } from '../../core/commands/types';
-import { hasLOS } from '../../core/geometry/los';
+import { buildLosBlockers, hasLOS } from '../../core/geometry/los';
+import { segmentBlockedByPolygon, segmentBlockedByPolygons } from '../../core/geometry/segment';
+import { VAULT_HEIGHT_THRESHOLD_PIXELS } from '../../core/rules/constants';
+import { isLowWall } from '../../core/state/GameState';
 import {
   computeReactionWindows,
   type ReactionWindow,
@@ -114,6 +117,9 @@ export class BattleScene extends Phaser.Scene {
   private terrainLabels: Phaser.GameObjects.Text[] = [];
   private objectivesGfx!: Phaser.GameObjects.Graphics;
   private objectiveLabels: Phaser.GameObjects.Text[] = [];
+  private losOverlayGfx!: Phaser.GameObjects.Graphics;
+  /** Unit currently used to source the LOS preview overlay (hover state). */
+  private losPreviewUnitId: string | null = null;
   private boardEdgeGfx!: Phaser.GameObjects.Graphics;
   private aimGfx!: Phaser.GameObjects.Graphics;
   private unitLayer!: Phaser.GameObjects.Container;
@@ -234,6 +240,7 @@ export class BattleScene extends Phaser.Scene {
     this.timerEvent = null;
     this.cameraManualOverride = false;
     this.panDrag = null;
+    this.losPreviewUnitId = null;
   }
 
   create(): void {
@@ -244,6 +251,10 @@ export class BattleScene extends Phaser.Scene {
     this.boardEdgeGfx = this.add.graphics();
     this.terrainGfx = this.add.graphics();
     this.objectivesGfx = this.add.graphics();
+    // LOS overlay sits between objectives and units so unit circles and
+    // their labels remain on top — the overlay is just visual hint
+    // material, never selection-blocking.
+    this.losOverlayGfx = this.add.graphics();
     this.unitLayer = this.add.container();
     this.aimGfx = this.add.graphics();
 
@@ -397,6 +408,129 @@ export class BattleScene extends Phaser.Scene {
         this.terrainLabels.push(lbl);
       }
     }
+  }
+
+  /**
+   * LOS preview overlay — paint a grey rectangle over every map cell that
+   * is NOT clearly visible from the hovered unit, with two intensities:
+   *   - blocked      → 55% black (high opacity, "you can't see here")
+   *   - partial cover → 25% black (low opacity, "smoke / low wall in the
+   *                     way; visible but with cover effect")
+   *   - full LOS     → no overlay
+   *
+   * Cells whose centre is inside a HARD wall are skipped — those squares
+   * are unreachable and the wall sprite already covers them.
+   *
+   * Approximation: target is assumed STANDING. Prone-target LOS would
+   * differ for low walls, but the preview is a hint, not a rules
+   * resolution.
+   */
+  private renderLosOverlay(unitId: string | null): void {
+    this.losOverlayGfx.clear();
+    if (!unitId) return;
+    const unit = this.gameState.units.find((u) => u.id === unitId);
+    if (!unit || !isUnitAlive(unit)) return;
+
+    const cellSize = 24;
+    const cols = Math.ceil(BATTLEFIELD_SIZE_PIXELS / cellSize);
+    const rows = Math.ceil(BATTLEFIELD_SIZE_PIXELS / cellSize);
+
+    const hardPolys = this.gameState.terrain
+      .filter((t) => t.kind === 'HARD')
+      .map((t) => t.polygon);
+    const lowWallPolys = this.gameState.terrain
+      .filter(
+        (t) => t.kind === 'HARD' && isLowWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS),
+      )
+      .map((t) => t.polygon);
+    const softPolys = this.gameState.terrain
+      .filter((t) => t.kind === 'SOFT')
+      .map((t) => t.polygon);
+
+    const losOpts = {
+      aProne: unit.stance === 'PRONE',
+      bProne: false,
+    };
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const cx = (c + 0.5) * cellSize;
+        const cy = (r + 0.5) * cellSize;
+        const target: Vec2 = { x: cx, y: cy };
+
+        // Skip cells whose centre falls inside a HARD wall — they're
+        // unreachable and the wall already paints that area.
+        let inHard = false;
+        for (const poly of hardPolys) {
+          if (isPointInPolygon(target, poly)) {
+            inHard = true;
+            break;
+          }
+        }
+        if (inHard) continue;
+
+        const blockers = buildLosBlockers(
+          unit.position,
+          target,
+          this.gameState.terrain,
+          losOpts,
+        );
+        const blocked = segmentBlockedByPolygons(
+          unit.position,
+          target,
+          blockers,
+        );
+
+        if (blocked) {
+          this.losOverlayGfx.fillStyle(0x000000, 0.55);
+          this.losOverlayGfx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+          continue;
+        }
+
+        // Partial: line clips a cover-providing polygon (soft, or a low
+        // wall at standing-vs-standing) OR either endpoint is inside a
+        // soft polygon. Cover doesn't block but is informational.
+        let partial = false;
+        for (const lp of lowWallPolys) {
+          if (segmentBlockedByPolygon(unit.position, target, lp)) {
+            partial = true;
+            break;
+          }
+        }
+        if (!partial) {
+          for (const sp of softPolys) {
+            if (
+              isPointInPolygon(target, sp) ||
+              isPointInPolygon(unit.position, sp) ||
+              segmentBlockedByPolygon(unit.position, target, sp)
+            ) {
+              partial = true;
+              break;
+            }
+          }
+        }
+
+        if (partial) {
+          this.losOverlayGfx.fillStyle(0x000000, 0.25);
+          this.losOverlayGfx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+        }
+        // Full LOS — leave the cell uncovered.
+      }
+    }
+  }
+
+  /** Hit-test pointer against any alive unit; returns its id or null. */
+  private findUnitAtPointer(pointer: Phaser.Input.Pointer): string | null {
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    for (const u of this.gameState.units) {
+      if (!isUnitAlive(u)) continue;
+      const dx = wp.x - u.position.x;
+      const dy = wp.y - u.position.y;
+      // Slightly enlarge hit radius for forgiveness on hover.
+      const r = u.radius + 2;
+      if (dx * dx + dy * dy <= r * r) return u.id;
+    }
+    return null;
   }
 
   private renderObjectives(): void {
@@ -1755,6 +1889,19 @@ export class BattleScene extends Phaser.Scene {
       cam.scrollX = this.panDrag.scrollX + (this.panDrag.x - pointer.x) / cam.zoom;
       cam.scrollY = this.panDrag.scrollY + (this.panDrag.y - pointer.y) / cam.zoom;
       return;
+    }
+    // LOS preview overlay: only when idle (not aiming / not in reaction
+    // phase). Showing during aim modes would add visual noise on top of
+    // the aim cursor + move-preview lines.
+    if (this.aimMode === 'idle') {
+      const hovered = this.findUnitAtPointer(pointer);
+      if (hovered !== this.losPreviewUnitId) {
+        this.losPreviewUnitId = hovered;
+        this.renderLosOverlay(hovered);
+      }
+    } else if (this.losPreviewUnitId !== null) {
+      this.losPreviewUnitId = null;
+      this.renderLosOverlay(null);
     }
     if (this.aimMode === 'aim-command-move-officer') {
       const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
