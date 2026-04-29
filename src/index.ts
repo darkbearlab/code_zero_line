@@ -1,10 +1,14 @@
 import Phaser from 'phaser';
 import { BattleScene } from './presentation/scenes/BattleScene';
 import { DeployScene } from './presentation/scenes/DeployScene';
+import { HubScene } from './presentation/scenes/HubScene';
 import { InitiativeRollScene } from './presentation/scenes/InitiativeRollScene';
 import { ReplayScene } from './presentation/scenes/ReplayScene';
 import { ResultScene } from './presentation/scenes/ResultScene';
 import { RosterScene } from './presentation/scenes/RosterScene';
+import { RunResultScene } from './presentation/scenes/RunResultScene';
+import { RunSetupScene } from './presentation/scenes/RunSetupScene';
+import { TitleScene } from './presentation/scenes/TitleScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -22,6 +26,10 @@ const config: Phaser.Types.Core.GameConfig = {
     roundPixels: false,
   },
   scene: [
+    TitleScene,
+    RunSetupScene,
+    HubScene,
+    RunResultScene,
     RosterScene,
     InitiativeRollScene,
     DeployScene,

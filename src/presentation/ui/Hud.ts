@@ -324,6 +324,18 @@ export class Hud {
   }
 
   /**
+   * Programmatically flip an AI toggle and fire the onAiToggle callback so
+   * the BattleScene's AI ticker actually starts. Used by roguelite mode to
+   * force enemy faction to AI control from the first frame.
+   */
+  setAi(faction: 'A' | 'B', enabled: boolean): void {
+    const checkbox = faction === 'A' ? this.aiToggleA : this.aiToggleB;
+    if (checkbox.checked === enabled) return;
+    checkbox.checked = enabled;
+    this.onAiToggle(faction, enabled);
+  }
+
+  /**
    * Show the operator's faction-colored border around the screen. When
    * `fraction` is provided (0..1), the border erases counter-clockwise as it
    * shrinks toward 0 (timer countdown).

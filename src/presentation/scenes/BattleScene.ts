@@ -47,6 +47,14 @@ import {
   BATTLEFIELD_SIZE_PIXELS,
   setupDemoState,
 } from '../state/setupBattleState';
+import { buildMissionState } from '../../missions/buildState';
+import { getMissionById } from '../../missions/library';
+import {
+  advanceAfterMission,
+  isRunOver,
+  oneShotBoonsFor,
+  type MissionResult,
+} from '../../runs/state';
 
 const FACTION_COLOR: Readonly<Record<'A' | 'B', number>> = {
   A: 0x4a8acf,
@@ -156,13 +164,44 @@ export class BattleScene extends Phaser.Scene {
   private cameraManualOverride = false;
   /** Middle-mouse pan state. */
   private panDrag: { x: number; y: number; scrollX: number; scrollY: number } | null = null;
+  /** Roguelite run context — when present, victory routes through Hub / RunResult. */
+  private runState: import('../../runs/state').RunState | null = null;
 
   constructor() {
     super({ key: 'Battle' });
   }
 
-  init(data: { initialState?: GameState }): void {
-    if (data?.initialState) {
+  init(data: { initialState?: GameState; runState?: import('../../runs/state').RunState }): void {
+    // When invoked from the roguelite layer, derive both initialState and
+    // runContext from the RunState. When invoked from the legacy 1v1
+    // sandbox flow (Roster → Initiative → Deploy), only initialState is
+    // present and runContext stays null so victory routes to the standard
+    // ResultScene.
+    this.runState = data?.runState ?? null;
+    if (data?.runState) {
+      const idx = data.runState.missionIndex;
+      const mid = data.runState.missionIds[idx];
+      if (!mid) {
+        // Run already past last mission — defensive fallback.
+        this.gameState = setupDemoState();
+      } else {
+        const mission = getMissionById(mid);
+        // Replace BONUS_DICE / NEXT_MISSION_HARDER buffs at spawn-time.
+        // One-shot boons are consumed when this mission's state is built.
+        const oneShot = oneShotBoonsFor(data.runState);
+        this.gameState = buildMissionState(
+          mission,
+          data.runState,
+          `${data.runState.seed}-m${idx}`,
+          {
+            aliveIds: data.runState.survivorIds,
+            damageCarry: data.runState.damageCarry,
+            oneShotBoons: oneShot,
+            runBoons: data.runState.pickedBoons,
+          },
+        );
+      }
+    } else if (data?.initialState) {
       this.gameState = data.initialState;
     } else {
       this.gameState = setupDemoState();
@@ -269,6 +308,10 @@ export class BattleScene extends Phaser.Scene {
       (unitId) => this.startCommandMoveParticipantAim(unitId),
       (unitId) => this.selectReactionTarget(unitId),
     );
+    // Roguelite mode: force enemy AI on so the player only commands faction A.
+    if (this.runState) {
+      this.hud.setAi('B', true);
+    }
     this.refreshHud();
   }
 
@@ -791,6 +834,43 @@ export class BattleScene extends Phaser.Scene {
       finalRound: this.gameState.initiative.round,
       replayLog: this.replayLog,
     };
+    // Roguelite run path: route through Hub or RunResult depending on
+    // remaining missions / surviving units. Standalone sandbox path keeps
+    // routing through ResultScene.
+    if (this.runState) {
+      const completedMission =
+        this.runState.missionIds[this.runState.missionIndex]!;
+      const playerUnits = this.gameState.units.filter(
+        (u) => u.faction === 'A',
+      );
+      const survivorIds = playerUnits
+        .filter((u) => isUnitAlive(u))
+        .map((u) => u.id);
+      // isUnitAlive excludes KILLED, so the cast to the carry type is safe.
+      const damageCarry: Record<string, 'NONE' | 'IMPEDED' | 'SUPPRESSED'> = {};
+      for (const u of playerUnits) {
+        if (!isUnitAlive(u)) continue;
+        damageCarry[u.id] = u.damage as 'NONE' | 'IMPEDED' | 'SUPPRESSED';
+      }
+      const losses = playerUnits
+        .filter((u) => !isUnitAlive(u))
+        .map((u) => u.id);
+      const result: MissionResult = {
+        missionId: completedMission,
+        winner,
+        survivorIds,
+        losses,
+      };
+      const advanced = advanceAfterMission(this.runState, result, damageCarry);
+      this.time.delayedCall(800, () => {
+        if (isRunOver(advanced)) {
+          this.scene.start('RunResult', { runState: advanced });
+        } else {
+          this.scene.start('Hub', { runState: advanced });
+        }
+      });
+      return;
+    }
     this.time.delayedCall(800, () => this.scene.start('Result', summary));
   }
 
