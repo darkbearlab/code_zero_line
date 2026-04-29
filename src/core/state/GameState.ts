@@ -33,6 +33,12 @@ export interface Unit {
   readonly traits: ReadonlyArray<string>;
   readonly activatedThisRound: boolean;
   readonly cannotReactThisRound: boolean;
+  /**
+   * TOUGH (rule: 一場一次，非壓制下受致死攻擊改為壓制) burns its once-per-match
+   * save when first triggered. Persisted on the unit so reload-checking is
+   * a flat lookup. Untouched units omit the field; treat undefined === false.
+   */
+  readonly toughUsed?: boolean;
 }
 
 export type CoverKind = 'HARD' | 'DIFFICULT' | 'SOFT';

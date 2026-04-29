@@ -246,10 +246,26 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
   if (unitHasTrait(target, 'FRAGILE') && afterDamage === 'IMPEDED') {
     afterDamage = 'SUPPRESSED';
   }
+  // TOUGH (rule 強韌): once per match, a non-SUPPRESSED unit that would be
+  // KILLED is demoted to SUPPRESSED instead. Burns the save permanently —
+  // a second lethal hit later in the match goes through.
+  let burnTough = false;
+  if (
+    unitHasTrait(target, 'TOUGH') &&
+    !target.toughUsed &&
+    afterDamage === 'KILLED' &&
+    beforeDamage !== 'SUPPRESSED'
+  ) {
+    afterDamage = 'SUPPRESSED';
+    burnTough = true;
+  }
 
   let next = updateUnit(s, targetId, { damage: afterDamage });
   if (afterDamage === 'SUPPRESSED' && beforeDamage !== 'SUPPRESSED') {
     next = updateUnit(next, targetId, { damage: afterDamage, stance: 'PRONE' });
+  }
+  if (burnTough) {
+    next = updateUnit(next, targetId, { toughUsed: true });
   }
 
   // Record RELOAD weapon usage on the activation. We intentionally update

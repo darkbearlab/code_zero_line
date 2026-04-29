@@ -1,4 +1,5 @@
 import { hasLOS } from '../core/geometry/los';
+import { isPointInPolygon } from '../core/geometry/polygon';
 import { targetHasCover } from '../core/resolution/cover';
 import { UNIT_DISTANCE_PIXELS } from '../core/rules/constants';
 import type { Faction, GameState, Unit } from '../core/state/GameState';
@@ -72,8 +73,33 @@ const officerAllyAura: TraitEvalHook = (unit, state) => {
   return allies * OFFICER_ALLY_AURA_BONUS;
 };
 
+/**
+ * TOUGH save is worth ~half a unit's life (it converts a kill into a
+ * suppression — the unit lives but is much less effective). Once the save
+ * burns, the bonus disappears.
+ */
+const toughSaveValue: TraitEvalHook = (unit) =>
+  unit.toughUsed ? 0 : 35;
+
+/**
+ * STEALTH is situational — only valuable when standing inside cover-
+ * providing terrain, where a future MOVE within that polygon is reaction-
+ * immune. Modest constant bonus when the unit can actually use it; zero
+ * otherwise. Faster than re-running terrain-containment checks during
+ * search, and biases lookahead to keep stealth units in smoke / rubble.
+ */
+const stealthInCoverBonus: TraitEvalHook = (unit, state) => {
+  for (const t of state.terrain) {
+    if (t.kind !== 'DIFFICULT' && t.kind !== 'SOFT') continue;
+    if (isPointInPolygon(unit.position, t.polygon)) return 18;
+  }
+  return 0;
+};
+
 export const traitEvalHooks: Record<string, TraitEvalHook> = {
   OFFICER: officerAllyAura,
+  TOUGH: toughSaveValue,
+  STEALTH: stealthInCoverBonus,
 };
 
 const oppositeFaction = (f: Faction): Faction => (f === 'A' ? 'B' : 'A');

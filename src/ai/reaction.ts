@@ -31,6 +31,7 @@ const expectedHits = (
 import { computeReactionWindows } from '../core/geometry/los_window';
 import { v2Lerp } from '../core/geometry/vec2';
 import { targetHasCover } from '../core/resolution/cover';
+import { hasStealthBypass } from '../core/resolution/stealth';
 import type {
   Command,
   ReactionMarker,
@@ -59,6 +60,12 @@ export const planReactions = (
   if (!isMoveLike(cmd)) return { markers: [] };
   const mover = findUnit(state, cmd.unitId);
   if (!mover || !isUnitAlive(mover)) return { markers: [] };
+  // STEALTH bypass: stealthed unit moving inside a single cover polygon is
+  // unreactable. Mirror the reducer-side rule so the planner doesn't
+  // hand-craft markers the reducer would discard anyway.
+  if (hasStealthBypass(mover, mover.position, cmd.target, state.terrain)) {
+    return { markers: [] };
+  }
 
   const enemies = state.units
     .filter((u) => u.faction === defenderFaction && isUnitAlive(u))

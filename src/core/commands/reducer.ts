@@ -1,5 +1,6 @@
 import { hasLOS } from '../geometry/los';
 import { computeReactionWindows } from '../geometry/los_window';
+import { hasStealthBypass } from '../resolution/stealth';
 import { computeMovePath } from '../geometry/path';
 import { isPointInPolygon } from '../geometry/polygon';
 import { TRAITS } from '../traits/registry';
@@ -698,14 +699,19 @@ const moveAction = (
       circle: getUnitCircle(o),
       prone: o.stance === 'PRONE',
     }));
-  const reactionWindows = computeReactionWindows(
-    u.position,
-    path.endpoint,
-    u.radius,
-    enemiesForLOS,
-    losTerrains,
-    { moverProne: u.stance === 'PRONE' },
-  );
+  // STEALTH (rule 隱身): a unit moving wholly inside one cover-providing
+  // polygon is immune to reactions for the action — short-circuit windows.
+  const stealthSafe = hasStealthBypass(u, u.position, path.endpoint, s.terrain);
+  const reactionWindows = stealthSafe
+    ? []
+    : computeReactionWindows(
+        u.position,
+        path.endpoint,
+        u.radius,
+        enemiesForLOS,
+        losTerrains,
+        { moverProne: u.stance === 'PRONE' },
+      );
 
   // Stand-up at start (rule 4.5 — 起立: 移動行動開始時宣告). Standing MOVE
   // implicitly stands the unit up if it was prone, so reaction LOS during the
@@ -846,14 +852,17 @@ const crawlAction = (
       circle: getUnitCircle(o),
       prone: o.stance === 'PRONE',
     }));
-  const reactionWindows = computeReactionWindows(
-    u.position,
-    path.endpoint,
-    u.radius,
-    enemiesForLOS,
-    s.terrain,
-    { moverProne: true },
-  );
+  const stealthSafe = hasStealthBypass(u, u.position, path.endpoint, s.terrain);
+  const reactionWindows = stealthSafe
+    ? []
+    : computeReactionWindows(
+        u.position,
+        path.endpoint,
+        u.radius,
+        enemiesForLOS,
+        s.terrain,
+        { moverProne: true },
+      );
 
   // Force unit to prone *before* reaction resolution so LOS checks during the
   // crawl correctly use prone semantics (low-wall cover, etc.).

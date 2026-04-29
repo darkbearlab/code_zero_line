@@ -61,13 +61,11 @@ export const TRAITS: Readonly<Record<string, TraitDef>> = {
     fanaticIgnoresImpededInterrupt: true,
     tbd: true,
   },
-  // • Tough (rule 7) — once-per-game state needed; behavior pending.
   TOUGH: {
     id: 'TOUGH',
     displayName: '強韌',
     description:
       '一場遊戲一次，當在非壓制的情況下受到應致死的攻擊時，改為受到壓制。',
-    tbd: true,
   },
   // • Impulsive (rule 5) — multiple branch behaviors per unit; pending.
   IMPULSIVE: {
@@ -100,12 +98,10 @@ export const TRAITS: Readonly<Record<string, TraitDef>> = {
       '民兵團「狂熱」單位陣亡 → 民兵團獲得 1 點動能儲備（不歸零）。',
     tbd: true,
   },
-  // • Stealth (rule 7) — same-cover-terrain reaction immunity; pending.
   STEALTH: {
     id: 'STEALTH',
     displayName: '隱身',
     description: '在同一個提供掩護的地形特徵內移動不會被反應射擊。',
-    tbd: true,
   },
 };
 
