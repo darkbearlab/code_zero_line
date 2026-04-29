@@ -203,6 +203,7 @@ export class Hud {
   private logLines: string[] = [];
   private logWrapEl: HTMLElement;
   private logToggleEl: HTMLButtonElement;
+  private missionEl: HTMLElement;
 
   constructor(
     private dispatch: DispatchFn,
@@ -247,6 +248,9 @@ export class Hud {
     this.frameGlowEl = mustElement('hud-frame-glow');
     this.logWrapEl = mustElement('hud-log-wrap');
     this.logToggleEl = mustElement('hud-log-toggle') as HTMLButtonElement;
+    this.missionEl = mustElement('hud-mission');
+    this.missionEl.textContent = '';
+    this.missionEl.hidden = true;
     this.logToggleEl.onclick = () => this.toggleLogCollapsed();
     // Restore last collapsed preference (Phaser keeps the DOM across scenes).
     try {
@@ -276,6 +280,20 @@ export class Hud {
       this.scrubberLabelEl.textContent = `Reaction t = ${t.toFixed(2)}`;
       this.onScrubberChange(t);
     };
+  }
+
+  /**
+   * Render the active mission's scenario hint above the round counter.
+   * Pass `null` to clear (e.g. sandbox flow with no mission).
+   */
+  setMissionInfo(label: string | null): void {
+    if (label === null || label === '') {
+      this.missionEl.textContent = '';
+      this.missionEl.hidden = true;
+      return;
+    }
+    this.missionEl.textContent = label;
+    this.missionEl.hidden = false;
   }
 
   update(

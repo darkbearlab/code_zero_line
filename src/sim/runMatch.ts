@@ -5,16 +5,16 @@ import type {
   ReactionPlan,
 } from '../core/commands/types';
 import type { Faction, GameState } from '../core/state/GameState';
-import { isUnitAlive } from '../core/state/GameState';
 import type { AiStrategy } from '../ai/types';
+import {
+  detectScenarioVictory,
+  factionAliveCount,
+  type MatchEndReason,
+  type ScenarioMode,
+  type ScenarioParams,
+} from '../core/scenario/victory';
 
-export type MatchEndReason =
-  | 'ELIMINATED'
-  | 'OBJECTIVE_SECURED'
-  | 'BOTH_PASSED'
-  | 'MAX_COMMANDS';
-
-export type ScenarioMode = 'elimination' | 'engage-reach';
+export type { MatchEndReason, ScenarioMode } from '../core/scenario/victory';
 
 export interface MatchOutcome {
   readonly winner: Faction | 'DRAW';
@@ -40,65 +40,10 @@ export interface SimulateMatchOptions {
   readonly maxCommands?: number;
   readonly rulesetVersion?: string;
   readonly scenario?: ScenarioMode;
+  readonly scenarioParams?: ScenarioParams;
 }
 
 const DEFAULT_MAX_COMMANDS = 5000;
-
-const factionAliveCount = (state: GameState, f: Faction): number =>
-  state.units.filter((u) => u.faction === f && isUnitAlive(u)).length;
-
-const factionUnitsOnObjective = (state: GameState, f: Faction): number => {
-  const objs = state.objectives ?? [];
-  if (objs.length === 0) return 0;
-  let count = 0;
-  for (const u of state.units) {
-    if (u.faction !== f || !isUnitAlive(u)) continue;
-    for (const o of objs) {
-      const dx = u.position.x - o.position.x;
-      const dy = u.position.y - o.position.y;
-      if (dx * dx + dy * dy <= o.radius * o.radius) {
-        count += 1;
-        break;
-      }
-    }
-  }
-  return count;
-};
-
-interface VictoryResult {
-  readonly winner: Faction | null;
-  readonly reason: MatchEndReason;
-}
-
-const detectVictory = (
-  state: GameState,
-  scenario: ScenarioMode,
-  initialAlive: { A: number; B: number },
-): VictoryResult => {
-  const a = factionAliveCount(state, 'A');
-  const b = factionAliveCount(state, 'B');
-  // Hard elimination check works for every scenario.
-  if (a === 0 && b === 0) return { winner: null, reason: 'ELIMINATED' };
-  if (a === 0) return { winner: 'B', reason: 'ELIMINATED' };
-  if (b === 0) return { winner: 'A', reason: 'ELIMINATED' };
-
-  if (scenario === 'engage-reach') {
-    // Win when YOU control an objective AND the opponent has lost ≥1 unit
-    // (the "engage" half — pure walk-on without any combat doesn't win) AND
-    // the opponent does NOT also have a unit on the same/another objective.
-    const aOnObj = factionUnitsOnObjective(state, 'A');
-    const bOnObj = factionUnitsOnObjective(state, 'B');
-    const aEngaged = a < initialAlive.A;
-    const bEngaged = b < initialAlive.B;
-    if (aOnObj > 0 && bOnObj === 0 && bEngaged) {
-      return { winner: 'A', reason: 'OBJECTIVE_SECURED' };
-    }
-    if (bOnObj > 0 && aOnObj === 0 && aEngaged) {
-      return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
-    }
-  }
-  return { winner: null, reason: 'MAX_COMMANDS' };
-};
 
 /**
  * Headless match simulation. Loops `applyCommand` against the appropriate
@@ -147,6 +92,7 @@ export const simulateMatch = (
 ): MatchOutcome => {
   const maxCommands = opts.maxCommands ?? DEFAULT_MAX_COMMANDS;
   const scenario: ScenarioMode = opts.scenario ?? 'elimination';
+  const scenarioParams: ScenarioParams = opts.scenarioParams ?? {};
   let state = initialState;
   const events: GameEvent[] = [];
   let cmdCount = 0;
@@ -164,7 +110,7 @@ export const simulateMatch = (
   const combinedShots = { A: 0, B: 0 };
 
   while (cmdCount < maxCommands) {
-    const v = detectVictory(state, scenario, initialAlive);
+    const v = detectScenarioVictory(state, scenario, scenarioParams, initialAlive);
     if (v.winner !== null || v.reason === 'ELIMINATED') {
       finalWinner = v.winner;
       endReason = v.reason;
@@ -258,7 +204,7 @@ export const simulateMatch = (
   // BOTH_PASSED / MAX_COMMANDS scenarios still return the right winner if
   // someone happens to be sitting on an objective at the end.
   if (finalWinner === null && endReason !== 'OBJECTIVE_SECURED') {
-    const v = detectVictory(state, scenario, initialAlive);
+    const v = detectScenarioVictory(state, scenario, scenarioParams, initialAlive);
     if (v.winner !== null) {
       finalWinner = v.winner;
       // Don't overwrite BOTH_PASSED / MAX_COMMANDS reason — they describe

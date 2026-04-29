@@ -162,8 +162,20 @@ export const buildMissionState = (
       return next;
     });
 
+  // Mission-level objectives override the map's objectives so the same map
+  // can host different scenario flavors without duplicating terrain.
+  const objectives = mission.objectives
+    ? mission.objectives.map((o) => ({
+        id: o.id,
+        position: o.position,
+        radius: o.radius,
+        ...(o.displayName !== undefined ? { displayName: o.displayName } : {}),
+      }))
+    : baseState.objectives;
+
   return {
     ...baseState,
     units: [...playerUnits, ...enemies],
+    ...(objectives && objectives.length > 0 ? { objectives } : {}),
   };
 };

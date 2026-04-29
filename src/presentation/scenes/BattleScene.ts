@@ -8,6 +8,7 @@ import {
 } from '../../core/geometry/wallTraversal';
 import { drawTerrain, polygonCentroid } from '../rendering/terrain';
 import { CombatEffects } from '../rendering/combatEffects';
+import { detectScenarioVictory } from '../../core/scenario/victory';
 import {
   appendCommand,
   createReplayLog,
@@ -177,6 +178,11 @@ export class BattleScene extends Phaser.Scene {
   private panDrag: { x: number; y: number; scrollX: number; scrollY: number } | null = null;
   /** Roguelite run context — when present, victory routes through Hub / RunResult. */
   private runState: import('../../runs/state').RunState | null = null;
+  /** Active mission's win condition. Falls back to elimination for sandbox runs. */
+  private missionScenario: import('../../core/scenario/victory').ScenarioMode = 'elimination';
+  private missionParams: import('../../core/scenario/victory').ScenarioParams = {};
+  /** Initial alive counts captured at mission start — used by engage-reach gating. */
+  private missionInitialAlive: { A: number; B: number } = { A: 0, B: 0 };
 
   constructor() {
     super({ key: 'Battle' });
@@ -189,6 +195,8 @@ export class BattleScene extends Phaser.Scene {
     // present and runContext stays null so victory routes to the standard
     // ResultScene.
     this.runState = data?.runState ?? null;
+    this.missionScenario = 'elimination';
+    this.missionParams = {};
     if (data?.runState) {
       const idx = data.runState.missionIndex;
       const mid = data.runState.missionIds[idx];
@@ -197,6 +205,8 @@ export class BattleScene extends Phaser.Scene {
         this.gameState = setupDemoState();
       } else {
         const mission = getMissionById(mid);
+        this.missionScenario = mission.scenario;
+        this.missionParams = mission.scenarioParams ?? {};
         // Replace BONUS_DICE / NEXT_MISSION_HARDER buffs at spawn-time.
         // One-shot boons are consumed when this mission's state is built.
         const oneShot = oneShotBoonsFor(data.runState);
@@ -217,6 +227,10 @@ export class BattleScene extends Phaser.Scene {
     } else {
       this.gameState = setupDemoState();
     }
+    this.missionInitialAlive = {
+      A: this.gameState.units.filter((u) => u.faction === 'A' && isUnitAlive(u)).length,
+      B: this.gameState.units.filter((u) => u.faction === 'B' && isUnitAlive(u)).length,
+    };
     // Phaser reuses scene instances across scene.start() calls, so all stateful
     // fields must be reset here per match. Field initializers only run once.
     this.selectedUnitId = null;
@@ -545,28 +559,41 @@ export class BattleScene extends Phaser.Scene {
     for (const lbl of this.objectiveLabels) lbl.destroy();
     this.objectiveLabels = [];
     const objs = this.gameState.objectives ?? [];
+    // Per-scenario palette so the marker reads at a glance — engage/defend
+    // are warm hues (own/keep), extract is green (go!).
+    let color = 0xffd166;
+    let prefix = '';
+    if (this.missionScenario === 'defend') {
+      color = 0xff9a3a;
+      prefix = '守';
+    } else if (this.missionScenario === 'extract') {
+      color = 0x6ad08a;
+      prefix = '撤';
+    }
     for (const o of objs) {
-      // Soft yellow disc with stroked rim — visible but not LOS-blocking.
-      this.objectivesGfx.fillStyle(0xffd166, 0.12);
+      this.objectivesGfx.fillStyle(color, 0.12);
       this.objectivesGfx.fillCircle(o.position.x, o.position.y, o.radius);
-      this.objectivesGfx.lineStyle(2, 0xffd166, 0.85);
+      this.objectivesGfx.lineStyle(2, color, 0.85);
       this.objectivesGfx.strokeCircle(o.position.x, o.position.y, o.radius);
       // Centre cross-hair for legibility
-      this.objectivesGfx.lineStyle(1, 0xffd166, 0.7);
+      this.objectivesGfx.lineStyle(1, color, 0.7);
       this.objectivesGfx.beginPath();
       this.objectivesGfx.moveTo(o.position.x - o.radius * 0.3, o.position.y);
       this.objectivesGfx.lineTo(o.position.x + o.radius * 0.3, o.position.y);
       this.objectivesGfx.moveTo(o.position.x, o.position.y - o.radius * 0.3);
       this.objectivesGfx.lineTo(o.position.x, o.position.y + o.radius * 0.3);
       this.objectivesGfx.strokePath();
+      const labelText = prefix
+        ? `${prefix} ${o.displayName ?? '目標'}`
+        : (o.displayName ?? '目標');
       const lbl = this.add.text(
         o.position.x,
         o.position.y + o.radius + 6,
-        o.displayName ?? '目標',
+        labelText,
         {
           fontFamily: 'ui-monospace, monospace',
           fontSize: '10px',
-          color: '#ffd166',
+          color: `#${color.toString(16).padStart(6, '0')}`,
         },
       );
       lbl.setOrigin(0.5, 0);
@@ -946,22 +973,31 @@ export class BattleScene extends Phaser.Scene {
   private static readonly ROUND_LIMIT = 8;
 
   /**
-   * Victory rules (Phase 9 v1):
-   *  - Side has no living units → that side loses.
-   *  - Side has living units but every one is SUPPRESSED → that side loses
-   *    (treat as "no one able to act" — they cannot rally without RALLY which
-   *    requires activation; for v1 we accept a soft check).
-   *  - At round > ROUND_LIMIT, side with more living-and-not-suppressed units
-   *    wins; tie → DRAW.
+   * Victory rules:
+   *  - Scenario-aware path via `detectScenarioVictory` covers ELIMINATED,
+   *    engage-reach OBJECTIVE_SECURED, defend hold-the-line, and extract
+   *    success/failure. Mirrors the sim's runMatch logic so live play and
+   *    sim runs reach the same verdict on identical states.
+   *  - Sandbox fallback: when no mission scenario is set, all-suppressed
+   *    counts as a soft loss and a hard ROUND_LIMIT tiebreak prevents
+   *    forever-stalls.
    */
   private checkVictory(): void {
     if (this.victoryFired) return;
     const counts = countSideHealth(this.gameState);
+    const v = detectScenarioVictory(
+      this.gameState,
+      this.missionScenario,
+      this.missionParams,
+      this.missionInitialAlive,
+    );
     let winner: 'A' | 'B' | 'DRAW' | null = null;
-    if (counts.A.alive === 0 && counts.B.alive === 0) winner = 'DRAW';
-    else if (counts.A.alive === 0) winner = 'B';
-    else if (counts.B.alive === 0) winner = 'A';
-    else if (this.gameState.initiative.round > BattleScene.ROUND_LIMIT) {
+    if (v.winner !== null) {
+      winner = v.winner;
+    } else if (v.reason === 'ELIMINATED') {
+      // Mutual wipe — detectScenarioVictory leaves winner=null on both-zero.
+      winner = 'DRAW';
+    } else if (this.gameState.initiative.round > BattleScene.ROUND_LIMIT) {
       const aScore = counts.A.alive - counts.A.suppressed;
       const bScore = counts.B.alive - counts.B.suppressed;
       if (aScore > bScore) winner = 'A';
@@ -1340,6 +1376,39 @@ export class BattleScene extends Phaser.Scene {
       commandMove: this.buildCommandMoveContext(),
     };
     this.hud.update(this.gameState, this.selectedUnitId, this.aimMode, ctx);
+    this.hud.setMissionInfo(this.formatMissionLabel());
+  }
+
+  /**
+   * Build the top-of-HUD scenario tag — shows the win condition + any
+   * scenario-specific countdown / count progress so the player can see at
+   * a glance what they're racing toward.
+   */
+  private formatMissionLabel(): string | null {
+    const round = this.gameState.initiative.round;
+    if (this.missionScenario === 'engage-reach') {
+      return '⚑ 攻佔目標';
+    }
+    if (this.missionScenario === 'defend') {
+      const goal = this.missionParams.defendRounds ?? 5;
+      return `⚑ 守住目標 ${Math.min(round, goal)}/${goal} 回合`;
+    }
+    if (this.missionScenario === 'extract') {
+      const need = this.missionParams.extractCount ?? 2;
+      const limit = this.missionParams.extractRoundLimit ?? 8;
+      const onObj = this.gameState.units.filter((u) => {
+        if (u.faction !== 'A' || !isUnitAlive(u)) return false;
+        const objs = this.gameState.objectives ?? [];
+        return objs.some(
+          (o) =>
+            (u.position.x - o.position.x) ** 2 +
+              (u.position.y - o.position.y) ** 2 <=
+            o.radius * o.radius,
+        );
+      }).length;
+      return `⚑ 撤離 ${onObj}/${need}・剩 ${Math.max(0, limit - round + 1)} 回合`;
+    }
+    return null;
   }
 
   private buildCommandRallyContext():
