@@ -6,6 +6,7 @@ import {
 } from '../config/loader';
 import { TRAITS } from '../core/traits/registry';
 import { el, pillInput } from './dom';
+import { downloadJson, pickJsonFile, timestampForFilename } from './io';
 import {
   loadCustomTemplates,
   removeCustomTemplate,
@@ -74,6 +75,47 @@ export const mountUnitEditor = (root: HTMLElement): void => {
       },
     });
     toolbar.appendChild(newBtn);
+
+    const exportBtn = el('button', {
+      text: '⤓ Export',
+      onclick: () => {
+        const customs = loadCustomTemplates();
+        if (customs.length === 0) {
+          alert('No custom unit templates to export.');
+          return;
+        }
+        downloadJson(`czl-units-${timestampForFilename()}.json`, customs);
+      },
+    });
+    exportBtn.title = 'Download all custom unit templates as JSON';
+    toolbar.appendChild(exportBtn);
+
+    const importBtn = el('button', {
+      text: '⤒ Import',
+      onclick: async () => {
+        try {
+          const data = await pickJsonFile();
+          if (!data) return;
+          const arr = Array.isArray(data) ? data : [data];
+          let added = 0;
+          for (const item of arr) {
+            const t = item as UnitTemplate;
+            if (!t?.templateId || !t.displayName) {
+              alert(`Skipped invalid entry: ${JSON.stringify(item).slice(0, 80)}`);
+              continue;
+            }
+            upsertCustomTemplate({ ...t });
+            added += 1;
+          }
+          alert(`Imported ${added} template(s).`);
+          refresh();
+        } catch (e) {
+          alert(`Import failed: ${(e as Error).message}`);
+        }
+      },
+    });
+    importBtn.title = 'Merge templates from a JSON file (existing ids overwritten)';
+    toolbar.appendChild(importBtn);
     listPanel.appendChild(toolbar);
 
     const all = listUnitTemplates();

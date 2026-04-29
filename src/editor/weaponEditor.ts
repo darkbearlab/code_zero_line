@@ -4,6 +4,7 @@ import {
 } from '../config/loader';
 import type { Weapon, WeaponMode, WeaponKind } from '../core/state/GameState';
 import { el, pillInput } from './dom';
+import { downloadJson, pickJsonFile, timestampForFilename } from './io';
 import {
   loadCustomWeapons,
   removeCustomWeapon,
@@ -76,6 +77,47 @@ export const mountWeaponEditor = (root: HTMLElement): void => {
       },
     });
     toolbar.appendChild(newBtn);
+
+    const exportBtn = el('button', {
+      text: '⤓ Export',
+      onclick: () => {
+        const customs = loadCustomWeapons();
+        if (customs.length === 0) {
+          alert('No custom weapons to export.');
+          return;
+        }
+        downloadJson(`czl-weapons-${timestampForFilename()}.json`, customs);
+      },
+    });
+    exportBtn.title = 'Download all custom weapons as JSON';
+    toolbar.appendChild(exportBtn);
+
+    const importBtn = el('button', {
+      text: '⤒ Import',
+      onclick: async () => {
+        try {
+          const data = await pickJsonFile();
+          if (!data) return;
+          const arr = Array.isArray(data) ? data : [data];
+          let added = 0;
+          for (const item of arr) {
+            const w = item as Weapon;
+            if (!w?.id || !w.modes || !w.kind) {
+              alert(`Skipped invalid entry: ${JSON.stringify(item).slice(0, 80)}`);
+              continue;
+            }
+            upsertCustomWeapon({ ...w });
+            added += 1;
+          }
+          alert(`Imported ${added} weapon(s).`);
+          refresh();
+        } catch (e) {
+          alert(`Import failed: ${(e as Error).message}`);
+        }
+      },
+    });
+    importBtn.title = 'Merge weapons from a JSON file (existing ids overwritten)';
+    toolbar.appendChild(importBtn);
     listPanel.appendChild(toolbar);
 
     const all = listWeapons();

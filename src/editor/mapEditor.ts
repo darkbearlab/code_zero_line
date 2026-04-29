@@ -9,6 +9,7 @@ import {
 } from '../config/mapDoc';
 import { listBundledMaps, listMaps } from '../config/loader';
 import { el } from './dom';
+import { downloadJson, pickJsonFile, timestampForFilename } from './io';
 import {
   loadCustomMaps,
   removeCustomMap,
@@ -105,6 +106,45 @@ export const mountMapEditor = (root: HTMLElement): void => {
           doc = newDoc();
           selectedShapeId = null;
           refresh();
+        },
+      }),
+    );
+    toolbar.appendChild(
+      el('button', {
+        text: '⤓ Export',
+        onclick: () => {
+          const customs = loadCustomMaps();
+          if (customs.length === 0) {
+            alert('No custom maps to export.');
+            return;
+          }
+          downloadJson(`czl-maps-${timestampForFilename()}.json`, customs);
+        },
+      }),
+    );
+    toolbar.appendChild(
+      el('button', {
+        text: '⤒ Import',
+        onclick: async () => {
+          try {
+            const data = await pickJsonFile();
+            if (!data) return;
+            const arr = Array.isArray(data) ? data : [data];
+            let added = 0;
+            for (const item of arr) {
+              const m = item as EditorMapDoc;
+              if (!m?.id || !m.shapes) {
+                alert(`Skipped invalid entry: ${JSON.stringify(item).slice(0, 80)}`);
+                continue;
+              }
+              upsertCustomMap({ ...m });
+              added += 1;
+            }
+            alert(`Imported ${added} map(s).`);
+            refresh();
+          } catch (e) {
+            alert(`Import failed: ${(e as Error).message}`);
+          }
         },
       }),
     );
