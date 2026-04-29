@@ -1,4 +1,3 @@
-import type { Vec2 } from '../../core/geometry/types';
 import { v2Dist } from '../../core/geometry/vec2';
 import { listAvailableShootModes } from '../../core/resolution/shoot_modes';
 import { UNIT_DISTANCE_PIXELS } from '../../core/rules/constants';
@@ -6,6 +5,7 @@ import type { Command } from '../../core/commands/types';
 import type { Faction, GameState, Unit } from '../../core/state/GameState';
 import { findUnit, isUnitAlive } from '../../core/state/GameState';
 import type { AiController } from '../types';
+import { pathfindingStepToward } from '../navigation';
 
 /** Expected hits = dice * P(roll >= threshold) on a d6. */
 const expectedHits = (totalDice: number, threshold: number): number => {
@@ -94,7 +94,16 @@ const chooseActiveAction = (
 
   const nearest = nearestEnemy(state, u, faction);
   if (nearest) {
-    const target = stepToward(u.position, nearest, UNIT_DISTANCE_PIXELS);
+    const target = pathfindingStepToward(state, u.position, nearest.position, {
+      distance: UNIT_DISTANCE_PIXELS,
+      stopShort: nearest.radius + 12,
+    });
+    // No-progress safety net: if pathfinding can't suggest a different cell
+    // than where we already are (target sealed off, or unit is sitting in
+    // a corner), end the activation rather than spin forever.
+    if (v2Dist(target, u.position) < 1) {
+      return { type: 'END_ACTIVATION' };
+    }
     return {
       type: 'MOVE',
       unitId: u.id,
@@ -126,15 +135,3 @@ const nearestEnemy = (
   return best;
 };
 
-const stepToward = (from: Vec2, target: Unit, distance: number): Vec2 => {
-  const dx = target.position.x - from.x;
-  const dy = target.position.y - from.y;
-  const len = Math.hypot(dx, dy);
-  if (len < 1) return { x: from.x, y: from.y };
-  const stopShort = target.radius + 12;
-  const wanted = Math.min(distance, Math.max(0, len - stopShort));
-  return {
-    x: from.x + (dx / len) * wanted,
-    y: from.y + (dy / len) * wanted,
-  };
-};

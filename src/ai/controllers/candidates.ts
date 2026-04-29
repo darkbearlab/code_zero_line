@@ -5,6 +5,7 @@ import { UNIT_DISTANCE_PIXELS } from '../../core/rules/constants';
 import type { Command } from '../../core/commands/types';
 import type { Faction, GameState, Unit } from '../../core/state/GameState';
 import { findUnit, isUnitAlive } from '../../core/state/GameState';
+import { pathfindingStepToward } from '../navigation';
 
 /**
  * Strategy hook: generate candidate commands for a unit's *active* action.
@@ -137,7 +138,16 @@ const generateMoveCandidates: CommandGenerator = (state, faction, unit) => {
     }
   }
 
+  // Pathfinding-aware "next step toward enemy" — usually the strongest
+  // forward-progress move on cluttered maps; pure radial samples can pick
+  // walled-off targets that the reducer just clips. Including all three
+  // sources lets beam search choose between progress vs cover vs flank.
+  const pathStep = pathfindingStepToward(state, unit.position, anchor, {
+    distance: UNIT_DISTANCE_PIXELS,
+    stopShort: unit.radius + 12,
+  });
   const targets: Vec2[] = [
+    pathStep,
     ...radialMoveTargets(unit, anchor),
     ...terrainAimedTargets(state, unit),
   ];

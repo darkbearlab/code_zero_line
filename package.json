@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "sim": "tsx src/sim/cli.ts"
+    "sim": "tsx src/sim/cli.ts",
+    "probe": "tsx src/sim/probe-cli.ts"
   },
   "dependencies": {
     "phaser": "^3.80.1"
