@@ -230,10 +230,11 @@ const generateCommandRallyCandidates: CommandGenerator = (
  * COMMAND_MOVE candidates (rule 3.1) — officer + allies within 1 UD all
  * move. Each ally must end within 1 UD of the officer's chosen endpoint.
  *
- * Heuristic v1: pathfinding-step the officer toward the nearest enemy by
- * 1 UD, then place each in-range ally at the same offset (so the formation
- * advances together). Only emit when ≥ 1 ally is in range — otherwise a
- * solo MOVE is the right tool.
+ * v2: each participant pathfinds *their own* step toward the nearest
+ * enemy. If their pathfinding endpoint lands within 1 UD of the officer's
+ * endpoint, they join the formation; otherwise they sit out (a solo MOVE
+ * would handle them better in their own activation). Only emit when ≥ 1
+ * ally remains in formation; otherwise plain solo MOVE is the right tool.
  */
 const generateCommandMoveCandidates: CommandGenerator = (
   state,
@@ -249,37 +250,41 @@ const generateCommandMoveCandidates: CommandGenerator = (
     (o) => o.faction !== faction && isUnitAlive(o),
   );
   if (enemies.length === 0) return [];
-  // Anchor on nearest enemy.
-  let anchor = enemies[0]!.position;
-  let bestSq = Infinity;
-  for (const e of enemies) {
-    const dx = e.position.x - unit.position.x;
-    const dy = e.position.y - unit.position.y;
-    const d = dx * dx + dy * dy;
-    if (d < bestSq) {
-      bestSq = d;
-      anchor = e.position;
+  const nearestEnemyPos = (from: Vec2): Vec2 => {
+    let best = enemies[0]!.position;
+    let bestSq = Infinity;
+    for (const e of enemies) {
+      const dx = e.position.x - from.x;
+      const dy = e.position.y - from.y;
+      const d = dx * dx + dy * dy;
+      if (d < bestSq) {
+        bestSq = d;
+        best = e.position;
+      }
     }
-  }
-  const officerTarget = pathfindingStepToward(state, unit.position, anchor, {
-    distance: UNIT_DISTANCE_PIXELS,
-    stopShort: unit.radius + 12,
-  });
-  // If pathfinding can't suggest progress, no command-move worth proposing.
+    return best;
+  };
+  const officerTarget = pathfindingStepToward(
+    state,
+    unit.position,
+    nearestEnemyPos(unit.position),
+    { distance: UNIT_DISTANCE_PIXELS, stopShort: unit.radius + 12 },
+  );
   if (v2Dist(officerTarget, unit.position) < 4) return [];
-  const offsetX = officerTarget.x - unit.position.x;
-  const offsetY = officerTarget.y - unit.position.y;
-  // Translate each ally by the same offset; if their resulting target
-  // would still be > 1 UD from officerTarget, drop them from the group.
+
   const participants: Array<{ unitId: string; target: Vec2 }> = [];
   for (const a of allies) {
     if (a.damage === 'SUPPRESSED') continue;
-    const tx = a.position.x + offsetX;
-    const ty = a.position.y + offsetY;
-    const dx = tx - officerTarget.x;
-    const dy = ty - officerTarget.y;
+    const allyTarget = pathfindingStepToward(
+      state,
+      a.position,
+      nearestEnemyPos(a.position),
+      { distance: UNIT_DISTANCE_PIXELS, stopShort: a.radius + 12 },
+    );
+    const dx = allyTarget.x - officerTarget.x;
+    const dy = allyTarget.y - officerTarget.y;
     if (dx * dx + dy * dy <= range * range) {
-      participants.push({ unitId: a.id, target: { x: tx, y: ty } });
+      participants.push({ unitId: a.id, target: allyTarget });
     }
   }
   if (participants.length === 0) return [];

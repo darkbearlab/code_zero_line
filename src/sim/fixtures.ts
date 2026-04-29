@@ -158,6 +158,38 @@ const placeInZone = (
   return out;
 };
 
+/**
+ * Place units in a tight cluster around the centre of the zone so any
+ * OFFICER ends up within 1 UD of allies — required by rule 3.1 for
+ * COMMAND_MOVE / COMMAND_RALLY eligibility. Falls back to long-axis
+ * spread when the cluster would overflow the zone.
+ */
+const placeAsClusterInZone = (zone: DeploymentZone, n: number): Vec2[] => {
+  if (n <= 0) return [];
+  const { minX, minY, maxX, maxY } = polygonAabb(zone.polygon.vertices);
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const w = maxX - minX;
+  const h = maxY - minY;
+  // Bunched layout: 50 px (~0.5 UD) between adjacent units.
+  const spacing = 50;
+  const longHorizontal = w >= h;
+  const totalSpan = (n - 1) * spacing;
+  const halfSpan = totalSpan / 2;
+  // Bail to the spread layout if cluster wouldn't fit inside the zone AABB.
+  const fits = longHorizontal ? totalSpan + 16 <= w : totalSpan + 16 <= h;
+  if (!fits) return placeInZone(zone, n);
+  const out: Vec2[] = [];
+  for (let i = 0; i < n; i++) {
+    if (longHorizontal) {
+      out.push(v2(cx - halfSpan + i * spacing, cy));
+    } else {
+      out.push(v2(cx, cy - halfSpan + i * spacing));
+    }
+  }
+  return out;
+};
+
 const placementsFor = (
   faction: Faction,
   roster: ReadonlyArray<RosterEntry>,
@@ -170,7 +202,7 @@ const placementsFor = (
       `Fixture "${fixtureId}" map has no deployment zone for faction ${faction}`,
     );
   }
-  const positions = placeInZone(zone, roster.length);
+  const positions = placeAsClusterInZone(zone, roster.length);
   return roster.map((entry, i) => ({
     rosterId: entry.id,
     position: positions[i]!,

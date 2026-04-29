@@ -27,6 +27,14 @@ export interface EvalWeights {
   readonly initiativeHolderBonus: number;
   /** Per-unit bonus for standing on a scenario objective (engage-reach). */
   readonly objectiveControlBonus: number;
+  /**
+   * Bonus per remaining action in the active activation (under SPEND with a
+   * positive `actionsRemaining`). Rewards plans that consolidate work into
+   * fewer actions — e.g. a COMMAND_MOVE moving four units at once vs four
+   * solo MOVEs. Without this term, lookahead's depth-2 search ranks both
+   * branches similarly because final positions look alike.
+   */
+  readonly unspentActionValue: number;
 }
 
 export const DEFAULT_WEIGHTS: EvalWeights = {
@@ -38,6 +46,7 @@ export const DEFAULT_WEIGHTS: EvalWeights = {
   momentumValue: 4,
   initiativeHolderBonus: 6,
   objectiveControlBonus: 35,
+  unspentActionValue: 8,
 };
 
 /**
@@ -205,6 +214,12 @@ const factionScore = (
   total += state.initiative.momentum[faction] * weights.momentumValue;
   if (state.initiative.holder === faction) {
     total += weights.initiativeHolderBonus;
+    // Unspent actions in the live activation are saved-up tempo — reward
+    // states where we still have actions left to spend on this unit.
+    const act = state.initiative.activeActivation;
+    if (act && act.actionsRemaining > 0) {
+      total += act.actionsRemaining * weights.unspentActionValue;
+    }
   }
   return total;
 };
