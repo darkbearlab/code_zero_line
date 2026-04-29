@@ -1,6 +1,6 @@
 import { hasLOS } from '../geometry/los';
 import { D6_SIDES } from '../rules/constants';
-import { countHits, deriveRng } from '../rng/sfc32';
+import { deriveRng } from '../rng/sfc32';
 import {
   findUnit,
   getUnitCircle,
@@ -18,6 +18,13 @@ import type { GameEvent, ShootMode } from '../commands/types';
 import { CommandError } from '../commands/types';
 import { applyHits } from './damage';
 import { targetHasCover } from './cover';
+import {
+  applyCoverToProfile,
+  buildDiceProfile,
+  profileTotalDice,
+  rollProfile,
+  type DiceProfile,
+} from './dice';
 import { sumTraitParams, unitHasTrait } from '../traits/types';
 import {
   isReloadWeapon,
@@ -201,13 +208,13 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
     [shooter.id, shooterWeapon.id],
   ];
 
-  let totalDice = 0;
-  totalDice += shooter.damage === 'IMPEDED'
+  // Aggregate effective dice count across shooter + FOCUSED/COMBINED
+  // participants. IMPEDED status removes 1 die per impacted unit.
+  let aggregateDiceCount = 0;
+  aggregateDiceCount += shooter.damage === 'IMPEDED'
     ? Math.max(0, shooterWeapon.diceCount - 1)
     : shooterWeapon.diceCount;
 
-  // Each participant uses their own first matching (mode/weaponMode) weapon
-  // that isn't already RELOAD-used. Future expansion: let UI pick per-ally.
   for (const p of participants) {
     const partWeapon = candidateShootWeapons(p, mode, weaponMode).find(
       (w) => !reloadAlreadyUsed(s, p.id, w),
@@ -220,18 +227,27 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
     }
     let dice = partWeapon.diceCount;
     if (p.damage === 'IMPEDED') dice = Math.max(0, dice - 1);
-    totalDice += dice;
+    aggregateDiceCount += dice;
     usedWeapons.push([p.id, partWeapon.id]);
   }
 
+  // Build the dice profile. Phase A always passes reductionLevel=0; the
+  // combat-intel meta will pump a real level here in Phase C.
+  let profile: DiceProfile = buildDiceProfile(
+    aggregateDiceCount,
+    threshold,
+    0,
+  );
+
   const cover = targetHasCover(shooter, target, s.terrain);
-  // IGNORE_COVER (神射手) bypasses the -1.
   const ignoreCover = weaponHasDescriptor(shooterWeapon, 'IGNORE_COVER');
-  if (cover && !ignoreCover) totalDice = Math.max(0, totalDice - 1);
+  if (cover && !ignoreCover) profile = applyCoverToProfile(profile);
 
   const rng = deriveRng(s.seed, cmdIndex, `${rngLabel}:hits`);
-  const rolls = rng.rollDice(totalDice, D6_SIDES);
-  const rawHits = countHits(rolls, threshold);
+  const rollResult = rollProfile(profile, rng, D6_SIDES);
+  const rolls = rollResult.rolls;
+  const rawHits = rollResult.hits;
+  const totalDice = profileTotalDice(profile);
 
   // ARMOR(N) absorbs hits; ARMOR_PIERCE(M) on the shooter's weapon reduces
   // effective armor (rule 7 — RPG/穿甲).

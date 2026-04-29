@@ -1,4 +1,8 @@
 import { v2Dist } from '../../core/geometry/vec2';
+import {
+  buildDiceProfile,
+  profileExpectedHits,
+} from '../../core/resolution/dice';
 import { listAvailableShootModes } from '../../core/resolution/shoot_modes';
 import { UNIT_DISTANCE_PIXELS } from '../../core/rules/constants';
 import type { Command } from '../../core/commands/types';
@@ -7,10 +11,13 @@ import { findUnit, isUnitAlive } from '../../core/state/GameState';
 import type { AiController } from '../types';
 import { pathfindingStepToward } from '../navigation';
 
-/** Expected hits = dice * P(roll >= threshold) on a d6. */
+/**
+ * Expected hits across the full dice profile. Phase A always builds a
+ * single-group profile (legacy behaviour); Phase C will plug in the
+ * combat-intel reduction level so the EV ranking matches reality.
+ */
 const expectedHits = (totalDice: number, threshold: number): number => {
-  const p = Math.max(0, 7 - threshold) / 6;
-  return totalDice * p;
+  return profileExpectedHits(buildDiceProfile(totalDice, threshold, 0));
 };
 
 /**

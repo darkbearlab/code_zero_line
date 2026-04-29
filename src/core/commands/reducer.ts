@@ -21,7 +21,8 @@ import {
   UNIT_DISTANCE_PIXELS,
   VAULT_HEIGHT_THRESHOLD_PIXELS,
 } from '../rules/constants';
-import { countHits, deriveRng } from '../rng/sfc32';
+import { deriveRng } from '../rng/sfc32';
+import { buildDiceProfile, rollProfile } from '../resolution/dice';
 import type {
   ActiveActivation,
   DamageState,
@@ -1526,14 +1527,17 @@ const meleeAction = (
   const dPool = buildMeleePool(s, defender, contactPoint, false);
 
   const rng = deriveRng(s.seed, cmdIndex, 'melee');
+  // Phase A refactor: route melee through the dice profile engine. Both
+  // pools build at level 0 (single group), so behaviour is unchanged.
+  // Combat-intel.melee meta will pump real levels here in Phase C.
+  const aProfile = buildDiceProfile(aPool.dice, aPool.threshold, 0);
+  const dProfile = buildDiceProfile(dPool.dice, dPool.threshold, 0);
   let attackerHits = 0;
   let defenderHits = 0;
   let rerolls = 0;
   for (;;) {
-    const aRolls = rng.rollDice(aPool.dice, D6_SIDES);
-    const dRolls = rng.rollDice(dPool.dice, D6_SIDES);
-    attackerHits = countHits(aRolls, aPool.threshold);
-    defenderHits = countHits(dRolls, dPool.threshold);
+    attackerHits = rollProfile(aProfile, rng, D6_SIDES).hits;
+    defenderHits = rollProfile(dProfile, rng, D6_SIDES).hits;
     if (attackerHits !== defenderHits) break;
     rerolls++;
     if (rerolls > 10) {

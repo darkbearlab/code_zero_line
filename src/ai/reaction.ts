@@ -19,19 +19,31 @@
  */
 const MIN_EV_HITS = 0.5;
 
+import { computeReactionWindows } from '../core/geometry/los_window';
+import { v2Lerp } from '../core/geometry/vec2';
+import { targetHasCover } from '../core/resolution/cover';
+import {
+  applyCoverToProfile,
+  buildDiceProfile,
+  profileExpectedHits,
+} from '../core/resolution/dice';
+import { hasStealthBypass } from '../core/resolution/stealth';
+
+/**
+ * Expected hits for a candidate reaction shot via the dice profile engine.
+ * Phase A passes reductionLevel=0 (single-group profile); Phase C will
+ * lookup combat-intel.shoot level for the target's tags here. Cover
+ * removes the most-reduced die first per applyCoverToProfile.
+ */
 const expectedHits = (
   diceCount: number,
   threshold: number,
   cover: boolean,
 ): number => {
-  const dice = Math.max(0, diceCount - (cover ? 1 : 0));
-  const p = Math.max(0, 7 - threshold) / 6;
-  return dice * p;
+  let profile = buildDiceProfile(diceCount, threshold, 0);
+  if (cover) profile = applyCoverToProfile(profile);
+  return profileExpectedHits(profile);
 };
-import { computeReactionWindows } from '../core/geometry/los_window';
-import { v2Lerp } from '../core/geometry/vec2';
-import { targetHasCover } from '../core/resolution/cover';
-import { hasStealthBypass } from '../core/resolution/stealth';
 import type {
   Command,
   ReactionMarker,
