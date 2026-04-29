@@ -25,6 +25,10 @@ import {
   rollProfile,
   type DiceProfile,
 } from './dice';
+import {
+  EMPTY_COMBAT_INTEL,
+  resolveCombatIntelLevel,
+} from './combat_intel';
 import { sumTraitParams, unitHasTrait } from '../traits/types';
 import {
   isReloadWeapon,
@@ -231,12 +235,20 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
     usedWeapons.push([p.id, partWeapon.id]);
   }
 
-  // Build the dice profile. Phase A always passes reductionLevel=0; the
-  // combat-intel meta will pump a real level here in Phase C.
+  // Build the dice profile. Combat-intel meta level (per target tag,
+  // taking MAX across matching tags) lowers per-die thresholds via
+  // buildDiceProfile's distribution rule. Missing combatIntel on state
+  // → level 0 → single-group profile == legacy behaviour.
+  const intelLevel = resolveCombatIntelLevel(
+    target,
+    s.combatIntel ?? EMPTY_COMBAT_INTEL,
+    'shoot',
+    shooter.faction,
+  );
   let profile: DiceProfile = buildDiceProfile(
     aggregateDiceCount,
     threshold,
-    0,
+    intelLevel,
   );
 
   const cover = targetHasCover(shooter, target, s.terrain);

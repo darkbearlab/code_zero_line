@@ -34,7 +34,35 @@ interface CliArgs {
   mapsFile: string | null;
   mapId: string | null;
   scenario: 'elimination' | 'engage-reach';
+  /**
+   * Combat-intel shoot levels per tag, parsed from `--combat-intel-shoot
+   * INFANTRY=3,HEAVY=2`. Empty when flag absent.
+   */
+  combatIntelShoot: Record<string, number>;
+  combatIntelMelee: Record<string, number>;
 }
+
+/**
+ * Parse `INFANTRY=3,HEAVY=2` into `{ INFANTRY: 3, HEAVY: 2 }`. Bare tags
+ * (no `=`) default to level 1.
+ */
+const parseTagLevels = (raw: string): Record<string, number> => {
+  const out: Record<string, number> = {};
+  if (!raw) return out;
+  for (const part of raw.split(/[,;]/)) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq < 0) {
+      out[trimmed] = 1;
+    } else {
+      const tag = trimmed.slice(0, eq).trim();
+      const lvl = Math.max(0, Math.floor(Number(trimmed.slice(eq + 1).trim())));
+      if (tag) out[tag] = lvl;
+    }
+  }
+  return out;
+};
 
 const parseArgs = (argv: ReadonlyArray<string>): CliArgs => {
   const out: CliArgs = {
@@ -47,6 +75,8 @@ const parseArgs = (argv: ReadonlyArray<string>): CliArgs => {
     mapsFile: null,
     mapId: null,
     scenario: 'elimination',
+    combatIntelShoot: {},
+    combatIntelMelee: {},
   };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -96,6 +126,14 @@ const parseArgs = (argv: ReadonlyArray<string>): CliArgs => {
         i++;
         break;
       }
+      case '--combat-intel-shoot':
+        out.combatIntelShoot = parseTagLevels(String(v));
+        i++;
+        break;
+      case '--combat-intel-melee':
+        out.combatIntelMelee = parseTagLevels(String(v));
+        i++;
+        break;
       case '--help':
       case '-h':
         printHelp();
@@ -128,6 +166,10 @@ const printHelp = (): void => {
       '                        from browser localStorage[czl.editor.maps.v1]).',
       '  --map <id>            Override the fixture\'s map (defaults to fixture\'s).',
       '  --scenario <name>     elimination | engage-reach (default: elimination)',
+      '  --combat-intel-shoot <levels>   Player-side dice-threshold reductions',
+      '                                  by tag, e.g. INFANTRY=3,HEAVY=2',
+      '                                  (default: empty — Phase A behaviour)',
+      '  --combat-intel-melee <levels>   Same shape, melee track',
       '',
       'Output: console summary table + logs/sim-<timestamp>.json',
       '',
@@ -186,11 +228,21 @@ const run = (): void => {
     ? { ...baseFixture, mapId: args.mapId }
     : baseFixture;
 
+  const hasCombatIntel =
+    Object.keys(args.combatIntelShoot).length > 0 ||
+    Object.keys(args.combatIntelMelee).length > 0;
+  const combatIntel = hasCombatIntel
+    ? { shoot: args.combatIntelShoot, melee: args.combatIntelMelee }
+    : undefined;
+
   const t0 = Date.now();
   const outcomes: MatchOutcome[] = [];
   for (let i = 0; i < args.matches; i++) {
     const seed = `${args.seedBase}-${i}`;
-    const initial = buildFixtureState(fixture, seed);
+    const baseInitial = buildFixtureState(fixture, seed);
+    const initial = combatIntel
+      ? { ...baseInitial, combatIntel }
+      : baseInitial;
     const outcome = simulateMatch(initial, aiA, aiB, {
       maxCommands: args.maxCommands,
       rulesetVersion,

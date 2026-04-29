@@ -93,6 +93,21 @@ export interface Objective {
   readonly displayName?: string;
 }
 
+/**
+ * Combat-intel meta levels — placed on GameState rather than on every
+ * SHOOT/MELEE command so the resolver can apply them transparently.
+ * Optional / undefined = legacy single-group profile (level 0 across
+ * all tags). The roguelite layer pumps this in at state-build time.
+ *
+ * Defined as a plain string-keyed record here to avoid cross-package
+ * type imports; the structural shape matches `CombatIntelLevels` in
+ * `core/resolution/combat_intel.ts`.
+ */
+export interface GameStateCombatIntel {
+  readonly shoot: Readonly<Record<string, number>>;
+  readonly melee: Readonly<Record<string, number>>;
+}
+
 export interface GameState {
   /** Master seed; combined with `commandCount` to derive per-command RNG. */
   readonly seed: string;
@@ -101,6 +116,8 @@ export interface GameState {
   readonly terrain: ReadonlyArray<Terrain>;
   /** Scenario control points carried over from MapDef.objectives. Optional. */
   readonly objectives?: ReadonlyArray<Objective>;
+  /** Combat-intel meta levels for the active player (faction A in run mode). */
+  readonly combatIntel?: GameStateCombatIntel;
   readonly initiative: Initiative;
 }
 

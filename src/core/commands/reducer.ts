@@ -23,6 +23,10 @@ import {
 } from '../rules/constants';
 import { deriveRng } from '../rng/sfc32';
 import { buildDiceProfile, rollProfile } from '../resolution/dice';
+import {
+  EMPTY_COMBAT_INTEL,
+  resolveCombatIntelLevel,
+} from '../resolution/combat_intel';
 import type {
   ActiveActivation,
   DamageState,
@@ -1549,11 +1553,14 @@ const meleeAction = (
   const dPool = buildMeleePool(s, defender, contactPoint, false);
 
   const rng = deriveRng(s.seed, cmdIndex, 'melee');
-  // Phase A refactor: route melee through the dice profile engine. Both
-  // pools build at level 0 (single group), so behaviour is unchanged.
-  // Combat-intel.melee meta will pump real levels here in Phase C.
-  const aProfile = buildDiceProfile(aPool.dice, aPool.threshold, 0);
-  const dProfile = buildDiceProfile(dPool.dice, dPool.threshold, 0);
+  // Combat-intel.melee level applies per-side. Player (faction A) gets
+  // its intel level; enemy never benefits from player upgrades (gated by
+  // attackerFaction arg). Missing combatIntel → 0 → legacy behaviour.
+  const intel = s.combatIntel ?? EMPTY_COMBAT_INTEL;
+  const aLevel = resolveCombatIntelLevel(defender, intel, 'melee', attacker.faction);
+  const dLevel = resolveCombatIntelLevel(attacker, intel, 'melee', defender.faction);
+  const aProfile = buildDiceProfile(aPool.dice, aPool.threshold, aLevel);
+  const dProfile = buildDiceProfile(dPool.dice, dPool.threshold, dLevel);
   let attackerHits = 0;
   let defenderHits = 0;
   let rerolls = 0;
