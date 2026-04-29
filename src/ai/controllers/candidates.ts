@@ -99,6 +99,23 @@ const radialMoveTargets = (unit: Unit, anchor: Vec2): Vec2[] => {
   return out;
 };
 
+const objectiveAimedTargets = (state: GameState, unit: Unit): Vec2[] => {
+  const objs = state.objectives ?? [];
+  if (objs.length === 0) return [];
+  // Within ~3 UD: aim at the objective centre. The reducer will clip if
+  // walls intervene, but the lookahead evaluator scores "on objective"
+  // strongly so it'll pick this when reachable.
+  const REACH_SQ = (UNIT_DISTANCE_PIXELS * 3) ** 2;
+  const out: Vec2[] = [];
+  for (const o of objs) {
+    const dx = o.position.x - unit.position.x;
+    const dy = o.position.y - unit.position.y;
+    if (dx * dx + dy * dy > REACH_SQ) continue;
+    out.push(o.position);
+  }
+  return out;
+};
+
 const terrainAimedTargets = (
   state: GameState,
   unit: Unit,
@@ -150,6 +167,7 @@ const generateMoveCandidates: CommandGenerator = (state, faction, unit) => {
     pathStep,
     ...radialMoveTargets(unit, anchor),
     ...terrainAimedTargets(state, unit),
+    ...objectiveAimedTargets(state, unit),
   ];
 
   return targets.map((target) => ({

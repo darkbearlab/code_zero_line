@@ -23,6 +23,8 @@ export interface EvalWeights {
   readonly momentumValue: number;
   /** Bonus for currently holding initiative. */
   readonly initiativeHolderBonus: number;
+  /** Per-unit bonus for standing on a scenario objective (engage-reach). */
+  readonly objectiveControlBonus: number;
 }
 
 export const DEFAULT_WEIGHTS: EvalWeights = {
@@ -33,6 +35,7 @@ export const DEFAULT_WEIGHTS: EvalWeights = {
   oneSidedLosBonus: 8,
   momentumValue: 4,
   initiativeHolderBonus: 6,
+  objectiveControlBonus: 35,
 };
 
 /**
@@ -129,6 +132,24 @@ const factionScore = (
         { aProne: t.stance === 'PRONE', bProne: o.stance === 'PRONE' },
       );
       if (oSeesT && !tSeesO) total += weights.oneSidedLosBonus;
+    }
+  }
+
+  // Scenario objective: each of our units inside an objective circle
+  // earns objectiveControlBonus. Units outside contribute nothing — the
+  // evaluator naturally pulls the AI toward the objective when this
+  // weight is non-zero and the map has objectives.
+  const objectives = state.objectives ?? [];
+  if (objectives.length > 0 && weights.objectiveControlBonus !== 0) {
+    for (const u of ours) {
+      for (const obj of objectives) {
+        const dx = u.position.x - obj.position.x;
+        const dy = u.position.y - obj.position.y;
+        if (dx * dx + dy * dy <= obj.radius * obj.radius) {
+          total += weights.objectiveControlBonus;
+          break;
+        }
+      }
     }
   }
 

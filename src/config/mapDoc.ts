@@ -12,6 +12,7 @@ import type { Faction } from '../core/state/GameState';
 import type {
   DeploymentZone,
   MapDef,
+  MapObjective,
   MapTerrainDef,
 } from '../core/setup/types';
 
@@ -21,7 +22,8 @@ export type EditorShapeTool =
   | 'difficult'
   | 'soft'
   | 'zone-a'
-  | 'zone-b';
+  | 'zone-b'
+  | 'objective';
 
 export interface EditorMapShape {
   readonly id: string;
@@ -54,6 +56,7 @@ const TOOL_LABEL: Readonly<Record<EditorShapeTool, string>> = {
   soft: '煙幕',
   'zone-a': 'Zone A',
   'zone-b': 'Zone B',
+  objective: '目標',
 };
 
 export const editorToolLabel = (tool: EditorShapeTool): string =>
@@ -74,7 +77,18 @@ export const shapeVertices = (s: EditorMapShape): Vec2[] => {
 export const docToMapDef = (doc: EditorMapDoc): MapDef => {
   const terrain: MapTerrainDef[] = [];
   const zones: DeploymentZone[] = [];
+  const objectives: MapObjective[] = [];
   for (const s of doc.shapes) {
+    if (s.tool === 'objective') {
+      // Objectives encode their diameter in `w` (== `h`); angle is ignored.
+      objectives.push({
+        id: s.id,
+        position: { x: s.cx, y: s.cy },
+        radius: Math.max(s.w, s.h) / 2,
+        displayName: TOOL_LABEL.objective,
+      });
+      continue;
+    }
     const verts = shapeVertices(s);
     if (s.tool === 'zone-a' || s.tool === 'zone-b') {
       const faction: Faction = s.tool === 'zone-a' ? 'A' : 'B';
@@ -105,6 +119,7 @@ export const docToMapDef = (doc: EditorMapDoc): MapDef => {
     size: doc.size,
     terrain,
     deploymentZones: zones,
+    ...(objectives.length > 0 ? { objectives } : {}),
   };
 };
 
@@ -155,6 +170,18 @@ export const mapDefToDoc = (map: MapDef): EditorMapDoc => {
       id: z.id,
       tool: z.faction === 'A' ? 'zone-a' : 'zone-b',
       ...box,
+      angle: 0,
+    });
+  }
+  for (const o of map.objectives ?? []) {
+    const d = o.radius * 2;
+    shapes.push({
+      id: o.id,
+      tool: 'objective',
+      cx: o.position.x,
+      cy: o.position.y,
+      w: d,
+      h: d,
       angle: 0,
     });
   }

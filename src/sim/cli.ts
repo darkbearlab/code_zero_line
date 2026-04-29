@@ -33,6 +33,7 @@ interface CliArgs {
   fixture: string;
   mapsFile: string | null;
   mapId: string | null;
+  scenario: 'elimination' | 'engage-reach';
 }
 
 const parseArgs = (argv: ReadonlyArray<string>): CliArgs => {
@@ -45,6 +46,7 @@ const parseArgs = (argv: ReadonlyArray<string>): CliArgs => {
     fixture: 'mirror',
     mapsFile: null,
     mapId: null,
+    scenario: 'elimination',
   };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -82,6 +84,18 @@ const parseArgs = (argv: ReadonlyArray<string>): CliArgs => {
         out.mapId = String(v);
         i++;
         break;
+      case '--scenario': {
+        const s = String(v);
+        if (s !== 'elimination' && s !== 'engage-reach') {
+          process.stderr.write(
+            `Unknown scenario "${s}". Available: elimination, engage-reach\n`,
+          );
+          process.exit(2);
+        }
+        out.scenario = s;
+        i++;
+        break;
+      }
       case '--help':
       case '-h':
         printHelp();
@@ -113,6 +127,7 @@ const printHelp = (): void => {
       '  --maps-file <path>    Load editor map docs from JSON (e.g. exported',
       '                        from browser localStorage[czl.editor.maps.v1]).',
       '  --map <id>            Override the fixture\'s map (defaults to fixture\'s).',
+      '  --scenario <name>     elimination | engage-reach (default: elimination)',
       '',
       'Output: console summary table + logs/sim-<timestamp>.json',
       '',
@@ -179,6 +194,7 @@ const run = (): void => {
     const outcome = simulateMatch(initial, aiA, aiB, {
       maxCommands: args.maxCommands,
       rulesetVersion,
+      scenario: args.scenario,
     });
     outcomes.push(outcome);
   }
@@ -188,7 +204,7 @@ const run = (): void => {
 
   const lines: string[] = [];
   lines.push(
-    `── A=${args.aiA} vs B=${args.aiB} on "${args.fixture}" map=${fixture.mapId} — ${agg.matches} matches (ruleset ${rulesetVersion}, ${elapsedMs}ms) ──`,
+    `── A=${args.aiA} vs B=${args.aiB} on "${args.fixture}" map=${fixture.mapId} scenario=${args.scenario} — ${agg.matches} matches (ruleset ${rulesetVersion}, ${elapsedMs}ms) ──`,
   );
   lines.push(
     `win rate            A: ${fmtPct(agg.winRateA)}   B: ${fmtPct(agg.winRateB)}   draw: ${fmtPct((agg.draws / Math.max(1, agg.matches)))}`,

@@ -80,12 +80,21 @@ export interface Initiative {
   readonly activeActivation: ActiveActivation | null;
 }
 
+export interface Objective {
+  readonly id: string;
+  readonly position: Vec2;
+  readonly radius: number;
+  readonly displayName?: string;
+}
+
 export interface GameState {
   /** Master seed; combined with `commandCount` to derive per-command RNG. */
   readonly seed: string;
   readonly commandCount: number;
   readonly units: ReadonlyArray<Unit>;
   readonly terrain: ReadonlyArray<Terrain>;
+  /** Scenario control points carried over from MapDef.objectives. Optional. */
+  readonly objectives?: ReadonlyArray<Objective>;
   readonly initiative: Initiative;
 }
 

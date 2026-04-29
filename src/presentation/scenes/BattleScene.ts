@@ -104,6 +104,8 @@ export class BattleScene extends Phaser.Scene {
   private gameState!: GameState;
   private terrainGfx!: Phaser.GameObjects.Graphics;
   private terrainLabels: Phaser.GameObjects.Text[] = [];
+  private objectivesGfx!: Phaser.GameObjects.Graphics;
+  private objectiveLabels: Phaser.GameObjects.Text[] = [];
   private boardEdgeGfx!: Phaser.GameObjects.Graphics;
   private aimGfx!: Phaser.GameObjects.Graphics;
   private unitLayer!: Phaser.GameObjects.Container;
@@ -172,6 +174,7 @@ export class BattleScene extends Phaser.Scene {
     this.reaction = null;
     this.unitContainers = new Map();
     this.terrainLabels = [];
+    this.objectiveLabels = [];
     this.unitFacings = new Map();
     this.moveFacingDrag = null;
     this.pendingMoverFacing = null;
@@ -201,6 +204,7 @@ export class BattleScene extends Phaser.Scene {
 
     this.boardEdgeGfx = this.add.graphics();
     this.terrainGfx = this.add.graphics();
+    this.objectivesGfx = this.add.graphics();
     this.unitLayer = this.add.container();
     this.aimGfx = this.add.graphics();
 
@@ -210,6 +214,7 @@ export class BattleScene extends Phaser.Scene {
     this.events.once('shutdown', () => this.scale.off('resize', resizeHandler));
 
     this.renderTerrain();
+    this.renderObjectives();
     this.renderUnits();
 
     this.input.mouse?.disableContextMenu();
@@ -348,6 +353,41 @@ export class BattleScene extends Phaser.Scene {
         lbl.setAlpha(0.6);
         this.terrainLabels.push(lbl);
       }
+    }
+  }
+
+  private renderObjectives(): void {
+    this.objectivesGfx.clear();
+    for (const lbl of this.objectiveLabels) lbl.destroy();
+    this.objectiveLabels = [];
+    const objs = this.gameState.objectives ?? [];
+    for (const o of objs) {
+      // Soft yellow disc with stroked rim — visible but not LOS-blocking.
+      this.objectivesGfx.fillStyle(0xffd166, 0.12);
+      this.objectivesGfx.fillCircle(o.position.x, o.position.y, o.radius);
+      this.objectivesGfx.lineStyle(2, 0xffd166, 0.85);
+      this.objectivesGfx.strokeCircle(o.position.x, o.position.y, o.radius);
+      // Centre cross-hair for legibility
+      this.objectivesGfx.lineStyle(1, 0xffd166, 0.7);
+      this.objectivesGfx.beginPath();
+      this.objectivesGfx.moveTo(o.position.x - o.radius * 0.3, o.position.y);
+      this.objectivesGfx.lineTo(o.position.x + o.radius * 0.3, o.position.y);
+      this.objectivesGfx.moveTo(o.position.x, o.position.y - o.radius * 0.3);
+      this.objectivesGfx.lineTo(o.position.x, o.position.y + o.radius * 0.3);
+      this.objectivesGfx.strokePath();
+      const lbl = this.add.text(
+        o.position.x,
+        o.position.y + o.radius + 6,
+        o.displayName ?? '目標',
+        {
+          fontFamily: 'ui-monospace, monospace',
+          fontSize: '10px',
+          color: '#ffd166',
+        },
+      );
+      lbl.setOrigin(0.5, 0);
+      lbl.setAlpha(0.85);
+      this.objectiveLabels.push(lbl);
     }
   }
 

@@ -45,6 +45,12 @@ export const buildInitialState = (input: BuildInitialStateInput): GameState => {
       );
     }
   }
+  const objectives = (input.map.objectives ?? []).map((o) => ({
+    id: o.id,
+    position: o.position,
+    radius: o.radius,
+    ...(o.displayName !== undefined ? { displayName: o.displayName } : {}),
+  }));
   return {
     seed: input.seed,
     commandCount: 0,
@@ -56,6 +62,7 @@ export const buildInitialState = (input: BuildInitialStateInput): GameState => {
       ...(t.height !== undefined ? { height: t.height } : {}),
       ...(t.displayName !== undefined ? { displayName: t.displayName } : {}),
     })),
+    ...(objectives.length > 0 ? { objectives } : {}),
     initiative: {
       holder: input.firstHolder,
       momentum: { A: 0, B: 0 },

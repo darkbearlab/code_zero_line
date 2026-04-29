@@ -36,6 +36,8 @@ type Drag =
 const CANVAS_PX = 600;
 const DEFAULT_SIZE = 768;
 const MIN_RECT = 8;
+/** Click-to-place objectives spawn at this diameter (1 unit-distance). */
+const OBJECTIVE_DEFAULT_DIAMETER = 96;
 
 const TOOL_ORDER: Tool[] = [
   'select',
@@ -45,6 +47,7 @@ const TOOL_ORDER: Tool[] = [
   'soft',
   'zone-a',
   'zone-b',
+  'objective',
 ];
 
 const TOOL_LABEL: Record<Tool, string> = {
@@ -55,6 +58,7 @@ const TOOL_LABEL: Record<Tool, string> = {
   soft: 'Soft (Smoke)',
   'zone-a': 'Zone A',
   'zone-b': 'Zone B',
+  objective: 'Objective',
 };
 
 const TOOL_FILL: Record<EditorShapeTool, string> = {
@@ -64,6 +68,7 @@ const TOOL_FILL: Record<EditorShapeTool, string> = {
   soft: 'rgba(220,220,220,0.25)',
   'zone-a': 'rgba(74,138,207,0.18)',
   'zone-b': 'rgba(207,90,74,0.18)',
+  objective: 'rgba(255, 209, 102, 0.18)',
 };
 
 const TOOL_STROKE: Record<EditorShapeTool, string> = {
@@ -73,7 +78,11 @@ const TOOL_STROKE: Record<EditorShapeTool, string> = {
   soft: '#cfcfcf',
   'zone-a': '#6ab0ff',
   'zone-b': '#ff8a6a',
+  objective: '#ffd166',
 };
+
+/** Objectives are circles, not rotatable rects. */
+const isCircleTool = (tool: EditorShapeTool): boolean => tool === 'objective';
 
 export const mountMapEditor = (root: HTMLElement): void => {
   let doc: EditorMapDoc = newDoc();
@@ -330,9 +339,29 @@ export const mountMapEditor = (root: HTMLElement): void => {
         return;
       }
 
-      // Drawing tool: start a new rectangle
       const x = snap ? Math.round(wp.x / 8) * 8 : wp.x;
       const y = snap ? Math.round(wp.y / 8) * 8 : wp.y;
+      // Objectives are click-to-place circles with a fixed default diameter
+      // (1 unit-distance). Editing the radius after placement happens via the
+      // Select tool's drag handles — keeps the drawing flow trivial.
+      if (isCircleTool(activeTool)) {
+        const id = nextShapeId(doc, activeTool);
+        const radius = OBJECTIVE_DEFAULT_DIAMETER;
+        const s: DraftShape = {
+          id,
+          tool: activeTool,
+          cx: x,
+          cy: y,
+          w: radius,
+          h: radius,
+          angle: 0,
+        };
+        doc = { ...doc, shapes: [...doc.shapes, s] };
+        selectedShapeId = id;
+        drag = null;
+        renderForm();
+        return;
+      }
       drag = { kind: 'create', tool: activeTool, x0: x, y0: y, x1: x, y1: y };
       redraw();
     };
@@ -673,6 +702,12 @@ const pointInShape = (
   p: { x: number; y: number },
   s: EditorMapShape,
 ): boolean => {
+  if (isCircleTool(s.tool)) {
+    const dx = p.x - s.cx;
+    const dy = p.y - s.cy;
+    const r = Math.max(s.w, s.h) / 2;
+    return dx * dx + dy * dy <= r * r;
+  }
   const dx = p.x - s.cx;
   const dy = p.y - s.cy;
   const cs = Math.cos(s.angle);
@@ -688,6 +723,10 @@ const drawShape = (
   selected: boolean,
   scale: number,
 ): void => {
+  if (isCircleTool(s.tool)) {
+    drawObjective(ctx, s, selected, scale);
+    return;
+  }
   ctx.save();
   ctx.translate(s.cx, s.cy);
   ctx.rotate(s.angle);
@@ -741,6 +780,39 @@ const drawShape = (
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(editorToolLabel(s.tool), cx, cy);
+  ctx.restore();
+};
+
+const drawObjective = (
+  ctx: CanvasRenderingContext2D,
+  s: EditorMapShape,
+  selected: boolean,
+  scale: number,
+): void => {
+  const r = Math.max(s.w, s.h) / 2;
+  ctx.save();
+  ctx.translate(s.cx, s.cy);
+  ctx.fillStyle = TOOL_FILL.objective;
+  ctx.strokeStyle = selected ? '#9af09a' : TOOL_STROKE.objective;
+  ctx.lineWidth = (selected ? 2 : 1.5) / scale;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  // Centre cross-hair
+  ctx.strokeStyle = TOOL_STROKE.objective;
+  ctx.lineWidth = 1 / scale;
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.3, 0);
+  ctx.lineTo(r * 0.3, 0);
+  ctx.moveTo(0, -r * 0.3);
+  ctx.lineTo(0, r * 0.3);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255, 209, 102, 0.85)';
+  ctx.font = `${10 / scale}px ui-monospace, monospace`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(editorToolLabel(s.tool), 0, r + 8);
   ctx.restore();
 };
 

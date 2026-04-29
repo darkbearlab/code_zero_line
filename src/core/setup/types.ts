@@ -20,6 +20,18 @@ export interface MapTerrainDef {
   readonly displayName?: string;
 }
 
+/**
+ * Scenario objective — a circular area on the map that scenarios can use as
+ * a control point. Currently consumed by the `engage-reach` sim mode and the
+ * AI's state evaluator. Maps without scenario objectives leave this empty.
+ */
+export interface MapObjective {
+  readonly id: string;
+  readonly position: Vec2;
+  readonly radius: number;
+  readonly displayName?: string;
+}
+
 export interface MapDef {
   readonly id: string;
   readonly displayName: string;
@@ -27,6 +39,8 @@ export interface MapDef {
   readonly size: number;
   readonly terrain: ReadonlyArray<MapTerrainDef>;
   readonly deploymentZones: ReadonlyArray<DeploymentZone>;
+  /** Scenario control points (capture/hold). Optional. */
+  readonly objectives?: ReadonlyArray<MapObjective>;
 }
 
 /** A picked entry in a side's roster. */
