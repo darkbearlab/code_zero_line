@@ -235,6 +235,31 @@ const run = (): void => {
   lines.push(
     `units lost / match  A: ${fmt(agg.A.unitsLostPerMatch, 2)}   B: ${fmt(agg.B.unitsLostPerMatch, 2)}`,
   );
+  // Officer ability usage — totals over the whole batch (per match = total / N).
+  const sumAB = (
+    pick: (o: MatchOutcome) => { A: number; B: number },
+  ): { A: number; B: number } => {
+    let a = 0;
+    let b = 0;
+    for (const o of outcomes) {
+      a += pick(o).A;
+      b += pick(o).B;
+    }
+    return { A: a, B: b };
+  };
+  const cmdMoves = sumAB((o) => o.commandMoves);
+  const cmdRallies = sumAB((o) => o.commandRallies);
+  const combined = sumAB((o) => o.combinedShots);
+  const n = Math.max(1, agg.matches);
+  lines.push(
+    `command-move /m    A: ${fmt(cmdMoves.A / n, 2)}   B: ${fmt(cmdMoves.B / n, 2)}`,
+  );
+  lines.push(
+    `command-rally /m   A: ${fmt(cmdRallies.A / n, 2)}   B: ${fmt(cmdRallies.B / n, 2)}`,
+  );
+  lines.push(
+    `combined fire /m   A: ${fmt(combined.A / n, 2)}   B: ${fmt(combined.B / n, 2)}`,
+  );
   process.stdout.write(lines.join('\n') + '\n');
 
   // Persist per-match data for offline analysis.

@@ -74,9 +74,45 @@ export const mirrorFixture: MatchFixture = {
   firstHolder: 'A',
 };
 
+/**
+ * 3v3 mirrored fixture INCLUDING an officer (squad_lead) on each side.
+ * Use this for any sim that wants to exercise OFFICER mechanics —
+ * COMMAND_MOVE / COMMAND_RALLY / COMBINED Fire / rally aura. The
+ * 2v2 mirror fixture has no officer so those subsystems never fire.
+ */
+export const mirrorOfficerFixture: MatchFixture = {
+  mapId: 'demo',
+  rosters: {
+    A: [
+      { id: 'blue-1', templateId: 'squad_lead' },
+      { id: 'blue-2', templateId: 'elite' },
+      { id: 'blue-3', templateId: 'trooper' },
+    ],
+    B: [
+      { id: 'red-1', templateId: 'squad_lead' },
+      { id: 'red-2', templateId: 'elite' },
+      { id: 'red-3', templateId: 'trooper' },
+    ],
+  },
+  deployment: {
+    A: [
+      { rosterId: 'blue-1', position: v2(0, 0) },
+      { rosterId: 'blue-2', position: v2(0, 0) },
+      { rosterId: 'blue-3', position: v2(0, 0) },
+    ],
+    B: [
+      { rosterId: 'red-1', position: v2(0, 0) },
+      { rosterId: 'red-2', position: v2(0, 0) },
+      { rosterId: 'red-3', position: v2(0, 0) },
+    ],
+  },
+  firstHolder: 'A',
+};
+
 export const namedFixtures: Record<string, MatchFixture> = {
   demo: demoFixture,
   mirror: mirrorFixture,
+  'mirror-officer': mirrorOfficerFixture,
 };
 
 const polygonAabb = (

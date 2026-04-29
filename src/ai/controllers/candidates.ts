@@ -5,6 +5,7 @@ import { UNIT_DISTANCE_PIXELS } from '../../core/rules/constants';
 import type { Command } from '../../core/commands/types';
 import type { Faction, GameState, Unit } from '../../core/state/GameState';
 import { findUnit, isUnitAlive } from '../../core/state/GameState';
+import { unitHasTrait } from '../../core/traits/types';
 import { pathfindingStepToward } from '../navigation';
 
 /**
@@ -178,6 +179,121 @@ const generateMoveCandidates: CommandGenerator = (state, faction, unit) => {
   }));
 };
 
+const alliesWithinRange = (
+  state: GameState,
+  faction: Faction,
+  centre: Vec2,
+  range: number,
+  excludeId: string,
+): Unit[] => {
+  const out: Unit[] = [];
+  for (const u of state.units) {
+    if (u.id === excludeId) continue;
+    if (u.faction !== faction) continue;
+    if (!isUnitAlive(u)) continue;
+    if (v2Dist(centre, u.position) <= range) out.push(u);
+  }
+  return out;
+};
+
+/**
+ * COMMAND_RALLY candidates (rule 3.1 + 4.6) — officer rallies allies within
+ * 1 UD using their own quality. Only emit when the officer is fresh AND at
+ * least one nearby ally is IMPEDED/SUPPRESSED — otherwise the action is
+ * a wasted activation.
+ */
+const generateCommandRallyCandidates: CommandGenerator = (
+  state,
+  faction,
+  unit,
+) => {
+  if (!unitHasTrait(unit, 'OFFICER')) return [];
+  if (unit.damage === 'IMPEDED' || unit.damage === 'SUPPRESSED') return [];
+  const range = UNIT_DISTANCE_PIXELS + 0.5;
+  const allies = alliesWithinRange(state, faction, unit.position, range, unit.id);
+  const damaged = allies.filter(
+    (a) => a.damage === 'IMPEDED' || a.damage === 'SUPPRESSED',
+  );
+  if (damaged.length === 0) return [];
+  // Officer + every damaged ally in range; the reducer will validate.
+  return [
+    {
+      type: 'COMMAND_RALLY',
+      officerId: unit.id,
+      participantIds: damaged.map((a) => a.id),
+      reactionPlan: { markers: [] },
+    },
+  ];
+};
+
+/**
+ * COMMAND_MOVE candidates (rule 3.1) — officer + allies within 1 UD all
+ * move. Each ally must end within 1 UD of the officer's chosen endpoint.
+ *
+ * Heuristic v1: pathfinding-step the officer toward the nearest enemy by
+ * 1 UD, then place each in-range ally at the same offset (so the formation
+ * advances together). Only emit when ≥ 1 ally is in range — otherwise a
+ * solo MOVE is the right tool.
+ */
+const generateCommandMoveCandidates: CommandGenerator = (
+  state,
+  faction,
+  unit,
+) => {
+  if (!unitHasTrait(unit, 'OFFICER')) return [];
+  if (unit.damage === 'IMPEDED' || unit.damage === 'SUPPRESSED') return [];
+  const range = UNIT_DISTANCE_PIXELS + 0.5;
+  const allies = alliesWithinRange(state, faction, unit.position, range, unit.id);
+  if (allies.length === 0) return [];
+  const enemies = state.units.filter(
+    (o) => o.faction !== faction && isUnitAlive(o),
+  );
+  if (enemies.length === 0) return [];
+  // Anchor on nearest enemy.
+  let anchor = enemies[0]!.position;
+  let bestSq = Infinity;
+  for (const e of enemies) {
+    const dx = e.position.x - unit.position.x;
+    const dy = e.position.y - unit.position.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestSq) {
+      bestSq = d;
+      anchor = e.position;
+    }
+  }
+  const officerTarget = pathfindingStepToward(state, unit.position, anchor, {
+    distance: UNIT_DISTANCE_PIXELS,
+    stopShort: unit.radius + 12,
+  });
+  // If pathfinding can't suggest progress, no command-move worth proposing.
+  if (v2Dist(officerTarget, unit.position) < 4) return [];
+  const offsetX = officerTarget.x - unit.position.x;
+  const offsetY = officerTarget.y - unit.position.y;
+  // Translate each ally by the same offset; if their resulting target
+  // would still be > 1 UD from officerTarget, drop them from the group.
+  const participants: Array<{ unitId: string; target: Vec2 }> = [];
+  for (const a of allies) {
+    if (a.damage === 'SUPPRESSED') continue;
+    const tx = a.position.x + offsetX;
+    const ty = a.position.y + offsetY;
+    const dx = tx - officerTarget.x;
+    const dy = ty - officerTarget.y;
+    if (dx * dx + dy * dy <= range * range) {
+      participants.push({ unitId: a.id, target: { x: tx, y: ty } });
+    }
+  }
+  if (participants.length === 0) return [];
+  return [
+    {
+      type: 'COMMAND_MOVE',
+      officerId: unit.id,
+      officerTarget,
+      participants,
+      reactionPlan: { markers: [] },
+    },
+  ];
+};
+
 /**
  * Registered active-action generators. Order is irrelevant — lookahead scores
  * everything anyway. New command types append a generator; nothing else needs
@@ -187,6 +303,8 @@ export const candidateGenerators: CommandGenerator[] = [
   generateShootCandidates,
   generateRallyCandidates,
   generateMoveCandidates,
+  generateCommandRallyCandidates,
+  generateCommandMoveCandidates,
   generateEndActivation,
 ];
 

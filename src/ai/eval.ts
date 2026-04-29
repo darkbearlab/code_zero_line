@@ -1,5 +1,6 @@
 import { hasLOS } from '../core/geometry/los';
 import { targetHasCover } from '../core/resolution/cover';
+import { UNIT_DISTANCE_PIXELS } from '../core/rules/constants';
 import type { Faction, GameState, Unit } from '../core/state/GameState';
 import { isUnitAlive } from '../core/state/GameState';
 
@@ -49,8 +50,30 @@ export const DEFAULT_WEIGHTS: EvalWeights = {
  */
 export type TraitEvalHook = (unit: Unit, state: GameState) => number;
 
+/**
+ * Per-ally bonus for an OFFICER having that ally within 1 unit-distance —
+ * captures the COMMAND_MOVE / COMMAND_RALLY / Combined-Fire / Rally-aura
+ * upside of staying in formation. Pulls lookahead's beam search toward
+ * positions where the officer can light up the whole subsystem.
+ */
+const OFFICER_ALLY_AURA_BONUS = 6;
+
+const officerAllyAura: TraitEvalHook = (unit, state) => {
+  const range = UNIT_DISTANCE_PIXELS + 0.5;
+  let allies = 0;
+  for (const u of state.units) {
+    if (u.id === unit.id) continue;
+    if (u.faction !== unit.faction) continue;
+    if (!isUnitAlive(u)) continue;
+    const dx = u.position.x - unit.position.x;
+    const dy = u.position.y - unit.position.y;
+    if (Math.hypot(dx, dy) <= range) allies += 1;
+  }
+  return allies * OFFICER_ALLY_AURA_BONUS;
+};
+
 export const traitEvalHooks: Record<string, TraitEvalHook> = {
-  // Phase 1 placeholder — real trait values land alongside trait hookups.
+  OFFICER: officerAllyAura,
 };
 
 const oppositeFaction = (f: Faction): Faction => (f === 'A' ? 'B' : 'A');

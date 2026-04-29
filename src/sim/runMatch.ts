@@ -24,6 +24,11 @@ export interface MatchOutcome {
   readonly events: ReadonlyArray<GameEvent>;
   readonly reason: MatchEndReason;
   readonly scenario: ScenarioMode;
+  /** Officer-only command activations dispatched per side (rules 3.1). */
+  readonly commandMoves: { A: number; B: number };
+  readonly commandRallies: { A: number; B: number };
+  /** Combined-fire shots (officer-led) dispatched per side. */
+  readonly combinedShots: { A: number; B: number };
   /**
    * Stamp identifying the rules / data the match was played under.
    * Cross-version comparisons are unsafe; sim CLI warns when versions differ.
@@ -154,6 +159,9 @@ export const simulateMatch = (
     A: factionAliveCount(initialState, 'A'),
     B: factionAliveCount(initialState, 'B'),
   };
+  const commandMoves = { A: 0, B: 0 };
+  const commandRallies = { A: 0, B: 0 };
+  const combinedShots = { A: 0, B: 0 };
 
   while (cmdCount < maxCommands) {
     const v = detectVictory(state, scenario, initialAlive);
@@ -235,6 +243,12 @@ export const simulateMatch = (
     events.push(...r.events);
     cmdCount += 1;
 
+    // Officer-ability counters for diagnostic reporting.
+    if (cmd.type === 'COMMAND_MOVE') commandMoves[faction] += 1;
+    else if (cmd.type === 'COMMAND_RALLY') commandRallies[faction] += 1;
+    else if (cmd.type === 'SHOOT' && cmd.mode === 'COMBINED')
+      combinedShots[faction] += 1;
+
     if (cmd.type !== 'PASS_INITIATIVE' && cmd.type !== 'END_ACTIVATION') {
       actionsThisActivation += 1;
     }
@@ -259,6 +273,9 @@ export const simulateMatch = (
     events,
     reason: endReason,
     scenario,
+    commandMoves,
+    commandRallies,
+    combinedShots,
     rulesetVersion: opts.rulesetVersion ?? 'unspecified',
   };
 };
