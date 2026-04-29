@@ -161,6 +161,98 @@ describe('TOUGH (rule 強韌)', () => {
   });
 });
 
+describe('CANNON_FODDER (民兵團 強徵兵)', () => {
+  it('reaction kill on a CANNON_FODDER mover does NOT cause turnover', () => {
+    // Stage: B's defender holds a SOLO reaction marker mid-path. The
+    // sniper guarantees a kill on the lone CANNON_FODDER mover. Without
+    // CANNON_FODDER, A would lose initiative on REACTION_HIT. With it,
+    // A retains initiative.
+    const s0: GameState = {
+      ...baseState([
+        makeUnit({
+          id: 'a1',
+          faction: 'A',
+          position: v2(0, 0),
+          quality: 1,
+          traits: ['CANNON_FODDER'],
+        }),
+        makeUnit({
+          id: 'b1',
+          faction: 'B',
+          position: v2(50, 0),
+          weapons: [sniperRifle],
+          quality: 1,
+        }),
+      ]),
+    };
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      {
+        type: 'MOVE',
+        unitId: 'a1',
+        target: v2(120, 0),
+        reactionPlan: {
+          markers: [
+            {
+              atT: 0.4,
+              shooterId: 'b1',
+              mode: 'SOLO',
+              participantIds: ['b1'],
+              weaponId: 'sniper',
+            },
+          ],
+        },
+      },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    // a1 was killed by the reaction (sniper 8d 2+ on no-armor target).
+    expect(a1.damage).toBe('KILLED');
+    // But initiative does NOT flip — CANNON_FODDER absorbs the turnover.
+    expect(r.state.initiative.holder).toBe('A');
+  });
+
+  it('control: same scenario WITHOUT CANNON_FODDER causes turnover', () => {
+    const s0: GameState = {
+      ...baseState([
+        makeUnit({
+          id: 'a1',
+          faction: 'A',
+          position: v2(0, 0),
+          quality: 1,
+          traits: [], // no CANNON_FODDER
+        }),
+        makeUnit({
+          id: 'b1',
+          faction: 'B',
+          position: v2(50, 0),
+          weapons: [sniperRifle],
+          quality: 1,
+        }),
+      ]),
+    };
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      {
+        type: 'MOVE',
+        unitId: 'a1',
+        target: v2(120, 0),
+        reactionPlan: {
+          markers: [
+            {
+              atT: 0.4,
+              shooterId: 'b1',
+              mode: 'SOLO',
+              participantIds: ['b1'],
+              weaponId: 'sniper',
+            },
+          ],
+        },
+      },
+    ]);
+    expect(r.state.initiative.holder).toBe('B');
+  });
+});
+
 describe('STEALTH (rule 隱身)', () => {
   it('bypass returns true when path stays inside a SOFT polygon', () => {
     const smoke: Terrain = {

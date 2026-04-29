@@ -79,6 +79,25 @@ const bumpCommandCount = (s: GameState): GameState => ({
   commandCount: s.commandCount + 1,
 });
 
+/**
+ * Compute the post-reaction outcome with CANNON_FODDER bypass.
+ * Rule (民兵團 強徵兵): suppression / kill of a CANNON_FODDER unit during
+ * its own activation does NOT cause turnover. The hit still resolves
+ * (target dies / gets suppressed), but the activating side keeps
+ * initiative. For non-CANNON_FODDER movers, we keep the existing
+ * REACTION_HIT → turnover semantics.
+ */
+const reactionOutcomeAfterFodder = (
+  reactionTarget: Unit | undefined,
+  reactionResult: { suppressOrKillCaused: boolean },
+): 'REACTION_HIT' | 'SUCCESS' => {
+  if (!reactionResult.suppressOrKillCaused) return 'SUCCESS';
+  if (reactionTarget && unitHasTrait(reactionTarget, 'CANNON_FODDER')) {
+    return 'SUCCESS';
+  }
+  return 'REACTION_HIT';
+};
+
 const setMomentum = (
   s: GameState,
   faction: Faction,
@@ -755,11 +774,13 @@ const moveAction = (
 
   // Difficult-terrain start-in: activation must end after this single move
   // (no turnover) — rule 4.2C "移動結束後該單位這個主動權不得在進行任何行動".
-  const outcome: ActionOutcome = reactionResult.suppressOrKillCaused
-    ? 'REACTION_HIT'
-    : startedInDifficult
-      ? 'FORCED_END'
-      : 'SUCCESS';
+  // CANNON_FODDER bypasses the REACTION_HIT turnover (rule 民兵團 強徵兵).
+  const outcome: ActionOutcome =
+    reactionOutcomeAfterFodder(u, reactionResult) === 'REACTION_HIT'
+      ? 'REACTION_HIT'
+      : startedInDifficult
+        ? 'FORCED_END'
+        : 'SUCCESS';
   const post = processPostAction(moved, outcome);
   return {
     state: post.state,
@@ -897,10 +918,12 @@ const crawlAction = (
   };
 
   // Crawl ends activation without turnover (rule 4.5 — 該輪次不可再行動，但
-  // 不易手). Reaction hits still cause turnover via REACTION_HIT.
-  const outcome: ActionOutcome = reactionResult.suppressOrKillCaused
-    ? 'REACTION_HIT'
-    : 'FORCED_END';
+  // 不易手). Reaction hits still cause turnover via REACTION_HIT — except
+  // CANNON_FODDER (民兵團 強徵兵) which absorbs the hit without turnover.
+  const outcome: ActionOutcome =
+    reactionOutcomeAfterFodder(u, reactionResult) === 'REACTION_HIT'
+      ? 'REACTION_HIT'
+      : 'FORCED_END';
   const post = processPostAction(moved, outcome);
   return {
     state: post.state,
@@ -1003,9 +1026,7 @@ const vaultAction = (
     interruptedByMarker: reactionResult.interruptedByMarker,
   };
 
-  const outcome: ActionOutcome = reactionResult.suppressOrKillCaused
-    ? 'REACTION_HIT'
-    : 'SUCCESS';
+  const outcome: ActionOutcome = reactionOutcomeAfterFodder(u, reactionResult);
   const post = processPostAction(moved, outcome);
   return {
     state: post.state,
@@ -1081,9 +1102,10 @@ const climbAction = (
     interruptedByMarker: reactionResult.interruptedByMarker,
   };
 
-  const outcome: ActionOutcome = reactionResult.suppressOrKillCaused
-    ? 'REACTION_HIT'
-    : 'FORCED_END';
+  const outcome: ActionOutcome =
+    reactionOutcomeAfterFodder(u, reactionResult) === 'REACTION_HIT'
+      ? 'REACTION_HIT'
+      : 'FORCED_END';
   const post = processPostAction(moved, outcome);
   return {
     state: post.state,
@@ -1611,9 +1633,7 @@ const rallyAction = (
 
   // If reactions interrupted the rally, skip the check and post-action.
   if (reactionResult.interruptT !== null) {
-    const outcome = reactionResult.suppressOrKillCaused
-      ? 'REACTION_HIT'
-      : 'SUCCESS';
+    const outcome = reactionOutcomeAfterFodder(u, reactionResult);
     const post = processPostAction(reactionResult.state, outcome);
     return {
       state: post.state,

@@ -58,7 +58,7 @@ Source: `src/core/traits/registry.ts`. **Status legend:**
 | CUMBERSOME | ability | ✓ | reducer (`capActionsForTraits` → max 1 action) |
 | TOUGH | ability | ✓ | shooting (once-per-match save), AI eval (save value) |
 | STEALTH | ability | ✓ | resolution/stealth.ts (path-immunity), reducer (MOVE/CRAWL window short-circuit), AI reaction.ts (planner skip), AI eval (cover-bonus) |
-| CANNON_FODDER | ability | ◷ | declared only — `cannonFodder` flag on TraitDef ready for reducer wire-up |
+| CANNON_FODDER | ability | ✓ | reducer (`reactionOutcomeAfterFodder` — own-unit kill skips turnover) |
 | FANATIC | ability | ◷ | `fanaticIgnoresImpededInterrupt` flag declared, no reads yet |
 | TOUGH (older note) | ability | ✓ | (see TOUGH above) |
 | IMPULSIVE | ability | ◷ | declared only |

@@ -45,13 +45,13 @@ export const TRAITS: Readonly<Record<string, TraitDef>> = {
     maxActionsPerActivation: 1,
   },
   // • Cannon Fodder (rule 7) — declared; turnover-suppression hook pending.
+  // ✓ Cannon fodder — wired in reducer (`reactionOutcomeAfterFodder`).
   CANNON_FODDER: {
     id: 'CANNON_FODDER',
     displayName: '砲灰',
     description:
       '在自己的主動權中，這個單位被壓制或陣亡不會造成主動權易手。',
     cannonFodder: true,
-    tbd: true,
   },
   // • Fanatic — declared; impeded-interrupt suppression pending.
   FANATIC: {
