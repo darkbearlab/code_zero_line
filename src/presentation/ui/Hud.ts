@@ -52,6 +52,8 @@ export interface ReactorMode {
   readonly weaponDisplay: string;
   readonly participantIds: ReadonlyArray<string>;
   readonly totalDice: number;
+  /** Pre-formatted dice readout, mirrors ShootCandidateMode.diceReadout. */
+  readonly diceReadout: string;
 }
 
 export interface VisibleReactor {
@@ -91,6 +93,13 @@ export interface ShootCandidateMode {
   readonly weaponDisplay: string;
   readonly participantIds: ReadonlyArray<string>;
   readonly totalDice: number;
+  /**
+   * Pre-formatted dice readout — single-group `4d 5+` for level-0 shots,
+   * heterogeneous form `4d (3@3+, 1@4+)` when combat-intel meta has
+   * altered thresholds. Hud reads this verbatim so the picker stays
+   * accurate when intel levels change between shot options.
+   */
+  readonly diceReadout: string;
 }
 
 export interface ShootCandidate {
@@ -668,7 +677,7 @@ export class Hud {
             m.participantIds.length > 0
               ? ` w/ ${m.participantIds.join(',')}`
               : '';
-          b.textContent = `${m.mode} [${m.weaponDisplay}]${partsLabel} (${m.totalDice}d)`;
+          b.textContent = `${m.mode} [${m.weaponDisplay}]${partsLabel} (${m.diceReadout})`;
           b.onclick = () =>
             this.dispatch({
               type: 'SHOOT',
@@ -950,7 +959,7 @@ export class Hud {
             m.participantIds.length > 0
               ? ` w/ ${m.participantIds.join(',')}`
               : '';
-          b.textContent = `+ ${m.mode} [${m.weaponDisplay}]${partsLabel} (${m.totalDice}d)`;
+          b.textContent = `+ ${m.mode} [${m.weaponDisplay}]${partsLabel} (${m.diceReadout})`;
           b.onclick = () =>
             this.placeMarker(v.id, m.mode, m.weaponId, m.participantIds);
           this.actionsEl.appendChild(b);

@@ -33,6 +33,7 @@ import {
 import { computeMovePath } from '../../core/geometry/path';
 import type { Vec2 } from '../../core/geometry/types';
 import { v2Dist, v2Lerp } from '../../core/geometry/vec2';
+import { formatProfile } from '../../core/resolution/dice';
 import { listAvailableShootModes } from '../../core/resolution/shoot_modes';
 import { UNIT_DISTANCE_PIXELS } from '../../core/rules/constants';
 import type { GameState, Unit } from '../../core/state/GameState';
@@ -1457,6 +1458,7 @@ export class BattleScene extends Phaser.Scene {
             weaponDisplay: m.weaponDisplay,
             participantIds: m.participantIds,
             totalDice: m.totalDice,
+            diceReadout: formatProfile(m.profile),
           })),
         };
       })
@@ -1534,6 +1536,7 @@ export class BattleScene extends Phaser.Scene {
             weaponDisplay: m.weaponDisplay,
             participantIds: m.participantIds,
             totalDice: m.totalDice,
+            diceReadout: formatProfile(m.profile),
           })),
         };
       })

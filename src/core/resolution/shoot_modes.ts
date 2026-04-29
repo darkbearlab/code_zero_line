@@ -9,6 +9,16 @@ import type {
 } from '../state/GameState';
 import { findUnit, getUnitCircle, isUnitAlive } from '../state/GameState';
 import { unitHasTrait } from '../traits/types';
+import {
+  buildDiceProfile,
+  profileBestThreshold,
+  profileTotalDice,
+  type DiceProfile,
+} from './dice';
+import {
+  EMPTY_COMBAT_INTEL,
+  resolveCombatIntelLevel,
+} from './combat_intel';
 import type { ShootMode } from '../commands/types';
 import {
   isReloadWeapon,
@@ -22,8 +32,16 @@ export interface AvailableShootMode {
   /** Display label for the weapon (currently same as id). */
   readonly weaponDisplay: string;
   readonly participantIds: ReadonlyArray<string>;
+  /** Total dice across all groups in `profile` (back-compat). */
   readonly totalDice: number;
+  /** Best (lowest) threshold in `profile` (back-compat). */
   readonly threshold: number;
+  /**
+   * Full dice profile for this attack — heterogeneous when combat-intel
+   * meta is in effect against the target. UI reads this via formatProfile
+   * so the picker accurately labels split-threshold attacks.
+   */
+  readonly profile: DiceProfile;
 }
 
 const candidateShootWeapons = (
@@ -106,18 +124,33 @@ export const listAvailableShootModes = (
     return [];
   }
 
+  // Combat-intel reduction level for ALL modes against this target — same
+  // shooter faction, same target, identical lookup. Build once.
+  const intelLevel = resolveCombatIntelLevel(
+    target,
+    state.combatIntel ?? EMPTY_COMBAT_INTEL,
+    'shoot',
+    shooter.faction,
+  );
+  const profileFor = (
+    aggregateDice: number,
+    threshold: number,
+  ): DiceProfile => buildDiceProfile(aggregateDice, threshold, intelLevel);
+
   const out: AvailableShootMode[] = [];
 
   // SOLO — one entry per matching shooter weapon.
   for (const sw of candidateShootWeapons(shooter, 'SOLO', weaponMode)) {
     if (reloadAlreadyUsed(state, shooter.id, sw)) continue;
+    const profile = profileFor(adjustDice(shooter, sw.diceCount), sw.threshold);
     out.push({
       mode: 'SOLO',
       weaponId: sw.id,
       weaponDisplay: sw.id,
       participantIds: [],
-      totalDice: adjustDice(shooter, sw.diceCount),
-      threshold: sw.threshold,
+      totalDice: profileTotalDice(profile),
+      threshold: profileBestThreshold(profile),
+      profile,
     });
   }
 
@@ -142,13 +175,15 @@ export const listAvailableShootModes = (
       const w = firstShootWeapon(p, 'FOCUSED', weaponMode)!;
       dice += adjustDice(p, w.diceCount);
     }
+    const profile = profileFor(dice, fw.threshold);
     out.push({
       mode: 'FOCUSED',
       weaponId: fw.id,
       weaponDisplay: fw.id,
       participantIds: parts.map((u) => u.id),
-      totalDice: dice,
-      threshold: fw.threshold,
+      totalDice: profileTotalDice(profile),
+      threshold: profileBestThreshold(profile),
+      profile,
     });
   }
 
@@ -174,13 +209,15 @@ export const listAvailableShootModes = (
         const w = firstShootWeapon(p, 'COMBINED', weaponMode)!;
         dice += adjustDice(p, w.diceCount);
       }
+      const profile = profileFor(dice, cw.threshold);
       out.push({
         mode: 'COMBINED',
         weaponId: cw.id,
         weaponDisplay: cw.id,
         participantIds: parts.map((u) => u.id),
-        totalDice: dice,
-        threshold: cw.threshold,
+        totalDice: profileTotalDice(profile),
+        threshold: profileBestThreshold(profile),
+        profile,
       });
     }
   }
