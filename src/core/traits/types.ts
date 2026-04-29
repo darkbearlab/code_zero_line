@@ -15,10 +15,28 @@ export const parseTrait = (raw: string): TraitInstance => parseIdParam(raw);
  * the rules engine queries at decision points; complex traits with state
  * (e.g. once-per-game) get a `state` slot to carry per-unit data.
  */
+/**
+ * What kind of tag this is, for documentation / UI grouping. Has no
+ * behavioural effect — the rules engine queries by id, not by kind.
+ *
+ *  - 'ability'   : confers some game-mechanical effect on its holder
+ *                  (OFFICER, STALWART, ARMOR, etc.). Drives most rule
+ *                  branches.
+ *  - 'category'  : pure classification, with no inherent effect. Other
+ *                  systems (combat-intel meta, scenario constraints,
+ *                  AI targeting hooks) read these to decide who to
+ *                  apply effects TO. INFANTRY / HEAVY / CYBORG / MECH.
+ *  - 'state'     : marker for runtime state set by gameplay rather
+ *                  than authored data (none today; reserved).
+ */
+export type TraitKind = 'ability' | 'category' | 'state';
+
 export interface TraitDef {
   readonly id: string;
   readonly displayName: string;
   readonly description: string;
+  /** Defaults to 'ability' for back-compat with the original registry. */
+  readonly kind?: TraitKind;
   /** Bypass the −1 die penalty in melee for [IMPEDED]/[SUPPRESSED]. */
   readonly meleeIgnoresStatusPenalty?: boolean;
   /** When this unit's incoming damage would set [IMPEDED], upgrade to [SUPPRESSED]. */
@@ -61,4 +79,28 @@ export const sumTraitParams = (unit: Unit, id: string): number => {
     if (inst.id === id) sum += inst.param;
   }
   return sum;
+};
+
+/**
+ * Generic "highest-tag-match level" lookup for systems that key effects by
+ * tag (combat-intel meta, scenario rule-modifiers, etc.). Given a target
+ * unit and a `Record<tagId, level>` map, returns the maximum level across
+ * all tags the unit carries; 0 when nothing matches.
+ *
+ * Per design 2026-04-29: when a unit matches multiple tracks (e.g. a
+ * heavy_gunner carries both INFANTRY and HEAVY), take MAX. This avoids
+ * "stack two tracks for double effect" snowball that would let reactions
+ * one-shot anything. See docs/tag-system.md for the broader rule.
+ */
+export const findHighestLevelByTag = (
+  unit: Unit,
+  levels: Readonly<Record<string, number>>,
+): number => {
+  let max = 0;
+  for (const t of unit.traits) {
+    const inst = parseTrait(t);
+    const lvl = levels[inst.id] ?? 0;
+    if (lvl > max) max = lvl;
+  }
+  return max;
 };

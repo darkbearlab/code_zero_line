@@ -3,5 +3,5 @@
   "displayName": "Heavy Gunner",
   "quality": 3,
   "weaponIds": ["heavy-rifle"],
-  "traits": ["CUMBERSOME", "ARMOR:1"]
+  "traits": ["CUMBERSOME", "ARMOR:1", "INFANTRY", "HEAVY"]
 }

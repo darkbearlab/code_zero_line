@@ -3,5 +3,5 @@
   "displayName": "Veteran",
   "quality": 3,
   "weaponIds": ["rifle", "rpg", "blade"],
-  "traits": ["STALWART"]
+  "traits": ["STALWART", "INFANTRY"]
 }

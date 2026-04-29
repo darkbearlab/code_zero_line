@@ -4,6 +4,7 @@ import { hasStealthBypass } from '../resolution/stealth';
 import { computeMovePath } from '../geometry/path';
 import { isPointInPolygon } from '../geometry/polygon';
 import { TRAITS } from '../traits/registry';
+import { getUnitTraits, unitHasTrait } from '../traits/types';
 import {
   climbDestination,
   findContactedHardWall,
@@ -48,9 +49,8 @@ const opponent = (f: Faction): Faction => (f === 'A' ? 'B' : 'A');
 
 /** True if any of `u`'s traits bypass the melee status penalty (STALWART). */
 const meleeIgnoresStatus = (u: Unit): boolean => {
-  for (const traitStr of u.traits) {
-    const id = traitStr.split(/[(:]/, 1)[0]!.trim();
-    if (TRAITS[id]?.meleeIgnoresStatusPenalty) return true;
+  for (const inst of getUnitTraits(u)) {
+    if (TRAITS[inst.id]?.meleeIgnoresStatusPenalty) return true;
   }
   return false;
 };
@@ -62,9 +62,8 @@ const meleeIgnoresStatus = (u: Unit): boolean => {
  */
 const capActionsForTraits = (u: Unit): number | undefined => {
   let cap: number | undefined;
-  for (const traitStr of u.traits) {
-    const id = traitStr.split(/[(:]/, 1)[0]!.trim();
-    const def = TRAITS[id];
+  for (const inst of getUnitTraits(u)) {
+    const def = TRAITS[inst.id];
     if (def?.maxActionsPerActivation !== undefined) {
       cap = cap === undefined
         ? def.maxActionsPerActivation
@@ -1143,7 +1142,7 @@ const commandMoveAction = (
   if (!officer) {
     throw new CommandError('UNIT_NOT_FOUND', `${cmd.officerId} not found`);
   }
-  if (!officer.traits.includes('OFFICER')) {
+  if (!unitHasTrait(officer, 'OFFICER')) {
     throw new CommandError(
       'NOT_OFFICER',
       `${cmd.officerId} lacks OFFICER trait`,
@@ -1353,7 +1352,7 @@ const commandRallyAction = (
   if (!officer) {
     throw new CommandError('UNIT_NOT_FOUND', `${cmd.officerId} not found`);
   }
-  if (!officer.traits.includes('OFFICER')) {
+  if (!unitHasTrait(officer, 'OFFICER')) {
     throw new CommandError(
       'NOT_OFFICER',
       `${cmd.officerId} lacks OFFICER trait`,
@@ -1635,7 +1634,7 @@ const rallyAction = (
       o.faction === u2.faction &&
       o.id !== u2.id &&
       isUnitAlive(o) &&
-      o.traits.includes('OFFICER') &&
+      unitHasTrait(o, 'OFFICER') &&
       v2Dist(o.position, u2.position) <= UNIT_DISTANCE_PIXELS &&
       o.quality < threshold
     ) {

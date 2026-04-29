@@ -103,6 +103,42 @@ export const TRAITS: Readonly<Record<string, TraitDef>> = {
     displayName: '隱身',
     description: '在同一個提供掩護的地形特徵內移動不會被反應射擊。',
   },
+
+  // ──────────────────────────────────────────────────────────────────
+  // Category tags — pure classification, no inherent effect. Used by
+  // outside systems (combat-intel meta, scenario gates, AI targeting
+  // hooks) to decide who to apply rules TO. Add new categories here.
+  // ──────────────────────────────────────────────────────────────────
+  INFANTRY: {
+    id: 'INFANTRY',
+    displayName: '步兵',
+    description: '輕裝徒步單位的分類標籤；無內建效果。',
+    kind: 'category',
+  },
+  HEAVY: {
+    id: 'HEAVY',
+    displayName: '重裝',
+    description: '攜帶重型裝備的分類標籤；無內建效果。',
+    kind: 'category',
+  },
+  CYBORG: {
+    id: 'CYBORG',
+    displayName: '半機械',
+    description: '機械強化單位的分類標籤；無內建效果。',
+    kind: 'category',
+  },
+  MECH: {
+    id: 'MECH',
+    displayName: '機甲',
+    description: '純機械單位的分類標籤；無內建效果。',
+    kind: 'category',
+  },
+  COMMAND: {
+    id: 'COMMAND',
+    displayName: '指揮類',
+    description: '高階指揮人員的分類標籤；無內建效果。',
+    kind: 'category',
+  },
 };
 
 export const getTraitDef = (id: string): TraitDef | undefined => TRAITS[id];

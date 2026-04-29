@@ -8,6 +8,7 @@ import type {
   WeaponMode,
 } from '../state/GameState';
 import { findUnit, getUnitCircle, isUnitAlive } from '../state/GameState';
+import { unitHasTrait } from '../traits/types';
 import type { ShootMode } from '../commands/types';
 import {
   isReloadWeapon,
@@ -55,7 +56,7 @@ const adjustDice = (u: Unit, base: number): number =>
  * this — e.g. a comms-relay specialist.
  */
 const participantNeedsLosToOfficer = (u: Unit): boolean =>
-  !u.traits.includes('NO_OFFICER_LOS_FOR_COMBINED');
+  !unitHasTrait(u, 'NO_OFFICER_LOS_FOR_COMBINED');
 
 /** True if the unit-weapon pair already fired this activation under [RELOAD]. */
 const reloadAlreadyUsed = (
@@ -152,7 +153,7 @@ export const listAvailableShootModes = (
   }
 
   // COMBINED — officer-led; one entry per COMBINED weapon.
-  if (shooter.traits.includes('OFFICER')) {
+  if (unitHasTrait(shooter, 'OFFICER')) {
     for (const cw of candidateShootWeapons(shooter, 'COMBINED', weaponMode)) {
       if (reloadAlreadyUsed(state, shooter.id, cw)) continue;
       const parts = state.units.filter(

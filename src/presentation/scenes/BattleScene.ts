@@ -25,6 +25,7 @@ import { buildLosBlockers, hasLOS } from '../../core/geometry/los';
 import { segmentBlockedByPolygon, segmentBlockedByPolygons } from '../../core/geometry/segment';
 import { VAULT_HEIGHT_THRESHOLD_PIXELS } from '../../core/rules/constants';
 import { isLowWall } from '../../core/state/GameState';
+import { unitHasTrait } from '../../core/traits/types';
 import {
   computeReactionWindows,
   type ReactionWindow,
@@ -1217,7 +1218,7 @@ export class BattleScene extends Phaser.Scene {
     const act = this.gameState.initiative.activeActivation;
     if (!act) return undefined;
     const officer = this.gameState.units.find((u) => u.id === act.unitId);
-    if (!officer || !officer.traits.includes('OFFICER')) return undefined;
+    if (!officer || !unitHasTrait(officer, 'OFFICER')) return undefined;
     if (!isUnitAlive(officer)) return undefined;
     // Allies within 1 UD (alive, same faction, not officer).
     const nearbyAllies = this.gameState.units.filter(
@@ -1277,7 +1278,7 @@ export class BattleScene extends Phaser.Scene {
     const act = this.gameState.initiative.activeActivation;
     if (!act) return undefined;
     const officer = this.gameState.units.find((u) => u.id === act.unitId);
-    if (!officer || !officer.traits.includes('OFFICER')) return undefined;
+    if (!officer || !unitHasTrait(officer, 'OFFICER')) return undefined;
     if (!isUnitAlive(officer)) return undefined;
     if (officer.damage !== 'NONE') return undefined;
     const nearby = this.gameState.units.filter(
@@ -1615,7 +1616,7 @@ export class BattleScene extends Phaser.Scene {
         const act = this.gameState.initiative.activeActivation;
         if (!act) return;
         const officer = this.gameState.units.find((u) => u.id === act.unitId);
-        if (!officer || !officer.traits.includes('OFFICER')) return;
+        if (!officer || !unitHasTrait(officer, 'OFFICER')) return;
         // Auto-select all damaged units within 1 UD by default.
         this.pendingCommandRally = new Set();
         if (officer.damage !== 'NONE')
@@ -1640,7 +1641,7 @@ export class BattleScene extends Phaser.Scene {
         const act = this.gameState.initiative.activeActivation;
         if (!act) return;
         const officer = this.gameState.units.find((u) => u.id === act.unitId);
-        if (!officer || !officer.traits.includes('OFFICER')) return;
+        if (!officer || !unitHasTrait(officer, 'OFFICER')) return;
         if (officer.damage !== 'NONE') return;
         this.pendingCommandMove = {
           officerStance: 'STANDING',

@@ -3,5 +3,5 @@
   "displayName": "Trooper",
   "quality": 3,
   "weaponIds": ["rifle", "blade"],
-  "traits": []
+  "traits": ["INFANTRY"]
 }

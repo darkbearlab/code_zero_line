@@ -3,5 +3,5 @@
   "displayName": "Elite",
   "quality": 2,
   "weaponIds": ["rifle", "blade"],
-  "traits": []
+  "traits": ["INFANTRY"]
 }

@@ -141,7 +141,7 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
     throw new CommandError('FRIENDLY_FIRE', `Same-faction target`);
   }
 
-  if (mode === 'COMBINED' && !shooter.traits.includes('OFFICER')) {
+  if (mode === 'COMBINED' && !unitHasTrait(shooter, 'OFFICER')) {
     throw new CommandError('NOT_OFFICER', 'Combined fire requires an officer');
   }
 
