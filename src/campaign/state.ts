@@ -9,6 +9,8 @@
  * future shapes can migrate or reject old saves.
  */
 import type { RosterEntry } from '../core/setup/types';
+import { Rng } from '../core/rng/sfc32';
+import { replenishPool } from './recruit';
 import {
   upgradeNextCost,
   type UpgradeDef,
@@ -43,6 +45,11 @@ export interface CampaignState {
    * time (combat intel, pool quality, starting momentum, …).
    */
   readonly upgradeLevels: Readonly<Record<string, number>>;
+  /**
+   * Monotonic counter for naming auto-recruited pool members (`pool-{n}`).
+   * Starts past the STARTER_POOL range so seed/recruit ids never collide.
+   */
+  readonly nextRecruitId: number;
 }
 
 /**
@@ -68,15 +75,23 @@ const STARTER_POOL: ReadonlyArray<RosterEntry> = [
 /** Minimum pool size for a round to be runnable (4-unit squad draft). */
 export const MIN_POOL_SIZE = 4;
 
-export const newCampaignState = (seed: string): CampaignState => ({
-  version: 1,
-  seed,
-  roundIndex: 1,
-  pool: STARTER_POOL,
-  currencies: { tactical: 0, regional: 0, honor: 0 },
-  runsCompleted: 0,
-  upgradeLevels: {},
-});
+export const newCampaignState = (seed: string): CampaignState => {
+  // Replenish from STARTER_POOL up to POOL_TARGET (30) on init so the
+  // very first round already sees a full roster. Recruits get ids
+  // pool-13 onward; nextRecruitId tracks the counter for future bumps.
+  const rng = Rng.fromSeed(`${seed}-recruit-init`);
+  const seeded = replenishPool(STARTER_POOL, rng, STARTER_POOL.length + 1);
+  return {
+    version: 1,
+    seed,
+    roundIndex: 1,
+    pool: seeded.pool,
+    currencies: { tactical: 0, regional: 0, honor: 0 },
+    runsCompleted: 0,
+    upgradeLevels: {},
+    nextRecruitId: seeded.nextRecruitId,
+  };
+};
 
 export const isCampaignOver = (s: CampaignState): boolean =>
   s.pool.length < MIN_POOL_SIZE;
@@ -85,12 +100,25 @@ export const isCampaignOver = (s: CampaignState): boolean =>
  * Outcome surface a finished run hands back to the campaign layer.
  * `squadIds` are the units that fought (so we know who to remove on
  * casualty); `survivorIds` are those that came back alive.
+ *
+ * `unpicked` is the auto-resolved fate of the round options the player
+ * did *not* take (see `src/rounds/autoResolve.ts`). Each entry carries
+ * its own KIA list so casualties roll into the same pool filter pass,
+ * and `won` triggers the same regional-intel share as a manual victory.
  */
+export interface UnpickedOptionOutcome {
+  readonly missionId: string;
+  readonly squadIds: ReadonlyArray<string>;
+  readonly survivorIds: ReadonlyArray<string>;
+  readonly won: boolean;
+}
+
 export interface RunResolution {
   readonly missionId: string;
   readonly squadIds: ReadonlyArray<string>;
   readonly survivorIds: ReadonlyArray<string>;
   readonly winner: 'A' | 'B' | 'DRAW';
+  readonly unpicked?: ReadonlyArray<UnpickedOptionOutcome>;
 }
 
 const MISSION_BASE_INTEL = 10;
@@ -157,27 +185,47 @@ export const advanceCampaignAfterRun = (
   campaign: CampaignState,
   result: RunResolution,
 ): CampaignState => {
-  const survived = new Set(result.survivorIds);
-  const drafted = new Set(result.squadIds);
   const won = result.winner === 'A';
 
-  const pool = campaign.pool.filter(
-    (u) => !drafted.has(u.id) || survived.has(u.id),
-  );
+  // KIA = (drafted ∖ survived) for the picked mission, plus the same for
+  // every auto-resolved unpicked option (see UnpickedOptionOutcome).
+  const kia = new Set<string>();
+  for (const id of result.squadIds) {
+    if (!result.survivorIds.includes(id)) kia.add(id);
+  }
+  for (const u of result.unpicked ?? []) {
+    for (const id of u.squadIds) {
+      if (!u.survivorIds.includes(id)) kia.add(id);
+    }
+  }
+  const filtered = campaign.pool.filter((u) => !kia.has(u.id));
 
   const tactical = won
     ? Math.round(MISSION_BASE_INTEL * TACTICAL_SHARE)
     : 0;
-  const regional = won
-    ? Math.round(MISSION_BASE_INTEL * REGIONAL_SHARE)
-    : 0;
+  // Regional intel is the 30% share of any mission that resolved in the
+  // player's favor — the picked one if won, plus each unpicked option
+  // whose auto-roll succeeded (§4.1).
+  const unpickedWins = (result.unpicked ?? []).filter((u) => u.won).length;
+  const regional =
+    (won ? Math.round(MISSION_BASE_INTEL * REGIONAL_SHARE) : 0) +
+    unpickedWins * Math.round(MISSION_BASE_INTEL * REGIONAL_SHARE);
   const honor = won ? HONOR_PER_WIN : 0;
+
+  // Replenish before returning so the next round's RoundSetupScene already
+  // sees a full POOL_TARGET roster. Seeded by campaign seed × round so
+  // recruits are deterministic and reproducible.
+  const recruitRng = Rng.fromSeed(
+    `${campaign.seed}-recruit-r${campaign.roundIndex}`,
+  );
+  const replenished = replenishPool(filtered, recruitRng, campaign.nextRecruitId);
 
   return {
     ...campaign,
     roundIndex: campaign.roundIndex + 1,
     runsCompleted: campaign.runsCompleted + 1,
-    pool,
+    pool: replenished.pool,
+    nextRecruitId: replenished.nextRecruitId,
     currencies: {
       tactical: campaign.currencies.tactical + tactical,
       regional: campaign.currencies.regional + regional,

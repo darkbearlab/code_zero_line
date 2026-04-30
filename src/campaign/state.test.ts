@@ -4,16 +4,20 @@ import {
   isCampaignOver,
   newCampaignState,
   type RunResolution,
+  type UnpickedOptionOutcome,
 } from './state';
+import { POOL_TARGET } from './recruit';
 
 describe('CampaignState', () => {
-  it('newCampaignState seeds a 12-unit pool + zero currencies', () => {
+  it('newCampaignState seeds a POOL_TARGET-unit pool + zero currencies', () => {
     const c = newCampaignState('seed-1');
     expect(c.version).toBe(1);
     expect(c.roundIndex).toBe(1);
-    expect(c.pool).toHaveLength(12);
+    expect(c.pool).toHaveLength(POOL_TARGET);
     expect(c.currencies).toEqual({ tactical: 0, regional: 0, honor: 0 });
     expect(c.runsCompleted).toBe(0);
+    // nextRecruitId starts past STARTER_POOL (12 entries → 13).
+    expect(c.nextRecruitId).toBeGreaterThan(12);
   });
 
   it('isCampaignOver triggers when pool drops below 4', () => {
@@ -28,7 +32,7 @@ describe('advanceCampaignAfterRun', () => {
   const baseCampaign = newCampaignState('seed-1');
   const drafted = baseCampaign.pool.slice(0, 4).map((u) => u.id);
 
-  it('victory: survivors stay, casualties leave, currencies awarded', () => {
+  it('victory: survivors stay, casualties leave but pool tops back to target', () => {
     const result: RunResolution = {
       missionId: 'reconnaissance',
       squadIds: drafted,
@@ -38,15 +42,18 @@ describe('advanceCampaignAfterRun', () => {
     const after = advanceCampaignAfterRun(baseCampaign, result);
     expect(after.roundIndex).toBe(2);
     expect(after.runsCompleted).toBe(1);
-    expect(after.pool).toHaveLength(11);
+    // Replenishment refills the KIA seat back to POOL_TARGET.
+    expect(after.pool).toHaveLength(POOL_TARGET);
     expect(after.pool.find((u) => u.id === drafted[3])).toBeUndefined();
     expect(after.pool.find((u) => u.id === drafted[0])).toBeDefined();
     expect(after.currencies.tactical).toBeGreaterThan(0);
     expect(after.currencies.regional).toBeGreaterThan(0);
     expect(after.currencies.honor).toBe(1);
+    // nextRecruitId advanced by exactly the number of new recruits.
+    expect(after.nextRecruitId).toBe(baseCampaign.nextRecruitId + 1);
   });
 
-  it('defeat: all drafted are casualties, no currency', () => {
+  it('defeat: drafted casualties leave, pool tops back to target, no currency', () => {
     const result: RunResolution = {
       missionId: 'reconnaissance',
       squadIds: drafted,
@@ -54,7 +61,11 @@ describe('advanceCampaignAfterRun', () => {
       winner: 'B',
     };
     const after = advanceCampaignAfterRun(baseCampaign, result);
-    expect(after.pool).toHaveLength(8);
+    expect(after.pool).toHaveLength(POOL_TARGET);
+    // The 4 drafted KIAs are gone.
+    for (const id of drafted) {
+      expect(after.pool.find((u) => u.id === id)).toBeUndefined();
+    }
     expect(after.currencies.tactical).toBe(0);
     expect(after.currencies.regional).toBe(0);
     expect(after.currencies.honor).toBe(0);
@@ -68,7 +79,33 @@ describe('advanceCampaignAfterRun', () => {
       winner: 'B',
     };
     const after = advanceCampaignAfterRun(baseCampaign, result);
+    // Pick a non-drafted seed member; replenishment must not evict it.
     const untouchedId = baseCampaign.pool[5]!.id;
     expect(after.pool.find((u) => u.id === untouchedId)).toBeDefined();
+  });
+
+  it('unpicked options: KIAs get removed and wins award regional intel', () => {
+    const otherSquad = baseCampaign.pool.slice(4, 8).map((u) => u.id);
+    const unpicked: UnpickedOptionOutcome[] = [
+      {
+        missionId: 'auto-1',
+        squadIds: otherSquad,
+        survivorIds: otherSquad.slice(0, 2), // two KIA
+        won: true, // → +30% regional intel share
+      },
+    ];
+    const result: RunResolution = {
+      missionId: 'reconnaissance',
+      squadIds: drafted,
+      survivorIds: drafted, // picked all survived
+      winner: 'A',
+      unpicked,
+    };
+    const after = advanceCampaignAfterRun(baseCampaign, result);
+    // Two unpicked KIAs gone (drafted all survived).
+    expect(after.pool.find((u) => u.id === otherSquad[2])).toBeUndefined();
+    expect(after.pool.find((u) => u.id === otherSquad[3])).toBeUndefined();
+    // Regional intel = picked-share + unpicked-win-share = 3 + 3 = 6.
+    expect(after.currencies.regional).toBe(6);
   });
 });

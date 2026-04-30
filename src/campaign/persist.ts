@@ -35,11 +35,19 @@ export const loadCampaign = (): CampaignState | null => {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<CampaignState>;
     if (parsed && parsed.version === 1) {
-      // Forward-compat default: pre-3a-upgrades saves don't have
-      // upgradeLevels. Treat absent as no upgrades bought.
+      // Forward-compat defaults: pre-3a-upgrades saves don't have
+      // upgradeLevels (treat as no upgrades bought); pre-replenishment
+      // saves don't have nextRecruitId (start past the largest existing
+      // pool-N id so future recruits never collide with old members).
+      const pool = parsed.pool ?? [];
+      const maxExisting = pool.reduce((m, e) => {
+        const match = /^pool-(\d+)$/.exec(e.id);
+        return match ? Math.max(m, Number(match[1])) : m;
+      }, 0);
       return {
         ...(parsed as CampaignState),
         upgradeLevels: parsed.upgradeLevels ?? {},
+        nextRecruitId: parsed.nextRecruitId ?? maxExisting + 1,
       };
     }
     return null;

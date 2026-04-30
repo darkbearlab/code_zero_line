@@ -20,6 +20,7 @@ import {
 } from '../../campaign/state';
 import { loadCampaign, saveCampaign } from '../../campaign/persist';
 import { newRoundState, type RoundState } from '../../rounds/state';
+import { resolveUnpickedOptions } from '../../rounds/autoResolve';
 
 const SCENARIO_LABEL: Readonly<Record<string, string>> = {
   'engage-reach': '攻佔目標',
@@ -179,6 +180,14 @@ export class RoundSetupScene extends Phaser.Scene {
     if (draftedSquad.length === 0) return;
     const runSeed = `${this.round.seed}-pick-${idx}`;
     const run = newRunState(runSeed, draftedSquad, [option.missionId]);
+    // Pre-roll the auto-resolved fates of every unpicked option (§4.1).
+    // Done here so the fates are deterministic and survive a reload —
+    // RunResultScene will pass them through to advanceCampaignAfterRun.
+    const unpickedOutcomes = resolveUnpickedOptions(
+      this.round.options,
+      idx,
+      runSeed,
+    );
     // Snapshot campaign upgrades into the run so a mid-battle purchase
     // (impossible right now, but cheap insurance) can't retro-buff the
     // active mission.
@@ -186,6 +195,7 @@ export class RoundSetupScene extends Phaser.Scene {
       ...run,
       inCampaign: true as const,
       upgradeLevels: { ...this.campaign.upgradeLevels },
+      unpickedOutcomes,
     };
     this.rootEl.remove();
     this.scene.start('Battle', { runState: campaignRun });

@@ -51,6 +51,7 @@ export class RunResultScene extends Phaser.Scene {
       squadIds: this.runState.squad.map((s) => s.id),
       survivorIds: this.runState.survivorIds,
       winner: lastResult.winner,
+      unpicked: this.runState.unpickedOutcomes,
     };
     const advanced = advanceCampaignAfterRun(campaign, resolution);
     saveCampaign(advanced);

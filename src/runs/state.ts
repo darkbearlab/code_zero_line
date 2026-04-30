@@ -10,6 +10,7 @@
  * unless a boon clears it.
  */
 import type { RosterEntry } from '../core/setup/types';
+import type { UnpickedOptionOutcome } from '../campaign/state';
 
 /** Single applied effect that only lives for the current run. */
 export type RunBoonEffect =
@@ -65,6 +66,12 @@ export interface RunState {
    * can't retroactively buff the active battle.
    */
   readonly upgradeLevels?: Readonly<Record<string, number>>;
+  /**
+   * Auto-resolved fates of the round's unselected mission options
+   * (§4.1). Pre-rolled at commitOption time so they survive a reload
+   * and feed deterministically into `advanceCampaignAfterRun`.
+   */
+  readonly unpickedOutcomes?: ReadonlyArray<UnpickedOptionOutcome>;
 }
 
 export const newRunState = (
