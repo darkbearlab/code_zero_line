@@ -39,6 +39,7 @@ import {
   getUnitCircle,
   isUnitAlive,
   movementBlockingPolygons,
+  movementEnterStopPolygons,
   movementExitStopPolygons,
   updateUnit,
 } from '../state/GameState';
@@ -695,17 +696,15 @@ const moveAction = (
       (o) => o.faction === u.faction && o.id !== u.id && isUnitAlive(o),
     )
     .map(getUnitCircle);
-  // HARD walls block movement (rule 4.2A — base contact ends move).
-  // BLOCKER (sealed wall) acts identically. HIGH_GROUND polygons block
-  // entry from outside (must climb up) but a unit already on top moves
-  // freely on the platform — handled by movementBlockingPolygons.
-  // DIFFICULT terrain ends the move when its boundary is crossed (rule 4.2C —
-  // 進入與離開). SOFT terrain (smoke / smoke-equivalents) does NOT stop
-  // movement — it only affects LOS / cover.
+  // Unified terrain-edge rule: every terrain transition costs a move action.
+  //  - HARD / BLOCKER / HIGH_GROUND are sweep-blocked (must VAULT / CLIMB).
+  //  - DIFFICULT + SOFT are walk-through-able but the centre line stops at
+  //    the boundary in both directions — entering AND leaving each consume
+  //    one move; a separate move perpendicular crosses the edge.
+  // Inside-DIFFICULT travel still has its own 1-UD slowing cap (4.2C);
+  // SOFT has no internal slowing — only the edge transitions cost.
   const stoppingPolygons = movementBlockingPolygons(s.terrain, u.position);
-  const enterStopPolygons = s.terrain
-    .filter((t) => t.kind === 'DIFFICULT')
-    .map((t) => t.polygon);
+  const enterStopPolygons = movementEnterStopPolygons(s.terrain);
   const exitStopPolygons = movementExitStopPolygons(s.terrain, u.position);
   // LOS during movement only blocked by terrain that actually breaks vision —
   // computed inside the LOS helpers from terrains; for now we forward all.
@@ -860,9 +859,7 @@ const crawlAction = (
     )
     .map(getUnitCircle);
   const stoppingPolygons = movementBlockingPolygons(s.terrain, u.position);
-  const enterStopPolygons = s.terrain
-    .filter((t) => t.kind === 'DIFFICULT')
-    .map((t) => t.polygon);
+  const enterStopPolygons = movementEnterStopPolygons(s.terrain);
   const exitStopPolygons = movementExitStopPolygons(s.terrain, u.position);
 
   const path = computeMovePath(u.position, cappedTarget, {
@@ -1289,9 +1286,7 @@ const commandMoveAction = (
   // Compute paths for each mover. stoppingPolygons differs per mover
   // because HIGH_GROUND polygons only block when the mover starts outside
   // (units already on top can walk freely, including stepping off).
-  const enterStopPolygons = working.terrain
-    .filter((t) => t.kind === 'DIFFICULT')
-    .map((t) => t.polygon);
+  const enterStopPolygons = movementEnterStopPolygons(working.terrain);
   const moverIds = new Set(allMovers.map((m) => m.unitId));
   const specs: CommandMoveSpec[] = allMovers.map((m) => {
     const u = findUnit(working, m.unitId)!;

@@ -263,11 +263,36 @@ export const movementBlockingPolygons = (
 };
 
 /**
- * Polygons whose edges end the move when crossed going OUT, given a mover
- * starting at `fromPosition`. Currently only HIGH_GROUND platforms the
- * mover is standing on — stepping off the edge consumes the action, so
- * descending + advancing on the ground takes two separate moves.
- * Symmetric framing to DIFFICULT's enter-stop rule.
+ * Polygons whose edges stop the move when crossed FROM outside IN. Applies
+ * uniformly: every terrain transition is a discrete move action — you stop
+ * at the edge and must spend a separate move perpendicular to cross over.
+ *
+ * HARD / BLOCKER / HIGH_GROUND are absent from this list because they're
+ * sweep-blocked entirely (you bump into them before reaching the edge),
+ * with VAULT / CLIMB as the dedicated traversal actions. DIFFICULT (rubble)
+ * + SOFT (smoke) are walk-through-able terrains that still cost a move
+ * action per edge crossing.
+ */
+export const movementEnterStopPolygons = (
+  terrains: ReadonlyArray<Terrain>,
+): Polygon[] => {
+  const out: Polygon[] = [];
+  for (const t of terrains) {
+    if (t.kind === 'DIFFICULT' || t.kind === 'SOFT') {
+      out.push(t.polygon);
+    }
+  }
+  return out;
+};
+
+/**
+ * Polygons whose edges stop the move when crossed going OUT, given a mover
+ * starting at `fromPosition`. Symmetric to movementEnterStopPolygons —
+ * leaving costs a move action just like entering.
+ *
+ * HIGH_GROUND (mover is on top), DIFFICULT (mover inside rubble), and SOFT
+ * (mover inside smoke) all qualify. The check is "was the start inside?"
+ * — internal movement that doesn't leave the polygon is unblocked.
  */
 export const movementExitStopPolygons = (
   terrains: ReadonlyArray<Terrain>,
@@ -275,7 +300,13 @@ export const movementExitStopPolygons = (
 ): Polygon[] => {
   const out: Polygon[] = [];
   for (const t of terrains) {
-    if (t.kind !== 'HIGH_GROUND') continue;
+    if (
+      t.kind !== 'HIGH_GROUND' &&
+      t.kind !== 'DIFFICULT' &&
+      t.kind !== 'SOFT'
+    ) {
+      continue;
+    }
     if (isPointInPolygon(fromPosition, t.polygon)) {
       out.push(t.polygon);
     }

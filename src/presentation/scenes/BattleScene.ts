@@ -45,6 +45,7 @@ import {
   isOnHighGround,
   isUnitAlive,
   movementBlockingPolygons,
+  movementEnterStopPolygons,
   movementExitStopPolygons,
 } from '../../core/state/GameState';
 import timersConfig from '../../config/timers.json';
@@ -2318,9 +2319,7 @@ export class BattleScene extends Phaser.Scene {
       }
     }
     const stoppingPolygons = movementBlockingPolygons(this.gameState.terrain, u.position);
-    const enterStopPolygons = this.gameState.terrain
-      .filter((t) => t.kind === 'DIFFICULT')
-      .map((t) => t.polygon);
+    const enterStopPolygons = movementEnterStopPolygons(this.gameState.terrain);
     const exitStopPolygons = movementExitStopPolygons(this.gameState.terrain, u.position);
     const enemyCircles = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
@@ -2468,9 +2467,7 @@ export class BattleScene extends Phaser.Scene {
     // Compute paths for officer + each participant (caps for crawl, edge stops).
     // stoppingPolygons differs per mover because HIGH_GROUND only blocks
     // movers starting outside the platform — see reducer mirror logic.
-    const enterStopPolygons = this.gameState.terrain
-      .filter((t) => t.kind === 'DIFFICULT')
-      .map((t) => t.polygon);
+    const enterStopPolygons = movementEnterStopPolygons(this.gameState.terrain);
     const moverIds = new Set<string>([officerId, ...participants.map((p) => p.unitId)]);
     const buildPath = (
       moverId: string,

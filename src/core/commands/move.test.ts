@@ -199,7 +199,61 @@ describe('MOVE command', () => {
     expect(a1.position.x).toBeGreaterThan(0);
   });
 
-  it('move passes through SOFT terrain (smoke does not block movement)', () => {
+  it('move starting inside SOFT stops at the exit edge', () => {
+    const s0: GameState = {
+      ...makeState(),
+      units: [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(100, 0) }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(500, 0) }),
+      ],
+      terrain: [
+        {
+          id: 'smoke',
+          kind: 'SOFT',
+          polygon: {
+            vertices: [v2(50, -50), v2(150, -50), v2(150, 50), v2(50, 50)],
+          },
+        },
+      ],
+    };
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'MOVE', unitId: 'a1', target: v2(300, 0) },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    // Started inside smoke (x=100). Move stops at the smoke polygon's
+    // east edge (x=150) — leaving costs a separate move.
+    expect(a1.position.x).toBeCloseTo(150, 0);
+  });
+
+  it('move starting inside DIFFICULT stops at the exit edge', () => {
+    const s0: GameState = {
+      ...makeState(),
+      units: [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(100, 0) }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(500, 0) }),
+      ],
+      terrain: [
+        {
+          id: 'rubble',
+          kind: 'DIFFICULT',
+          polygon: {
+            vertices: [v2(50, -50), v2(150, -50), v2(150, 50), v2(50, 50)],
+          },
+        },
+      ],
+    };
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'MOVE', unitId: 'a1', target: v2(300, 0) },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    // Started inside rubble (x=100). Move stops at the rubble's east
+    // edge (x=150). Continuing onto open ground requires a fresh move.
+    expect(a1.position.x).toBeCloseTo(150, 0);
+  });
+
+  it('move stops at SOFT (smoke) edge — entering costs a separate move', () => {
     const s0: GameState = {
       ...makeState(),
       terrain: [
@@ -217,9 +271,9 @@ describe('MOVE command', () => {
       { type: 'MOVE', unitId: 'a1', target: v2(200, 0) },
     ]);
     const a1 = r.state.units.find((u) => u.id === 'a1')!;
-    // SOFT (smoke) only affects LOS / cover — the unit walks all the way
-    // through to the target.
-    expect(a1.position.x).toBeCloseTo(200, 0);
+    // Per the unified terrain-edge rule, SOFT entry stops the move at the
+    // boundary; advancing further requires a separate move action.
+    expect(a1.position.x).toBeCloseTo(50, 0);
   });
 
   it('move backs off short of a friendly at the target (rule 4.2A)', () => {
