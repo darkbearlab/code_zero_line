@@ -39,9 +39,9 @@ const CANVAS_PX = 600;
 const PX_PER_INCH = 96;
 const DEFAULT_SIZE = 8 * PX_PER_INCH;
 const MIN_RECT = 8;
-/** Min/max map size in inches. */
+/** Min/max map size in inches. 48 supports long-push scenarios. */
 const MIN_MAP_INCHES = 4;
-const MAX_MAP_INCHES = 32;
+const MAX_MAP_INCHES = 48;
 /** Click-to-place objectives spawn at this diameter (1 unit-distance). */
 const OBJECTIVE_DEFAULT_DIAMETER = 96;
 /** Pixel offset applied when duplicating a shape, so it's visible. */
