@@ -108,4 +108,50 @@ describe('advanceCampaignAfterRun', () => {
     // Regional intel = picked-share + unpicked-win-share = 3 + 3 = 6.
     expect(after.currencies.regional).toBe(6);
   });
+
+  it('sorties: survivors of picked + unpicked get +1; KIAs do not', () => {
+    const otherSquad = baseCampaign.pool.slice(4, 8).map((u) => u.id);
+    const unpicked: UnpickedOptionOutcome[] = [
+      {
+        missionId: 'auto-1',
+        squadIds: otherSquad,
+        survivorIds: otherSquad.slice(0, 2), // last two are KIA
+        won: false,
+      },
+    ];
+    const result: RunResolution = {
+      missionId: 'reconnaissance',
+      squadIds: drafted,
+      survivorIds: drafted.slice(0, 3), // last picked is KIA
+      winner: 'A',
+      unpicked,
+    };
+    const after = advanceCampaignAfterRun(baseCampaign, result);
+    // First 3 picked survivors → sorties=1.
+    for (let i = 0; i < 3; i++) {
+      const e = after.pool.find((u) => u.id === drafted[i])!;
+      expect(e.sorties).toBe(1);
+    }
+    // First 2 unpicked survivors → sorties=1.
+    for (let i = 0; i < 2; i++) {
+      const e = after.pool.find((u) => u.id === otherSquad[i])!;
+      expect(e.sorties).toBe(1);
+    }
+    // Untouched roster member stays at 0 (default).
+    const idle = after.pool.find((u) => u.id === baseCampaign.pool[10]!.id)!;
+    expect(idle.sorties ?? 0).toBe(0);
+  });
+
+  it('sorties: a second run on the same survivor stacks (1 → 2)', () => {
+    const result: RunResolution = {
+      missionId: 'reconnaissance',
+      squadIds: drafted,
+      survivorIds: drafted,
+      winner: 'A',
+    };
+    const afterOne = advanceCampaignAfterRun(baseCampaign, result);
+    const afterTwo = advanceCampaignAfterRun(afterOne, result);
+    const e = afterTwo.pool.find((u) => u.id === drafted[0])!;
+    expect(e.sorties).toBe(2);
+  });
 });

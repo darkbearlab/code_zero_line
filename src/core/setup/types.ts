@@ -47,6 +47,13 @@ export interface MapDef {
 export interface RosterEntry {
   readonly id: string;
   readonly templateId: string;
+  /**
+   * Number of missions this unit has been deployed on (any disposition,
+   * but only counted when they came back alive). Optional for back-compat
+   * with pre-3b campaign saves; absent = 0. Drives the "veteran" highlight
+   * in MetaScene + (Phase 4) auto-quality-up at threshold.
+   */
+  readonly sorties?: number;
 }
 
 export interface RostersBySide {

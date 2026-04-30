@@ -80,7 +80,7 @@ export const replenishPool = (
     const candidates = buckets[role];
     if (candidates.length === 0) return false;
     const tpl = candidates[Math.floor(rng.next() * candidates.length)]!;
-    out.push({ id: `pool-${nextId}`, templateId: tpl.templateId });
+    out.push({ id: `pool-${nextId}`, templateId: tpl.templateId, sorties: 0 });
     nextId += 1;
     counts[role] += 1;
     return true;

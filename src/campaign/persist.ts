@@ -44,8 +44,12 @@ export const loadCampaign = (): CampaignState | null => {
         const match = /^pool-(\d+)$/.exec(e.id);
         return match ? Math.max(m, Number(match[1])) : m;
       }, 0);
+      // Default sorties=0 on every pool entry so MetaScene + auto-grow
+      // logic can read .sorties without `?? 0` everywhere.
+      const normalizedPool = pool.map((e) => ({ ...e, sorties: e.sorties ?? 0 }));
       return {
         ...(parsed as CampaignState),
+        pool: normalizedPool,
         upgradeLevels: parsed.upgradeLevels ?? {},
         nextRecruitId: parsed.nextRecruitId ?? maxExisting + 1,
       };

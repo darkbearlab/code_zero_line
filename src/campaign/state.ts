@@ -58,18 +58,18 @@ export interface CampaignState {
  * quality balanced) lands when the editor / draft UI materializes.
  */
 const STARTER_POOL: ReadonlyArray<RosterEntry> = [
-  { id: 'pool-1', templateId: 'squad_lead' },
-  { id: 'pool-2', templateId: 'elite' },
-  { id: 'pool-3', templateId: 'elite' },
-  { id: 'pool-4', templateId: 'heavy_gunner' },
-  { id: 'pool-5', templateId: 'veteran' },
-  { id: 'pool-6', templateId: 'veteran' },
-  { id: 'pool-7', templateId: 'trooper' },
-  { id: 'pool-8', templateId: 'trooper' },
-  { id: 'pool-9', templateId: 'trooper' },
-  { id: 'pool-10', templateId: 'trooper' },
-  { id: 'pool-11', templateId: 'conscript' },
-  { id: 'pool-12', templateId: 'conscript' },
+  { id: 'pool-1', templateId: 'squad_lead', sorties: 0 },
+  { id: 'pool-2', templateId: 'elite', sorties: 0 },
+  { id: 'pool-3', templateId: 'elite', sorties: 0 },
+  { id: 'pool-4', templateId: 'heavy_gunner', sorties: 0 },
+  { id: 'pool-5', templateId: 'veteran', sorties: 0 },
+  { id: 'pool-6', templateId: 'veteran', sorties: 0 },
+  { id: 'pool-7', templateId: 'trooper', sorties: 0 },
+  { id: 'pool-8', templateId: 'trooper', sorties: 0 },
+  { id: 'pool-9', templateId: 'trooper', sorties: 0 },
+  { id: 'pool-10', templateId: 'trooper', sorties: 0 },
+  { id: 'pool-11', templateId: 'conscript', sorties: 0 },
+  { id: 'pool-12', templateId: 'conscript', sorties: 0 },
 ];
 
 /** Minimum pool size for a round to be runnable (4-unit squad draft). */
@@ -198,7 +198,25 @@ export const advanceCampaignAfterRun = (
       if (!u.survivorIds.includes(id)) kia.add(id);
     }
   }
-  const filtered = campaign.pool.filter((u) => !kia.has(u.id));
+
+  // Sortie tally — every survivor of any deployed option (picked + each
+  // unpicked) gets +1 per design §6.3 + §4.1 ("活的回池(出擊次數+1)").
+  // Iterates every (squadIds, survivorIds) pair so a unit double-drafted
+  // across options (current draft allows overlap) gets a bump per slot;
+  // matches the rest of the pool flow until draft-overlap is fixed.
+  const sortieBumps = new Map<string, number>();
+  const bump = (id: string) =>
+    sortieBumps.set(id, (sortieBumps.get(id) ?? 0) + 1);
+  for (const id of result.survivorIds) bump(id);
+  for (const u of result.unpicked ?? []) for (const id of u.survivorIds) bump(id);
+
+  const filtered = campaign.pool
+    .filter((u) => !kia.has(u.id))
+    .map((u) =>
+      sortieBumps.has(u.id)
+        ? { ...u, sorties: (u.sorties ?? 0) + sortieBumps.get(u.id)! }
+        : u,
+    );
 
   const tactical = won
     ? Math.round(MISSION_BASE_INTEL * TACTICAL_SHARE)
