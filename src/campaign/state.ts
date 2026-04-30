@@ -9,6 +9,10 @@
  * future shapes can migrate or reject old saves.
  */
 import type { RosterEntry } from '../core/setup/types';
+import {
+  upgradeNextCost,
+  type UpgradeDef,
+} from './upgrades';
 
 export interface CampaignCurrencies {
   /** 作戰情報 — earned by the player's own runs (70% share). */
@@ -32,6 +36,13 @@ export interface CampaignState {
   readonly currencies: CampaignCurrencies;
   /** Total runs completed (any outcome). Score-screen fodder. */
   readonly runsCompleted: number;
+  /**
+   * Persistent upgrades the player has purchased. Keys are UpgradeDef.id
+   * (see ./upgrades.ts), values are the current level (1..maxLevel). 0 /
+   * missing = not bought. Applied to each run's mission state at build
+   * time (combat intel, pool quality, starting momentum, …).
+   */
+  readonly upgradeLevels: Readonly<Record<string, number>>;
 }
 
 /**
@@ -64,6 +75,7 @@ export const newCampaignState = (seed: string): CampaignState => ({
   pool: STARTER_POOL,
   currencies: { tactical: 0, regional: 0, honor: 0 },
   runsCompleted: 0,
+  upgradeLevels: {},
 });
 
 export const isCampaignOver = (s: CampaignState): boolean =>
@@ -96,6 +108,51 @@ const HONOR_PER_WIN = 1;
  * Phase 3a treats *any* drafted unit as deployed; 3b will refine this
  * (sortie counter increment, fuzzy-roll for losses on lost battles, etc).
  */
+/**
+ * Region-intel → tactical-intel exchange rate per design §N3 / §7.3.
+ * Hard-coded for v1; later phases may unlock cheaper rates as upgrades.
+ */
+export const REGIONAL_TO_TACTICAL_RATE = 5;
+
+/**
+ * Buy the next level of an upgrade. Returns the new state on success or
+ * null if the player can't afford / the upgrade is maxed. Caller should
+ * surface the null with a UI nudge.
+ */
+export const buyUpgrade = (
+  campaign: CampaignState,
+  def: UpgradeDef,
+): CampaignState | null => {
+  const current = campaign.upgradeLevels[def.id] ?? 0;
+  const cost = upgradeNextCost(def, current);
+  if (cost === null) return null; // already maxed
+  const wallet = campaign.currencies[def.currency];
+  if (wallet < cost) return null;
+  return {
+    ...campaign,
+    currencies: { ...campaign.currencies, [def.currency]: wallet - cost },
+    upgradeLevels: { ...campaign.upgradeLevels, [def.id]: current + 1 },
+  };
+};
+
+/**
+ * One-shot exchange: pay 5 regional → gain 1 tactical. Returns null when
+ * regional balance is below the rate.
+ */
+export const exchangeRegionalForTactical = (
+  campaign: CampaignState,
+): CampaignState | null => {
+  if (campaign.currencies.regional < REGIONAL_TO_TACTICAL_RATE) return null;
+  return {
+    ...campaign,
+    currencies: {
+      ...campaign.currencies,
+      regional: campaign.currencies.regional - REGIONAL_TO_TACTICAL_RATE,
+      tactical: campaign.currencies.tactical + 1,
+    },
+  };
+};
+
 export const advanceCampaignAfterRun = (
   campaign: CampaignState,
   result: RunResolution,

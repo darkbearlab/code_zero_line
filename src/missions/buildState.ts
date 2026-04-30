@@ -18,6 +18,11 @@ import type {
   RunBoon,
   RunState,
 } from '../runs/state';
+import {
+  buildCombatIntelFromUpgrades,
+  initialMomentumBonus,
+  poolQualityBonus,
+} from '../campaign/upgrades';
 import type { MissionDef } from './types';
 
 export interface MissionBuildOptions {
@@ -149,6 +154,8 @@ export const buildMissionState = (
   const carry = opts.damageCarry ?? {};
   const oneShotBoons = opts.oneShotBoons ?? [];
   const runBoons = opts.runBoons ?? [];
+  const upgradeLevels = run.upgradeLevels ?? {};
+  const qualityReduction = poolQualityBonus(upgradeLevels);
   const playerUnits = baseState.units
     .filter((u) => u.faction === 'A')
     .map((u) => {
@@ -159,6 +166,13 @@ export const buildMissionState = (
         if (carriedDamage === 'SUPPRESSED') next = { ...next, stance: 'PRONE' };
       }
       next = applyBoonsToUnit(next, oneShotBoons, runBoons);
+      // Pool-quality upgrade lowers the threshold (better unit). Min 1+.
+      if (qualityReduction > 0) {
+        next = {
+          ...next,
+          quality: Math.max(1, next.quality - qualityReduction),
+        };
+      }
       return next;
     });
 
@@ -180,10 +194,32 @@ export const buildMissionState = (
     params: (mission.scenarioParams ?? {}) as Readonly<Record<string, unknown>>,
   };
 
+  // Combat-intel upgrades feed the resolver's per-tag threshold bonus.
+  // Empty record when no relevant upgrades bought — falls back to the
+  // resolver's existing `EMPTY_COMBAT_INTEL` defaults.
+  const combatIntel = buildCombatIntelFromUpgrades(upgradeLevels);
+  const hasIntel =
+    Object.keys(combatIntel.shoot).length > 0 ||
+    Object.keys(combatIntel.melee).length > 0;
+
+  // Initial-momentum upgrade only buffs the player side (faction A).
+  const startingMomentum = initialMomentumBonus(upgradeLevels);
+  const initiative = startingMomentum > 0
+    ? {
+        ...baseState.initiative,
+        momentum: {
+          ...baseState.initiative.momentum,
+          A: baseState.initiative.momentum.A + startingMomentum,
+        },
+      }
+    : baseState.initiative;
+
   return {
     ...baseState,
     units: [...playerUnits, ...enemies],
     ...(objectives && objectives.length > 0 ? { objectives } : {}),
+    ...(hasIntel ? { combatIntel } : {}),
+    initiative,
     scenarioInfo,
   };
 };

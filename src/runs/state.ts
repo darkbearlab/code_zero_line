@@ -58,6 +58,13 @@ export interface RunState {
    * Defaults to undefined for legacy (sandbox / 3-mission run) flows.
    */
   readonly inCampaign?: boolean;
+  /**
+   * Snapshot of campaign upgrade levels at run-start. buildMissionState
+   * applies these to the GameState (combat intel, pool quality bonus,
+   * starting momentum). Frozen at run-start so a purchase mid-mission
+   * can't retroactively buff the active battle.
+   */
+  readonly upgradeLevels?: Readonly<Record<string, number>>;
 }
 
 export const newRunState = (

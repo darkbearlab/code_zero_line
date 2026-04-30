@@ -122,6 +122,7 @@ export class RoundSetupScene extends Phaser.Scene {
       </div>
       <div class="setup-footer">
         <button data-action="title" style="padding:6px 14px;background:#1a2a1a;color:#cfe8cf;border:1px solid #3a5a3a;cursor:pointer;font:inherit;">← 回標題</button>
+        <button data-action="upgrade" style="margin-left:12px;padding:6px 14px;background:#1a3a3a;color:#a1cfd1;border:1px solid #4a8a8a;cursor:pointer;font:inherit;">升級樹</button>
         <button data-action="abandon" style="margin-left:auto;padding:6px 14px;background:#3a1a1a;color:#cfa8a8;border:1px solid #6a3a3a;cursor:pointer;font:inherit;">放棄戰役</button>
       </div>
     `;
@@ -149,6 +150,11 @@ export class RoundSetupScene extends Phaser.Scene {
         this.rootEl.remove();
         this.scene.start('Title');
       };
+    root.querySelector<HTMLButtonElement>('[data-action="upgrade"]')!.onclick =
+      () => {
+        this.rootEl.remove();
+        this.scene.start('Upgrade');
+      };
     root.querySelector<HTMLButtonElement>('[data-action="abandon"]')!.onclick =
       () => {
         if (!confirm('放棄戰役會清除目前進度,確定?')) return;
@@ -173,7 +179,14 @@ export class RoundSetupScene extends Phaser.Scene {
     if (draftedSquad.length === 0) return;
     const runSeed = `${this.round.seed}-pick-${idx}`;
     const run = newRunState(runSeed, draftedSquad, [option.missionId]);
-    const campaignRun = { ...run, inCampaign: true as const };
+    // Snapshot campaign upgrades into the run so a mid-battle purchase
+    // (impossible right now, but cheap insurance) can't retro-buff the
+    // active mission.
+    const campaignRun = {
+      ...run,
+      inCampaign: true as const,
+      upgradeLevels: { ...this.campaign.upgradeLevels },
+    };
     this.rootEl.remove();
     this.scene.start('Battle', { runState: campaignRun });
   }

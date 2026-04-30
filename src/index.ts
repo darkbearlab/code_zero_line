@@ -10,6 +10,7 @@ import { RoundSetupScene } from './presentation/scenes/RoundSetupScene';
 import { RunResultScene } from './presentation/scenes/RunResultScene';
 import { RunSetupScene } from './presentation/scenes/RunSetupScene';
 import { TitleScene } from './presentation/scenes/TitleScene';
+import { UpgradeScene } from './presentation/scenes/UpgradeScene';
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -29,6 +30,7 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [
     TitleScene,
     RoundSetupScene,
+    UpgradeScene,
     RunSetupScene,
     HubScene,
     RunResultScene,

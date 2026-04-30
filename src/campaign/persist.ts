@@ -35,7 +35,12 @@ export const loadCampaign = (): CampaignState | null => {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<CampaignState>;
     if (parsed && parsed.version === 1) {
-      return parsed as CampaignState;
+      // Forward-compat default: pre-3a-upgrades saves don't have
+      // upgradeLevels. Treat absent as no upgrades bought.
+      return {
+        ...(parsed as CampaignState),
+        upgradeLevels: parsed.upgradeLevels ?? {},
+      };
     }
     return null;
   } catch {
