@@ -23,6 +23,18 @@ import type { EditorMapDoc } from '../config/mapDoc';
 import { aggregateKpi } from './metrics';
 import { buildFixtureState, namedFixtures } from './fixtures';
 import { simulateMatch, type MatchOutcome } from './runMatch';
+import { buildMissionState } from '../missions/buildState';
+import { getMissionById } from '../missions/library';
+import { newRunState } from '../runs/state';
+import type { ScenarioMode, ScenarioParams } from '../core/scenario/victory';
+import type { RosterEntry } from '../core/setup/types';
+
+const DEFAULT_SIM_SQUAD: ReadonlyArray<RosterEntry> = [
+  { id: 'sq-1', templateId: 'squad_lead' },
+  { id: 'sq-2', templateId: 'elite' },
+  { id: 'sq-3', templateId: 'trooper' },
+  { id: 'sq-4', templateId: 'trooper' },
+];
 
 interface CliArgs {
   aiA: string;
@@ -33,11 +45,13 @@ interface CliArgs {
   fixture: string;
   mapsFile: string | null;
   mapId: string | null;
-  scenario: 'elimination' | 'engage-reach';
+  scenario: ScenarioMode;
   /**
-   * Combat-intel shoot levels per tag, parsed from `--combat-intel-shoot
-   * INFANTRY=3,HEAVY=2`. Empty when flag absent.
+   * When set, sim builds states from the named MissionDef instead of a
+   * fixture. The mission's own scenario + scenarioParams + objectives flow
+   * through, so you can sim defend / extract / assassinate end-to-end.
    */
+  mission: string | null;
   combatIntelShoot: Record<string, number>;
   combatIntelMelee: Record<string, number>;
 }
@@ -75,6 +89,7 @@ const parseArgs = (argv: ReadonlyArray<string>): CliArgs => {
     mapsFile: null,
     mapId: null,
     scenario: 'elimination',
+    mission: null,
     combatIntelShoot: {},
     combatIntelMelee: {},
   };
@@ -115,10 +130,16 @@ const parseArgs = (argv: ReadonlyArray<string>): CliArgs => {
         i++;
         break;
       case '--scenario': {
-        const s = String(v);
-        if (s !== 'elimination' && s !== 'engage-reach') {
+        const s = String(v) as ScenarioMode;
+        if (
+          s !== 'elimination' &&
+          s !== 'engage-reach' &&
+          s !== 'defend' &&
+          s !== 'extract' &&
+          s !== 'assassinate'
+        ) {
           process.stderr.write(
-            `Unknown scenario "${s}". Available: elimination, engage-reach\n`,
+            `Unknown scenario "${s}". Available: elimination, engage-reach, defend, extract, assassinate\n`,
           );
           process.exit(2);
         }
@@ -126,6 +147,10 @@ const parseArgs = (argv: ReadonlyArray<string>): CliArgs => {
         i++;
         break;
       }
+      case '--mission':
+        out.mission = String(v);
+        i++;
+        break;
       case '--combat-intel-shoot':
         out.combatIntelShoot = parseTagLevels(String(v));
         i++;
@@ -165,7 +190,13 @@ const printHelp = (): void => {
       '  --maps-file <path>    Load editor map docs from JSON (e.g. exported',
       '                        from browser localStorage[czl.editor.maps.v1]).',
       '  --map <id>            Override the fixture\'s map (defaults to fixture\'s).',
-      '  --scenario <name>     elimination | engage-reach (default: elimination)',
+      '  --scenario <name>     elimination | engage-reach | defend | extract |',
+      '                        assassinate (default: elimination — ignored if',
+      '                        --mission is set)',
+      '  --mission <id>        Run a named MissionDef end-to-end (uses mission',
+      '                        scenario, params, objectives, enemies, spawns).',
+      '                        Examples: reconnaissance, holdout, last-stand,',
+      '                        extraction, night-extraction, decapitation.',
       '  --combat-intel-shoot <levels>   Player-side dice-threshold reductions',
       '                                  by tag, e.g. INFANTRY=3,HEAVY=2',
       '                                  (default: empty — Phase A behaviour)',
@@ -217,17 +248,6 @@ const run = (): void => {
   const aiB = getAi(args.aiB);
   const rulesetVersion = computeRulesetVersion();
 
-  const baseFixture = namedFixtures[args.fixture];
-  if (!baseFixture) {
-    process.stderr.write(
-      `Unknown fixture "${args.fixture}". Available: ${Object.keys(namedFixtures).join(', ')}\n`,
-    );
-    process.exit(2);
-  }
-  const fixture = args.mapId
-    ? { ...baseFixture, mapId: args.mapId }
-    : baseFixture;
-
   const hasCombatIntel =
     Object.keys(args.combatIntelShoot).length > 0 ||
     Object.keys(args.combatIntelMelee).length > 0;
@@ -235,18 +255,51 @@ const run = (): void => {
     ? { shoot: args.combatIntelShoot, melee: args.combatIntelMelee }
     : undefined;
 
+  // Mode 1 — mission: scenario / params / objectives all come from the
+  // MissionDef, so sim and BattleScene fight the same fight. Mode 2 —
+  // fixture (legacy, mirrored loadout for AI A/B comparisons).
+  let scenario: ScenarioMode = args.scenario;
+  let scenarioParams: ScenarioParams = {};
+  let buildInitial: (seed: string) => ReturnType<typeof buildFixtureState>;
+  let contextLabel: string;
+
+  if (args.mission) {
+    const mission = getMissionById(args.mission);
+    scenario = mission.scenario;
+    scenarioParams = mission.scenarioParams ?? {};
+    buildInitial = (seed: string) => {
+      const synthRun = newRunState(seed, DEFAULT_SIM_SQUAD, [args.mission!]);
+      return buildMissionState(mission, synthRun, seed);
+    };
+    contextLabel = `mission=${args.mission} (${scenario}) map=${mission.mapId}`;
+  } else {
+    const baseFixture = namedFixtures[args.fixture];
+    if (!baseFixture) {
+      process.stderr.write(
+        `Unknown fixture "${args.fixture}". Available: ${Object.keys(namedFixtures).join(', ')}\n`,
+      );
+      process.exit(2);
+    }
+    const fixture = args.mapId
+      ? { ...baseFixture, mapId: args.mapId }
+      : baseFixture;
+    buildInitial = (seed: string) => buildFixtureState(fixture, seed);
+    contextLabel = `fixture=${args.fixture} map=${fixture.mapId} scenario=${scenario}`;
+  }
+
   const t0 = Date.now();
   const outcomes: MatchOutcome[] = [];
   for (let i = 0; i < args.matches; i++) {
     const seed = `${args.seedBase}-${i}`;
-    const baseInitial = buildFixtureState(fixture, seed);
+    const baseInitial = buildInitial(seed);
     const initial = combatIntel
       ? { ...baseInitial, combatIntel }
       : baseInitial;
     const outcome = simulateMatch(initial, aiA, aiB, {
       maxCommands: args.maxCommands,
       rulesetVersion,
-      scenario: args.scenario,
+      scenario,
+      scenarioParams,
     });
     outcomes.push(outcome);
   }
@@ -256,7 +309,7 @@ const run = (): void => {
 
   const lines: string[] = [];
   lines.push(
-    `── A=${args.aiA} vs B=${args.aiB} on "${args.fixture}" map=${fixture.mapId} scenario=${args.scenario} — ${agg.matches} matches (ruleset ${rulesetVersion}, ${elapsedMs}ms) ──`,
+    `── A=${args.aiA} vs B=${args.aiB} on ${contextLabel} — ${agg.matches} matches (ruleset ${rulesetVersion}, ${elapsedMs}ms) ──`,
   );
   lines.push(
     `win rate            A: ${fmtPct(agg.winRateA)}   B: ${fmtPct(agg.winRateB)}   draw: ${fmtPct((agg.draws / Math.max(1, agg.matches)))}`,
@@ -268,6 +321,27 @@ const run = (): void => {
     .map(([r, n]) => `${r}=${n}`)
     .join('  ');
   lines.push(`end reasons         ${reasons}`);
+  // Win-by-reason crosstab — what victory pathway did each side use?
+  const winByReason: Record<'A' | 'B' | 'DRAW', Record<string, number>> = {
+    A: {},
+    B: {},
+    DRAW: {},
+  };
+  for (const o of outcomes) {
+    const w = o.winner;
+    winByReason[w][o.reason] = (winByReason[w][o.reason] ?? 0) + 1;
+  }
+  const formatReasonRow = (winner: 'A' | 'B' | 'DRAW'): string => {
+    const m = winByReason[winner];
+    const entries = Object.entries(m).sort((a, b) => b[1] - a[1]);
+    if (entries.length === 0) return '—';
+    return entries.map(([r, n]) => `${r}=${n}`).join('  ');
+  };
+  lines.push(`A wins by           ${formatReasonRow('A')}`);
+  lines.push(`B wins by           ${formatReasonRow('B')}`);
+  if (winByReason.DRAW && Object.keys(winByReason.DRAW).length > 0) {
+    lines.push(`draws by            ${formatReasonRow('DRAW')}`);
+  }
   lines.push('');
   lines.push(
     `shots / match       A: ${fmt(agg.A.shotsPerMatch, 1)} (${fmtPct(agg.A.hitRate)} hit)   B: ${fmt(agg.B.shotsPerMatch, 1)} (${fmtPct(agg.B.hitRate)} hit)`,
