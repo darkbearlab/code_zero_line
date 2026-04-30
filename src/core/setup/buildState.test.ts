@@ -76,7 +76,7 @@ describe('buildInitialState', () => {
     expect(state.units).toHaveLength(3);
     expect(state.terrain).toHaveLength(1);
     expect(state.initiative.holder).toBe('A');
-    expect(state.initiative.round).toBe(1);
+    expect(state.initiative.cycle).toBe(1);
     expect(state.initiative.activeActivation).toBeNull();
     expect(state.units.find((u) => u.id === 'a1')?.position).toEqual(
       v2(100, 700),

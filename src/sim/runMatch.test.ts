@@ -14,7 +14,7 @@ describe('headless simulator', () => {
     const b = simulateMatch(s2, greedyStrategy, greedyStrategy);
     expect(a.winner).toBe(b.winner);
     expect(a.commandCount).toBe(b.commandCount);
-    expect(a.rounds).toBe(b.rounds);
+    expect(a.cycles).toBe(b.cycles);
     expect(a.events.length).toBe(b.events.length);
   });
 

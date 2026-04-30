@@ -35,7 +35,7 @@ const baseState = (overrides: Partial<GameState> = {}): GameState => ({
   initiative: {
     holder: 'A',
     momentum: { A: 0, B: 0 },
-    round: 1,
+    cycle: 1,
     activeActivation: null,
   },
   ...overrides,
@@ -55,7 +55,7 @@ describe('chooseAiCommand', () => {
       initiative: {
         holder: 'A',
         momentum: { A: 5, B: 0 },
-        round: 1,
+        cycle: 1,
         activeActivation: null,
       },
     });
@@ -87,7 +87,7 @@ describe('chooseAiCommand', () => {
       initiative: {
         holder: 'A',
         momentum: { A: 0, B: 0 },
-        round: 1,
+        cycle: 1,
         activeActivation: {
           unitId: 'a1',
           kind: 'SPEND',
@@ -118,7 +118,7 @@ describe('chooseAiCommand', () => {
       initiative: {
         holder: 'A',
         momentum: { A: 0, B: 0 },
-        round: 1,
+        cycle: 1,
         activeActivation: {
           unitId: 'a1',
           kind: 'SPEND',
@@ -142,7 +142,7 @@ describe('chooseAiCommand', () => {
       initiative: {
         holder: 'A',
         momentum: { A: 0, B: 0 },
-        round: 1,
+        cycle: 1,
         activeActivation: {
           unitId: 'a1',
           kind: 'CHECK_SUCCESS',
@@ -169,7 +169,7 @@ describe('chooseAiCommand', () => {
       initiative: {
         holder: 'A',
         momentum: { A: 0, B: 0 },
-        round: 1,
+        cycle: 1,
         activeActivation: {
           unitId: 'a1',
           kind: 'SPEND',
@@ -201,7 +201,7 @@ describe('chooseAiCommand', () => {
       initiative: {
         holder: 'A',
         momentum: { A: 0, B: 0 },
-        round: 1,
+        cycle: 1,
         activeActivation: {
           unitId: 'a1',
           kind: 'SPEND',
@@ -224,7 +224,7 @@ describe('chooseAiCommand', () => {
       initiative: {
         holder: 'A',
         momentum: { A: 0, B: 0 },
-        round: 1,
+        cycle: 1,
         activeActivation: {
           unitId: 'a1',
           kind: 'SPEND',

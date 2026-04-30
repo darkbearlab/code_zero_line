@@ -70,10 +70,10 @@ export const MISSION_LIBRARY_V1: ReadonlyArray<MissionDef> = [
   {
     id: 'holdout',
     displayName: '陣地堅守',
-    description: '守住中央哨點 5 個回合,別讓敵人踏入半步。',
+    description: '守住中央哨點,別讓敵人踏入半步。',
     mapId: MAP_ID,
     scenario: 'defend',
-    scenarioParams: { defendRounds: 5 },
+    scenarioParams: { defendCycles: 999 },
     objectives: [
       {
         id: 'holdout-objective',
@@ -99,10 +99,10 @@ export const MISSION_LIBRARY_V1: ReadonlyArray<MissionDef> = [
   {
     id: 'last-stand',
     displayName: '最後死守',
-    description: '更短時間、更猛攻勢 — 撐住 4 回合就收工。',
+    description: '更猛的攻勢 — 撐住別讓對方踏入指揮所。',
     mapId: MAP_ID,
     scenario: 'defend',
-    scenarioParams: { defendRounds: 4 },
+    scenarioParams: { defendCycles: 999 },
     objectives: [
       {
         id: 'lstand-objective',
@@ -134,7 +134,7 @@ export const MISSION_LIBRARY_V1: ReadonlyArray<MissionDef> = [
     description: '突破敵線,讓兩名以上隊員抵達北側撤離點。',
     mapId: MAP_ID,
     scenario: 'extract',
-    scenarioParams: { extractCount: 2, extractRoundLimit: 8 },
+    scenarioParams: { extractCount: 2, extractCycleLimit: 999 },
     objectives: [
       {
         id: 'extract-objective',
@@ -162,7 +162,7 @@ export const MISSION_LIBRARY_V1: ReadonlyArray<MissionDef> = [
     description: '左翼煙幕掩護,兩人抵達西側陰影下的撤離點。',
     mapId: MAP_ID,
     scenario: 'extract',
-    scenarioParams: { extractCount: 2, extractRoundLimit: 9 },
+    scenarioParams: { extractCount: 2, extractCycleLimit: 999 },
     objectives: [
       {
         id: 'night-extract-objective',
@@ -191,7 +191,7 @@ export const MISSION_LIBRARY_V1: ReadonlyArray<MissionDef> = [
     description: '幹掉敵方指揮官 — 其他人怎樣都好。',
     mapId: MAP_ID,
     scenario: 'assassinate',
-    scenarioParams: { vipUnitId: 'vip-1', assassinateRoundLimit: 8 },
+    scenarioParams: { vipUnitId: 'vip-1', assassinateCycleLimit: 999 },
     objectives: [],
     enemyFaction: 'B',
     enemies: [

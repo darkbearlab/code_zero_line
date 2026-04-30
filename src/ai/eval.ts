@@ -22,15 +22,16 @@ const SCENARIO_ATTACKER: Readonly<Record<string, 'A' | 'B' | null>> = {
 };
 
 /**
- * Param key naming the round limit for each scenario. When set + the round
- * is approaching the limit, the attacker faction's objective bonuses scale
- * up. `null` means the scenario has no clock — urgency stays 1.
+ * Param key naming the cycle limit for each scenario. When set + the
+ * current cycle is approaching the limit, the attacker faction's
+ * objective bonuses scale up. `null` means the scenario has no clock —
+ * urgency stays 1.
  */
 const SCENARIO_LIMIT_KEY: Readonly<Record<string, string | null>> = {
   'engage-reach': null,
-  defend: 'defendRounds',
-  extract: 'extractRoundLimit',
-  assassinate: 'assassinateRoundLimit',
+  defend: 'defendCycles',
+  extract: 'extractCycleLimit',
+  assassinate: 'assassinateCycleLimit',
   elimination: null,
 };
 
@@ -48,7 +49,7 @@ const computeAttackerUrgency = (state: GameState, faction: Faction): number => {
   if (!limitKey) return 1;
   const limit = info.params[limitKey];
   if (typeof limit !== 'number' || limit <= 0) return 1;
-  const progress = Math.min(1, state.initiative.round / limit);
+  const progress = Math.min(1, state.initiative.cycle / limit);
   return 1 + progress * 1.5; // 1.0 → 2.5 across the timer
 };
 

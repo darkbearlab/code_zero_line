@@ -31,7 +31,7 @@ const makeState = (overrides: Partial<GameState> = {}): GameState => ({
   initiative: {
     holder: 'A',
     momentum: { A: 5, B: 0 },
-    round: 1,
+    cycle: 1,
     activeActivation: null,
   },
   ...overrides,
@@ -58,7 +58,7 @@ describe('ACTIVATE_SPEND', () => {
     const s0 = makeState({ initiative: {
       holder: 'A',
       momentum: { A: 1, B: 0 },
-      round: 1,
+      cycle: 1,
       activeActivation: null,
     }});
     expect(() => applyCommand(s0, { type: 'ACTIVATE_SPEND', unitId: 'a1' })).toThrow(
@@ -117,7 +117,7 @@ describe('ACTIVATE_OVERDRAFT', () => {
       initiative: {
         holder: 'A',
         momentum: { A: 1, B: 0 },
-        round: 1,
+        cycle: 1,
         activeActivation: null,
       },
     };
@@ -142,7 +142,7 @@ describe('ACTIVATE_OVERDRAFT', () => {
       initiative: {
         holder: 'A',
         momentum: { A: 1, B: 0 },
-        round: 1,
+        cycle: 1,
         activeActivation: null,
       },
     };
@@ -201,7 +201,7 @@ describe('Round transitions', () => {
       initiative: {
         holder: 'A',
         momentum: { A: 5, B: 0 },
-        round: 1,
+        cycle: 1,
         activeActivation: null,
       },
     });
@@ -212,7 +212,7 @@ describe('Round transitions', () => {
       { type: 'PASS_INITIATIVE' }, // B → A, round bumps to 2, flags clear
     ]);
     expect(r.state.initiative.holder).toBe('A');
-    expect(r.state.initiative.round).toBe(2);
+    expect(r.state.initiative.cycle).toBe(2);
     expect(r.state.units.find((u) => u.id === 'a1')?.activatedThisRound).toBe(false);
   });
 });

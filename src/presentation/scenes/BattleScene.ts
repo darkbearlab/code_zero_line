@@ -1000,7 +1000,11 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private victoryFired = false;
-  private static readonly ROUND_LIMIT = 8;
+  /**
+   * Sandbox fallback tiebreak: when no scenario is in play, force a
+   * verdict after this many initiative cycles to prevent forever-stalls.
+   */
+  private static readonly SANDBOX_CYCLE_TIEBREAK = 8;
 
   /**
    * Victory rules:
@@ -1008,9 +1012,8 @@ export class BattleScene extends Phaser.Scene {
    *    engage-reach OBJECTIVE_SECURED, defend hold-the-line, and extract
    *    success/failure. Mirrors the sim's runMatch logic so live play and
    *    sim runs reach the same verdict on identical states.
-   *  - Sandbox fallback: when no mission scenario is set, all-suppressed
-   *    counts as a soft loss and a hard ROUND_LIMIT tiebreak prevents
-   *    forever-stalls.
+   *  - Sandbox fallback: a hard cycle-count tiebreak prevents forever-stalls
+   *    (alive-and-not-suppressed count decides the winner).
    */
   private checkVictory(): void {
     if (this.victoryFired) return;
@@ -1027,7 +1030,9 @@ export class BattleScene extends Phaser.Scene {
     } else if (v.reason === 'ELIMINATED') {
       // Mutual wipe — detectScenarioVictory leaves winner=null on both-zero.
       winner = 'DRAW';
-    } else if (this.gameState.initiative.round > BattleScene.ROUND_LIMIT) {
+    } else if (
+      this.gameState.initiative.cycle > BattleScene.SANDBOX_CYCLE_TIEBREAK
+    ) {
       const aScore = counts.A.alive - counts.A.suppressed;
       const bScore = counts.B.alive - counts.B.suppressed;
       if (aScore > bScore) winner = 'A';
@@ -1041,7 +1046,7 @@ export class BattleScene extends Phaser.Scene {
     const summary = {
       winner,
       counts,
-      finalRound: this.gameState.initiative.round,
+      finalCycle: this.gameState.initiative.cycle,
       replayLog: this.replayLog,
     };
     // Roguelite run path: route through Hub or RunResult depending on
@@ -1427,20 +1432,22 @@ export class BattleScene extends Phaser.Scene {
   /**
    * Build the top-of-HUD scenario tag — shows the win condition + any
    * scenario-specific countdown / count progress so the player can see at
-   * a glance what they're racing toward.
+   * a glance what they're racing toward. Time-based scenarios measure
+   * their clock in 主動權 (initiative cycles).
    */
   private formatMissionLabel(): string | null {
-    const round = this.gameState.initiative.round;
+    const cycle = this.gameState.initiative.cycle;
     if (this.missionScenario === 'engage-reach') {
       return '⚑ 攻佔目標';
     }
     if (this.missionScenario === 'defend') {
-      const goal = this.missionParams.defendRounds ?? 5;
-      return `⚑ 守住目標 ${Math.min(round, goal)}/${goal} 回合`;
+      const goal = this.missionParams.defendCycles ?? 999;
+      if (goal >= 999) return '⚑ 守住目標';
+      return `⚑ 守住目標 ${Math.min(cycle, goal)}/${goal} 主動權`;
     }
     if (this.missionScenario === 'extract') {
       const need = this.missionParams.extractCount ?? 2;
-      const limit = this.missionParams.extractRoundLimit ?? 8;
+      const limit = this.missionParams.extractCycleLimit ?? 999;
       const onObj = this.gameState.units.filter((u) => {
         if (u.faction !== 'A' || !isUnitAlive(u)) return false;
         const objs = this.gameState.objectives ?? [];
@@ -1451,10 +1458,11 @@ export class BattleScene extends Phaser.Scene {
             o.radius * o.radius,
         );
       }).length;
-      return `⚑ 撤離 ${onObj}/${need}・剩 ${Math.max(0, limit - round + 1)} 回合`;
+      if (limit >= 999) return `⚑ 撤離 ${onObj}/${need}`;
+      return `⚑ 撤離 ${onObj}/${need}・剩 ${Math.max(0, limit - cycle + 1)} 主動權`;
     }
     if (this.missionScenario === 'assassinate') {
-      const limit = this.missionParams.assassinateRoundLimit ?? 8;
+      const limit = this.missionParams.assassinateCycleLimit ?? 999;
       const vipId = this.missionParams.vipUnitId;
       const vip = vipId
         ? this.gameState.units.find((u) => u.id === vipId)
@@ -1466,7 +1474,8 @@ export class BattleScene extends Phaser.Scene {
           : vip.damage === 'NONE'
             ? '⬛'
             : vip.damage; // IMPEDED / SUPPRESSED
-      return `⚑ 斬首目標 ${status}・剩 ${Math.max(0, limit - round + 1)} 回合`;
+      if (limit >= 999) return `⚑ 斬首目標 ${status}`;
+      return `⚑ 斬首目標 ${status}・剩 ${Math.max(0, limit - cycle + 1)} 主動權`;
     }
     return null;
   }

@@ -320,7 +320,7 @@ const run = (): void => {
     `win rate            A: ${fmtPct(agg.winRateA)}   B: ${fmtPct(agg.winRateB)}   draw: ${fmtPct((agg.draws / Math.max(1, agg.matches)))}`,
   );
   lines.push(
-    `avg                 rounds: ${fmt(agg.avgRounds)}   commands: ${fmt(agg.avgCommandCount, 1)}`,
+    `avg                 cycles: ${fmt(agg.avgCycles)}   commands: ${fmt(agg.avgCommandCount, 1)}`,
   );
   const reasons = Object.entries(agg.endReasonCounts)
     .map(([r, n]) => `${r}=${n}`)
@@ -407,7 +407,7 @@ const run = (): void => {
     aggregate: agg,
     outcomes: outcomes.map((o) => ({
       winner: o.winner,
-      rounds: o.rounds,
+      cycles: o.cycles,
       commandCount: o.commandCount,
       reason: o.reason,
     })),

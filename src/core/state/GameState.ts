@@ -113,7 +113,15 @@ export interface ActiveActivation {
 export interface Initiative {
   readonly holder: Faction;
   readonly momentum: Readonly<Record<Faction, number>>;
-  readonly round: number;
+  /**
+   * Initiative cycle counter. Increments on every full A→B→A handoff —
+   * one "cycle" = both sides have had a chance to take initiative.
+   * Game terminology: 主動權. Game-mode time limits (defend / extract /
+   * assassinate) measure their clock in cycles. The previous name
+   * `round` was abandoned because it overloaded with the campaign-layer
+   * 戰役回合 concept.
+   */
+  readonly cycle: number;
   readonly activeActivation: ActiveActivation | null;
 }
 

@@ -45,7 +45,7 @@ const baseState = (units: Unit[]): GameState => ({
   initiative: {
     holder: 'A',
     momentum: { A: 99, B: 99 },
-    round: 1,
+    cycle: 1,
     activeActivation: null,
   },
 });
@@ -148,7 +148,7 @@ describe('GameState.combatIntel applied at resolveShot', () => {
       initiative: {
         holder: 'B',
         momentum: { A: 99, B: 99 },
-        round: 1,
+        cycle: 1,
         activeActivation: null,
       },
     };

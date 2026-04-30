@@ -164,25 +164,26 @@ const turnover = (
   const to = opponent(from);
   const newMomentum: Record<Faction, number> = { A: 0, B: 0 };
   newMomentum[to] = granted;
-  // Round bumps when initiative comes back to A (i.e., a full A→B→A cycle).
-  // Simple model: increment round whenever turnover's `to` is 'A'.
-  const roundBump = to === 'A' ? 1 : 0;
+  // Cycle bumps when initiative comes back to A (i.e., a full A→B→A
+  // handoff cycle). Simple model: increment cycle whenever turnover's
+  // `to` is 'A'. Per-cycle flags reset on bump.
+  const cycleBump = to === 'A' ? 1 : 0;
   const next: GameState = {
     ...s,
     initiative: {
       holder: to,
       momentum: newMomentum,
-      round: s.initiative.round + roundBump,
+      cycle: s.initiative.cycle + cycleBump,
       activeActivation: null,
     },
-    // lockedThisInitiative is per-initiative-phase: any turnover (whether
-    // round bumps or not) clears it across all units. Round-scoped flags
-    // (activatedThisRound + cannotReactThisRound) clear only on round bump.
+    // lockedThisInitiative is per-initiative-phase: any turnover clears
+    // it across all units regardless of cycle bump. Round-scoped flags
+    // (activatedThisRound + cannotReactThisRound) only reset on bump.
     units: s.units.map((u) => {
       const out: Unit = u.lockedThisInitiative
         ? { ...u, lockedThisInitiative: false }
         : u;
-      if (roundBump > 0) {
+      if (cycleBump > 0) {
         return {
           ...out,
           activatedThisRound: false,

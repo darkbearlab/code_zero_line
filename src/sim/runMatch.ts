@@ -18,7 +18,7 @@ export type { MatchEndReason, ScenarioMode } from '../core/scenario/victory';
 
 export interface MatchOutcome {
   readonly winner: Faction | 'DRAW';
-  readonly rounds: number;
+  readonly cycles: number;
   readonly commandCount: number;
   readonly finalState: GameState;
   readonly events: ReadonlyArray<GameEvent>;
@@ -213,7 +213,7 @@ export const simulateMatch = (
   }
   return {
     winner: finalWinner ?? 'DRAW',
-    rounds: state.initiative.round,
+    cycles: state.initiative.cycle,
     commandCount: cmdCount,
     finalState: state,
     events,

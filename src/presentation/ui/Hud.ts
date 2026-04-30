@@ -302,7 +302,7 @@ export class Hud {
     aimMode: AimMode = 'idle',
     ctx?: HudContext,
   ): void {
-    this.roundEl.textContent = String(state.initiative.round);
+    this.roundEl.textContent = String(state.initiative.cycle);
     this.holderEl.textContent = state.initiative.holder;
     this.holderEl.className = `holder-${state.initiative.holder}`;
     this.momentumAEl.textContent = String(state.initiative.momentum.A);

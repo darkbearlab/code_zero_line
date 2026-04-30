@@ -29,7 +29,7 @@ const baseState = (overrides: Partial<GameState> = {}): GameState => ({
   initiative: {
     holder: 'A',
     momentum: { A: 5, B: 0 },
-    round: 1,
+    cycle: 1,
     activeActivation: null,
   },
   ...overrides,
@@ -77,7 +77,7 @@ describe('RALLY command', () => {
         initiative: {
           holder: 'A',
           momentum: { A: 10, B: 0 },
-          round: 1,
+          cycle: 1,
           activeActivation: null,
         },
       }),
@@ -104,7 +104,7 @@ describe('RALLY command', () => {
         initiative: {
           holder: 'A',
           momentum: { A: 10, B: 0 },
-          round: 1,
+          cycle: 1,
           activeActivation: null,
         },
       }),

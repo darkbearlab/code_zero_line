@@ -77,7 +77,7 @@ const baseState = (
   initiative: {
     holder: 'A',
     momentum: { A: 5, B: 5 },
-    round: 1,
+    cycle: 1,
     activeActivation: activeUnitId
       ? {
           unitId: activeUnitId,

@@ -32,16 +32,19 @@ export type MatchEndReason =
   | 'MAX_COMMANDS';
 
 export interface ScenarioParams {
-  /** defend: defender wins after this round if they still hold. Default 5. */
-  readonly defendRounds?: number;
+  /**
+   * defend: defender wins after this many initiative cycles if still
+   * holding the objective. Game terminology: 主動權. Default 999 (off).
+   */
+  readonly defendCycles?: number;
   /** extract: required friendly count inside the marker. Default 2. */
   readonly extractCount?: number;
-  /** extract: round at which the clock runs out. Default 8. */
-  readonly extractRoundLimit?: number;
+  /** extract: cycle at which the clock runs out. Default 999 (off). */
+  readonly extractCycleLimit?: number;
   /** assassinate: id of the enemy unit the player must kill. */
   readonly vipUnitId?: string;
-  /** assassinate: round at which the clock runs out. Default 8. */
-  readonly assassinateRoundLimit?: number;
+  /** assassinate: cycle at which the clock runs out. Default 999 (off). */
+  readonly assassinateCycleLimit?: number;
 }
 
 export interface VictoryResult {
@@ -73,10 +76,16 @@ export const factionUnitsOnObjective = (
   return count;
 };
 
-export const DEFEND_ROUNDS_DEFAULT = 5;
+// All cycle limits default to 999 — effectively "no clock". Concrete
+// missions opt in to a real clock by overriding their scenarioParams.
+// Round-based timers (defendCycles 5, extractCycleLimit 8, etc.) were
+// disabled when the round → cycle terminology rename happened to avoid
+// helper drift; tune them per-mission once the clock semantics are
+// re-confirmed.
+export const DEFEND_CYCLES_DEFAULT = 999;
 export const EXTRACT_COUNT_DEFAULT = 2;
-export const EXTRACT_ROUND_LIMIT_DEFAULT = 8;
-export const ASSASSINATE_ROUND_LIMIT_DEFAULT = 8;
+export const EXTRACT_CYCLE_LIMIT_DEFAULT = 999;
+export const ASSASSINATE_CYCLE_LIMIT_DEFAULT = 999;
 
 export const detectScenarioVictory = (
   state: GameState,
@@ -104,11 +113,11 @@ export const detectScenarioVictory = (
   }
 
   if (scenario === 'defend') {
-    const defendRounds = params.defendRounds ?? DEFEND_ROUNDS_DEFAULT;
+    const defendCycles = params.defendCycles ?? DEFEND_CYCLES_DEFAULT;
     const bOnObj = factionUnitsOnObjective(state, 'B');
     // Enemy on the marker — defender loses instantly.
     if (bOnObj > 0) return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
-    if (state.initiative.round > defendRounds) {
+    if (state.initiative.cycle > defendCycles) {
       const aOnObj = factionUnitsOnObjective(state, 'A');
       // Defender wins by holding past the timer. If A has abandoned the
       // marker too, fall back to alive-count tiebreak so the run still ends.
@@ -121,12 +130,12 @@ export const detectScenarioVictory = (
 
   if (scenario === 'extract') {
     const extractCount = params.extractCount ?? EXTRACT_COUNT_DEFAULT;
-    const roundLimit = params.extractRoundLimit ?? EXTRACT_ROUND_LIMIT_DEFAULT;
+    const cycleLimit = params.extractCycleLimit ?? EXTRACT_CYCLE_LIMIT_DEFAULT;
     const aOnObj = factionUnitsOnObjective(state, 'A');
     if (aOnObj >= extractCount) {
       return { winner: 'A', reason: 'OBJECTIVE_SECURED' };
     }
-    if (state.initiative.round > roundLimit) {
+    if (state.initiative.cycle > cycleLimit) {
       return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
     }
   }
@@ -141,8 +150,8 @@ export const detectScenarioVictory = (
       if (!vip || vip.damage === 'KILLED') {
         return { winner: 'A', reason: 'OBJECTIVE_SECURED' };
       }
-      const limit = params.assassinateRoundLimit ?? ASSASSINATE_ROUND_LIMIT_DEFAULT;
-      if (state.initiative.round > limit) {
+      const limit = params.assassinateCycleLimit ?? ASSASSINATE_CYCLE_LIMIT_DEFAULT;
+      if (state.initiative.cycle > limit) {
         return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
       }
     }

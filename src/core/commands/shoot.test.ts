@@ -47,7 +47,7 @@ const makeState = (overrides: Partial<GameState> = {}): GameState => ({
   initiative: {
     holder: 'A',
     momentum: { A: 5, B: 0 },
-    round: 1,
+    cycle: 1,
     activeActivation: null,
   },
   ...overrides,

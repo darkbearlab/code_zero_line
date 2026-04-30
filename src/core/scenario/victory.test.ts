@@ -18,7 +18,7 @@ const baseUnit = (overrides: Partial<Unit> & { id: string }): Unit => ({
   ...overrides,
 });
 
-const stateWith = (units: Unit[], round = 1, objX = 100, objY = 100): GameState => ({
+const stateWith = (units: Unit[], cycle = 1, objX = 100, objY = 100): GameState => ({
   seed: 'test',
   commandCount: 0,
   units,
@@ -29,7 +29,7 @@ const stateWith = (units: Unit[], round = 1, objX = 100, objY = 100): GameState 
   initiative: {
     holder: 'A',
     momentum: { A: 99, B: 99 },
-    round,
+    cycle,
     activeActivation: null,
   },
 });
@@ -90,11 +90,11 @@ describe('defend', () => {
       ],
       2,
     );
-    const v = detectScenarioVictory(s, 'defend', { defendRounds: 5 }, { A: 1, B: 1 });
+    const v = detectScenarioVictory(s, 'defend', { defendCycles: 5 }, { A: 1, B: 1 });
     expect(v.winner).toBe('B');
   });
 
-  it('round > defendRounds AND A holds → A wins', () => {
+  it('round > defendCycles AND A holds → A wins', () => {
     const s = stateWith(
       [
         baseUnit({ id: 'a1', faction: 'A', position: v2(100, 100) }),
@@ -102,7 +102,7 @@ describe('defend', () => {
       ],
       6,
     );
-    const v = detectScenarioVictory(s, 'defend', { defendRounds: 5 }, { A: 1, B: 1 });
+    const v = detectScenarioVictory(s, 'defend', { defendCycles: 5 }, { A: 1, B: 1 });
     expect(v.winner).toBe('A');
   });
 
@@ -114,7 +114,7 @@ describe('defend', () => {
       ],
       3,
     );
-    const v = detectScenarioVictory(s, 'defend', { defendRounds: 5 }, { A: 1, B: 1 });
+    const v = detectScenarioVictory(s, 'defend', { defendCycles: 5 }, { A: 1, B: 1 });
     expect(v.winner).toBeNull();
   });
 });
@@ -132,7 +132,7 @@ describe('assassinate', () => {
     const v = detectScenarioVictory(
       s,
       'assassinate',
-      { vipUnitId: 'vip', assassinateRoundLimit: 8 },
+      { vipUnitId: 'vip', assassinateCycleLimit: 8 },
       { A: 1, B: 2 },
     );
     expect(v.winner).toBe('A');
@@ -149,7 +149,7 @@ describe('assassinate', () => {
     const v = detectScenarioVictory(
       s,
       'assassinate',
-      { vipUnitId: 'vip', assassinateRoundLimit: 8 },
+      { vipUnitId: 'vip', assassinateCycleLimit: 8 },
       { A: 1, B: 1 },
     );
     expect(v.winner).toBe('A');
@@ -166,7 +166,7 @@ describe('assassinate', () => {
     const v = detectScenarioVictory(
       s,
       'assassinate',
-      { vipUnitId: 'vip', assassinateRoundLimit: 8 },
+      { vipUnitId: 'vip', assassinateCycleLimit: 8 },
       { A: 1, B: 1 },
     );
     expect(v.winner).toBe('B');
@@ -187,7 +187,7 @@ describe('extract', () => {
     const v = detectScenarioVictory(
       s,
       'extract',
-      { extractCount: 2, extractRoundLimit: 8 },
+      { extractCount: 2, extractCycleLimit: 8 },
       { A: 3, B: 1 },
     );
     expect(v.winner).toBe('A');
@@ -204,7 +204,7 @@ describe('extract', () => {
     const v = detectScenarioVictory(
       s,
       'extract',
-      { extractCount: 2, extractRoundLimit: 8 },
+      { extractCount: 2, extractCycleLimit: 8 },
       { A: 1, B: 1 },
     );
     expect(v.winner).toBe('B');
@@ -221,7 +221,7 @@ describe('extract', () => {
     const v = detectScenarioVictory(
       s,
       'extract',
-      { extractCount: 2, extractRoundLimit: 8 },
+      { extractCount: 2, extractCycleLimit: 8 },
       { A: 1, B: 1 },
     );
     expect(v.winner).toBeNull();

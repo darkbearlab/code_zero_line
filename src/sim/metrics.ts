@@ -18,7 +18,7 @@ export interface FactionKpi {
 
 export interface MatchKpi {
   readonly winner: MatchOutcome['winner'];
-  readonly rounds: number;
+  readonly cycles: number;
   readonly commandCount: number;
   readonly reason: MatchOutcome['reason'];
   readonly A: FactionKpi;
@@ -123,7 +123,7 @@ export const computeMatchKpi = (outcome: MatchOutcome): MatchKpi => {
 
   return {
     winner: outcome.winner,
-    rounds: outcome.rounds,
+    cycles: outcome.cycles,
     commandCount: outcome.commandCount,
     reason: outcome.reason,
     A: a,
@@ -138,7 +138,7 @@ export interface AggregateKpi {
   readonly draws: number;
   readonly winRateA: number;
   readonly winRateB: number;
-  readonly avgRounds: number;
+  readonly avgCycles: number;
   readonly avgCommandCount: number;
   readonly endReasonCounts: Readonly<Record<string, number>>;
   readonly A: AggregateFactionKpi;
@@ -211,7 +211,7 @@ export const aggregateKpi = (
   for (const k of kpis) {
     reasonCounts[k.reason] = (reasonCounts[k.reason] ?? 0) + 1;
   }
-  const totalRounds = kpis.reduce((s, k) => s + k.rounds, 0);
+  const totalCycles = kpis.reduce((s, k) => s + k.cycles, 0);
   const totalCmds = kpis.reduce((s, k) => s + k.commandCount, 0);
   const n = Math.max(1, kpis.length);
   return {
@@ -221,7 +221,7 @@ export const aggregateKpi = (
     draws,
     winRateA: winA / n,
     winRateB: winB / n,
-    avgRounds: totalRounds / n,
+    avgCycles: totalCycles / n,
     avgCommandCount: totalCmds / n,
     endReasonCounts: reasonCounts,
     A: aggregateFaction(kpis, 'A'),

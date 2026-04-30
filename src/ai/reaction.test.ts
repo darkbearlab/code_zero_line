@@ -35,7 +35,7 @@ const baseState = (units: Unit[]): GameState => ({
   initiative: {
     holder: 'A',
     momentum: { A: 5, B: 5 },
-    round: 1,
+    cycle: 1,
     activeActivation: null,
   },
 });
