@@ -98,7 +98,14 @@
 
 ### 4.2 池子流動
 
-「沒接任務 + 失敗 = 永久死亡」就是池子的自然汰換,不需要額外機制。
+**修正(2026-04-30)**:之前認為「沒接任務 + 失敗 = 永久死亡」就是自然汰換、不需補員 — 實作後發現會單調下沉，應主動補員。
+
+**現行機制**:
+- 池子目標 = **30 人**(`POOL_TARGET`)
+- 角色 floor = **3 officer / 8 specialist / 19 regular**(大致 1:3:7),officer floor 確保每個任務都有得抽
+- 補員時機:`newCampaignState`(開新檔)+ `advanceCampaignAfterRun` 末尾(每場結束)
+- 候補來源:bundled templates 按 `recruitRole` 分組 seeded random
+- 池子上限就是 30 — 補到 30 後不會再多;若初始池已 > 30 也不會縮(防禦性)
 
 ---
 
