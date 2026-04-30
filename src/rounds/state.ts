@@ -11,7 +11,9 @@
  */
 import { Rng } from '../core/rng/sfc32';
 import { pickMissions } from '../missions/pick';
+import { getMissionById } from '../missions/library';
 import { draftSquad } from './draft';
+import { classifyFuzzy } from './fuzzy';
 import type { CampaignState } from '../campaign/state';
 
 export type FuzzyDifficulty = 'low' | 'medium' | 'high';
@@ -44,8 +46,8 @@ const SQUAD_SIZE = 4;
  * `SQUAD_SIZE` random pool members per mission. Both layers seed off
  * `${campaignSeed}-r${roundIndex}` so a round is fully reproducible.
  *
- * Phase 3a returns a uniform 'medium' fuzzy difficulty for every option
- * — the heuristic landing in 3b will weigh squad quality vs enemy comp.
+ * Fuzzy band per option is computed from squad strength vs enemy strength
+ * (`./fuzzy.ts`); autoResolve uses that band to drive the unpicked roll.
  */
 export const newRoundState = (campaign: CampaignState): RoundState => {
   const seed = `${campaign.seed}-r${campaign.roundIndex}`;
@@ -57,10 +59,12 @@ export const newRoundState = (campaign: CampaignState): RoundState => {
     const localRng = new Rng({ ...draftRng.state });
     for (let k = 0; k < i; k++) localRng.next(); // small step so each option's shuffle differs
     const drafted = draftSquad(campaign.pool, SQUAD_SIZE, localRng);
+    const squadIds = drafted.map((u) => u.id);
+    const mission = getMissionById(missionId);
     return {
       missionId,
-      squadIds: drafted.map((u) => u.id),
-      fuzzy: 'medium',
+      squadIds,
+      fuzzy: classifyFuzzy(mission, squadIds, campaign.pool),
     };
   });
 

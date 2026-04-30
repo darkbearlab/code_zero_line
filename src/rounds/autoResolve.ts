@@ -4,11 +4,10 @@
  * "executed" off-screen — each gets a single mission-success roll, and
  * each squad member in that option rolls independently for survival.
  *
- * v1 hard-codes both probabilities at 70%. When fuzzy difficulty lands
- * (Phase 3b), the survival rate (and the success rate) will scale off
- * the option's `fuzzy` band so a `high` mission punishes its squad
- * more than a `low` one. The function signature already takes the
- * option, so swapping in a fuzzy-driven rate is a one-line change.
+ * The success / survival rates come from the option's fuzzy band via
+ * `fuzzyToRates` (see ./fuzzy.ts). v1 places medium at 70%/70%, low at
+ * 85%/85%, high at 50%/55% — a "high risk" mission really does punish
+ * its squad more than a "low risk" one.
  *
  * Determinism: the caller supplies a seed string so re-loading a saved
  * RunState reproduces the same fates. We derive a child RNG per option
@@ -18,11 +17,7 @@
 import { Rng } from '../core/rng/sfc32';
 import type { UnpickedOptionOutcome } from '../campaign/state';
 import type { RoundMissionOption } from './state';
-
-/** Mission auto-roll success probability. v1 placeholder; fuzzy-driven later. */
-export const UNPICKED_MISSION_SUCCESS_RATE = 0.7;
-/** Per-squad-member survival probability. v1 placeholder. */
-export const UNPICKED_SURVIVAL_RATE = 0.7;
+import { fuzzyToRates } from './fuzzy';
 
 /**
  * Resolve the unpicked options of a round. `pickedIdx` is the index the
@@ -37,11 +32,12 @@ export const resolveUnpickedOptions = (
   for (let i = 0; i < options.length; i++) {
     if (i === pickedIdx) continue;
     const opt = options[i]!;
+    const rates = fuzzyToRates(opt.fuzzy);
     const rng = Rng.fromSeed(`${seed}-unpicked-${i}`);
-    const won = rng.next() < UNPICKED_MISSION_SUCCESS_RATE;
+    const won = rng.next() < rates.successRate;
     const survivors: string[] = [];
     for (const id of opt.squadIds) {
-      if (rng.next() < UNPICKED_SURVIVAL_RATE) survivors.push(id);
+      if (rng.next() < rates.survivalRate) survivors.push(id);
     }
     out.push({
       missionId: opt.missionId,
