@@ -35,6 +35,16 @@ export interface Unit {
   readonly activatedThisRound: boolean;
   readonly cannotReactThisRound: boolean;
   /**
+   * Per-initiative lockout. Set when an action ends the unit's activation
+   * via FORCED_END (CRAWL / CLIMB / MOVE-from-DIFFICULT — rule 4.5 / 4.2C
+   * "該輪次不可再行動"). Blocks FOCUSED / COMBINED / COMMAND_* participation
+   * for the rest of the active side's initiative phase. Cleared on every
+   * INITIATIVE_TURNOVER so once the opposing side takes over, the unit
+   * may react-fire again (including via FOCUSED / COMBINED reactions).
+   * Untouched units omit the field; treat undefined === false.
+   */
+  readonly lockedThisInitiative?: boolean;
+  /**
    * TOUGH (rule: 一場一次，非壓制下受致死攻擊改為壓制) burns its once-per-match
    * save when first triggered. Persisted on the unit so reload-checking is
    * a flat lookup. Untouched units omit the field; treat undefined === false.

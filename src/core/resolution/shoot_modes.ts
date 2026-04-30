@@ -166,7 +166,13 @@ export const listAvailableShootModes = (
         u.faction === shooter.faction &&
         isUnitAlive(u) &&
         u.damage !== 'SUPPRESSED' &&
-        (weaponMode === 'ACTIVE' || !u.cannotReactThisRound) &&
+        // ACTIVE: locked-this-initiative units (post-FORCED_END) can't
+        // tag along on someone else's shot during the same initiative.
+        // REACTION: same gate uses cannotReactThisRound only — turnover
+        // already cleared lockedThisInitiative.
+        (weaponMode === 'ACTIVE'
+          ? !u.lockedThisInitiative
+          : !u.cannotReactThisRound) &&
         v2Dist(u.position, shooter.position) <= UNIT_DISTANCE_PIXELS &&
         losTo(u, target) &&
         firstShootWeapon(u, 'FOCUSED', weaponMode),
@@ -200,7 +206,10 @@ export const listAvailableShootModes = (
           u.faction === shooter.faction &&
           isUnitAlive(u) &&
           u.damage !== 'SUPPRESSED' &&
-          (weaponMode === 'ACTIVE' || !u.cannotReactThisRound) &&
+          // Same per-initiative lockout split as FOCUSED above.
+          (weaponMode === 'ACTIVE'
+            ? !u.lockedThisInitiative
+            : !u.cannotReactThisRound) &&
           (participantNeedsLosToOfficer(u) ? losTo(u, shooter) : true) &&
           losTo(u, target) &&
           firstShootWeapon(u, 'COMBINED', weaponMode),

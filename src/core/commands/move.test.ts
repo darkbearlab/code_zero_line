@@ -351,7 +351,7 @@ describe('MOVE command', () => {
     expect(a1.stance).toBe('STANDING');
   });
 
-  it('move starting inside DIFFICULT locks the unit (no further activation, no reactions)', () => {
+  it('move starting inside DIFFICULT sets lockedThisInitiative; reactions still allowed', () => {
     const s0: GameState = {
       ...makeState(),
       units: [
@@ -373,15 +373,45 @@ describe('MOVE command', () => {
       { type: 'MOVE', unitId: 'a1', target: v2(120, 0) },
     ]);
     const a1 = r.state.units.find((u) => u.id === 'a1')!;
-    // Activated this round (set on ACTIVATE_SPEND, not cleared by FORCED_END)
     expect(a1.activatedThisRound).toBe(true);
-    // FORCED_END seals reactions too — locked out for the rest of the round
-    expect(a1.cannotReactThisRound).toBe(true);
-    // Activation is over — no active activation lingering on initiative.
+    expect(a1.lockedThisInitiative).toBe(true);
+    // Reactions stay open — only the per-initiative participation lock fires.
+    expect(a1.cannotReactThisRound).toBe(false);
     expect(r.state.initiative.activeActivation).toBeNull();
   });
 
-  it('regular MOVE does NOT seal reactions (only DIFFICULT/CRAWL/CLIMB do)', () => {
+  it('lockedThisInitiative clears on initiative turnover', () => {
+    const s0: GameState = {
+      ...makeState(),
+      units: [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(100, 0) }),
+        makeUnit({ id: 'a2', faction: 'A', position: v2(200, 0) }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(500, 0) }),
+      ],
+      terrain: [
+        {
+          id: 'rubble',
+          kind: 'DIFFICULT',
+          polygon: {
+            vertices: [v2(50, -50), v2(150, -50), v2(150, 50), v2(50, 50)],
+          },
+        },
+      ],
+    };
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'MOVE', unitId: 'a1', target: v2(120, 0) },
+      { type: 'PASS_INITIATIVE' },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    // After turnover, the per-initiative lock clears even though the round
+    // hasn't bumped — A1 is free to participate in REACTION shots now.
+    expect(a1.lockedThisInitiative).toBe(false);
+    // Round-scoped flags persist (activation was already this round).
+    expect(a1.activatedThisRound).toBe(true);
+  });
+
+  it('regular MOVE does NOT set lockedThisInitiative', () => {
     const s0: GameState = makeState();
     const r = applyCommands(s0, [
       { type: 'ACTIVATE_SPEND', unitId: 'a1' },
@@ -389,6 +419,7 @@ describe('MOVE command', () => {
     ]);
     const a1 = r.state.units.find((u) => u.id === 'a1')!;
     expect(a1.activatedThisRound).toBe(true);
+    expect(a1.lockedThisInitiative).toBeFalsy();
     expect(a1.cannotReactThisRound).toBe(false);
   });
 

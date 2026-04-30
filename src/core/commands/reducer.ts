@@ -175,15 +175,22 @@ const turnover = (
       round: s.initiative.round + roundBump,
       activeActivation: null,
     },
-    // Clear per-round flags whenever a new round starts.
-    units:
-      roundBump > 0
-        ? s.units.map((u) => ({
-            ...u,
-            activatedThisRound: false,
-            cannotReactThisRound: false,
-          }))
-        : s.units,
+    // lockedThisInitiative is per-initiative-phase: any turnover (whether
+    // round bumps or not) clears it across all units. Round-scoped flags
+    // (activatedThisRound + cannotReactThisRound) clear only on round bump.
+    units: s.units.map((u) => {
+      const out: Unit = u.lockedThisInitiative
+        ? { ...u, lockedThisInitiative: false }
+        : u;
+      if (roundBump > 0) {
+        return {
+          ...out,
+          activatedThisRound: false,
+          cannotReactThisRound: false,
+        };
+      }
+      return out;
+    }),
   };
   return {
     state: next,
@@ -360,14 +367,18 @@ const processPostAction = (
   // FORCED_END: action completed but activation ends without turnover.
   // Used by CRAWL (rule 4.5 — "該輪次不可再行動"), CLIMB (climb spec),
   // and MOVE that started inside DIFFICULT terrain (rule 4.2C — "移動結束
-  // 後該單位這個主動權不得在進行任何行動"). All three lock the unit out
-  // for the rest of the round: activatedThisRound is already set by
-  // ACTIVATE_SPEND/CHECK; cannotReactThisRound is set here so the unit
-  // can't react-fire either. Distinct from `forcedTurnoverAfterAction`
-  // which DOES trigger turnover.
+  // 後該單位這個主動權不得在進行任何行動"). The "this initiative" lockout:
+  //   - activatedThisRound is already true (set by ACTIVATE_*), so the
+  //     unit can't be re-activated this round.
+  //   - lockedThisInitiative is set here so the unit can't be a
+  //     FOCUSED/COMBINED/COMMAND_MOVE/COMMAND_RALLY participant for the
+  //     rest of THIS initiative phase. Cleared on INITIATIVE_TURNOVER —
+  //     once the opposing side takes over, reactions + REACTION-mode
+  //     participation are unlocked again.
+  // Distinct from `forcedTurnoverAfterAction` which DOES trigger turnover.
   if (outcome === 'FORCED_END') {
     const locked = updateUnit(s, act.unitId, {
-      cannotReactThisRound: true,
+      lockedThisInitiative: true,
     });
     const cleared = setActivation(locked, null);
     return {
@@ -1242,6 +1253,12 @@ const commandMoveAction = (
         `Participant ${p.unitId} cannot move while ${pu.damage}`,
       );
     }
+    if (pu.lockedThisInitiative) {
+      throw new CommandError(
+        'PARTICIPANT_LOCKED',
+        `${p.unitId} already FORCED_END this initiative — can't COMMAND_MOVE`,
+      );
+    }
     if (
       v2Dist(pu.position, officer.position) > UNIT_DISTANCE_PIXELS + 0.5
     ) {
@@ -1436,6 +1453,12 @@ const commandRallyAction = (
     }
     if (!isUnitAlive(pu)) {
       throw new CommandError('UNIT_DEAD', `${pid} dead`);
+    }
+    if (pu.lockedThisInitiative) {
+      throw new CommandError(
+        'PARTICIPANT_LOCKED',
+        `${pid} already FORCED_END this initiative — can't COMMAND_RALLY`,
+      );
     }
     if (
       v2Dist(pu.position, officer.position) > UNIT_DISTANCE_PIXELS + 0.5
