@@ -6,6 +6,7 @@ import { InitiativeRollScene } from './presentation/scenes/InitiativeRollScene';
 import { ReplayScene } from './presentation/scenes/ReplayScene';
 import { ResultScene } from './presentation/scenes/ResultScene';
 import { RosterScene } from './presentation/scenes/RosterScene';
+import { RoundSetupScene } from './presentation/scenes/RoundSetupScene';
 import { RunResultScene } from './presentation/scenes/RunResultScene';
 import { RunSetupScene } from './presentation/scenes/RunSetupScene';
 import { TitleScene } from './presentation/scenes/TitleScene';
@@ -27,6 +28,7 @@ const config: Phaser.Types.Core.GameConfig = {
   },
   scene: [
     TitleScene,
+    RoundSetupScene,
     RunSetupScene,
     HubScene,
     RunResultScene,

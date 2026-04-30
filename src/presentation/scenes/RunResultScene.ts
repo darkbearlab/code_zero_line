@@ -8,6 +8,11 @@
 import Phaser from 'phaser';
 import { listUnitTemplates } from '../../config/loader';
 import { didRunSucceed, type RunState } from '../../runs/state';
+import {
+  advanceCampaignAfterRun,
+  type RunResolution,
+} from '../../campaign/state';
+import { loadCampaign, saveCampaign } from '../../campaign/persist';
 
 interface InitData {
   runState: RunState;
@@ -27,8 +32,28 @@ export class RunResultScene extends Phaser.Scene {
 
   create(): void {
     hideBattleHud();
+    // Campaign-mode runs commit their outcome to CampaignState here
+    // (RunResultScene is the deterministic last touch-point before the
+    // next round). Sandbox runs skip this entirely.
+    if (this.runState.inCampaign) this.applyCampaignOutcome();
     this.rootEl = this.makeRoot();
     this.events.once('shutdown', () => this.rootEl?.remove());
+  }
+
+  private applyCampaignOutcome(): void {
+    const campaign = loadCampaign();
+    if (!campaign) return; // Campaign got cleared mid-run; bail.
+    // Run is single-mission in 3a, so history[0] holds the only outcome.
+    const lastResult = this.runState.history[this.runState.history.length - 1];
+    if (!lastResult) return;
+    const resolution: RunResolution = {
+      missionId: lastResult.missionId,
+      squadIds: this.runState.squad.map((s) => s.id),
+      survivorIds: this.runState.survivorIds,
+      winner: lastResult.winner,
+    };
+    const advanced = advanceCampaignAfterRun(campaign, resolution);
+    saveCampaign(advanced);
   }
 
   private makeRoot(): HTMLElement {
@@ -104,16 +129,29 @@ export class RunResultScene extends Phaser.Scene {
         </div>
       </div>
       <div class="setup-footer" style="justify-content:center;">
-        <button data-action="title" style="padding:10px 24px;background:#1a3a2a;color:#cfe8cf;border:1px solid #4a8a5a;cursor:pointer;font:inherit;">回標題</button>
+        ${
+          this.runState.inCampaign
+            ? `<button data-action="continue" style="padding:10px 24px;background:#1a3a2a;color:#cfe8cf;border:1px solid #4a8a5a;cursor:pointer;font:inherit;">繼續下一回合 →</button>`
+            : `<button data-action="title" style="padding:10px 24px;background:#1a3a2a;color:#cfe8cf;border:1px solid #4a8a5a;cursor:pointer;font:inherit;">回標題</button>`
+        }
       </div>
     `;
     document.body.appendChild(root);
 
-    root.querySelector<HTMLButtonElement>('[data-action="title"]')!.onclick =
-      () => {
+    if (this.runState.inCampaign) {
+      root.querySelector<HTMLButtonElement>(
+        '[data-action="continue"]',
+      )!.onclick = () => {
         this.rootEl.remove();
-        this.scene.start('Title');
+        this.scene.start('RoundSetup');
       };
+    } else {
+      root.querySelector<HTMLButtonElement>('[data-action="title"]')!.onclick =
+        () => {
+          this.rootEl.remove();
+          this.scene.start('Title');
+        };
+    }
     return root;
   }
 }

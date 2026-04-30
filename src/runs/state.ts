@@ -51,6 +51,13 @@ export interface RunState {
    */
   readonly damageCarry: Readonly<Record<string, 'NONE' | 'IMPEDED' | 'SUPPRESSED'>>;
   readonly history: ReadonlyArray<MissionResult>;
+  /**
+   * When true, this run was launched from the campaign loop (Phase 3a).
+   * RunResultScene inspects the flag to route back to RoundSetupScene
+   * + persist campaign updates instead of returning to the title screen.
+   * Defaults to undefined for legacy (sandbox / 3-mission run) flows.
+   */
+  readonly inCampaign?: boolean;
 }
 
 export const newRunState = (
