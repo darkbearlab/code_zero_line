@@ -3,6 +3,7 @@ import { BattleScene } from './presentation/scenes/BattleScene';
 import { DeployScene } from './presentation/scenes/DeployScene';
 import { HubScene } from './presentation/scenes/HubScene';
 import { InitiativeRollScene } from './presentation/scenes/InitiativeRollScene';
+import { MetaScene } from './presentation/scenes/MetaScene';
 import { ReplayScene } from './presentation/scenes/ReplayScene';
 import { ResultScene } from './presentation/scenes/ResultScene';
 import { RosterScene } from './presentation/scenes/RosterScene';
@@ -32,6 +33,7 @@ const config: Phaser.Types.Core.GameConfig = {
     TitleScene,
     RoundSetupScene,
     RoundResolveScene,
+    MetaScene,
     UpgradeScene,
     RunSetupScene,
     HubScene,
