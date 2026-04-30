@@ -1,5 +1,7 @@
 import { v2Dist } from '../../core/geometry/vec2';
+import { targetHasCover } from '../../core/resolution/cover';
 import {
+  applyCoverToProfile,
   buildDiceProfile,
   profileExpectedHits,
 } from '../../core/resolution/dice';
@@ -12,21 +14,30 @@ import type { AiController } from '../types';
 import { pathfindingStepToward } from '../navigation';
 
 /**
- * Expected hits across the full dice profile. Phase A always builds a
- * single-group profile (legacy behaviour); Phase C will plug in the
- * combat-intel reduction level so the EV ranking matches reality.
+ * Expected hits across the full dice profile, with cover removed from the
+ * most-reduced die first so the EV ranking matches what `resolveShot` will
+ * actually deliver. Without this, greedy overestimates shots into cover and
+ * fires when it should be repositioning instead.
  */
-const expectedHits = (totalDice: number, threshold: number): number => {
-  return profileExpectedHits(buildDiceProfile(totalDice, threshold, 0));
+const expectedHits = (
+  totalDice: number,
+  threshold: number,
+  cover: boolean,
+): number => {
+  let profile = buildDiceProfile(totalDice, threshold, 0);
+  if (cover) profile = applyCoverToProfile(profile);
+  return profileExpectedHits(profile);
 };
 
 /**
  * 1-ply greedy heuristic. The default opponent and the simulator's reference
  * baseline. The decision tree:
  *  1. Activate the cheapest healthy fresh unit (SPEND if affordable, else CHECK).
- *  2. Once active: rally if hurt, else best shot if EV ≥ 0.5, else step toward
- *     nearest enemy, else end activation.
- * No reaction planning, no cover preference, no lookahead — that is Phase D.
+ *  2. Once active: rally if hurt, else best shot if EV ≥ 0.5 (cover-aware),
+ *     else step toward nearest enemy, else end activation.
+ * Reactions live in `../reaction.ts` (`planReactions`) and are wired through
+ * the AI registry. Lookahead is in `./lookahead.ts`. No objective-rush bias
+ * yet — greedy ignores scenario goals.
  */
 export const greedyController: AiController = (
   state,
@@ -80,8 +91,10 @@ const chooseActiveAction = (
   let bestShot: { cmd: Command; ev: number } | null = null;
   for (const e of enemies) {
     const modes = listAvailableShootModes(state, u.id, e.id, 'ACTIVE');
+    if (modes.length === 0) continue;
+    const cover = targetHasCover(u, e, state.terrain);
     for (const m of modes) {
-      const ev = expectedHits(m.totalDice, m.threshold);
+      const ev = expectedHits(m.totalDice, m.threshold, cover);
       if (!bestShot || ev > bestShot.ev) {
         bestShot = {
           cmd: {

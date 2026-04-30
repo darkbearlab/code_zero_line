@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { chooseAiCommand } from '../../ai/controller';
+import { planReactions } from '../../ai/reaction';
 import { applyCommand } from '../../core/commands/reducer';
 import { isPointInPolygon } from '../../core/geometry/polygon';
 import {
@@ -1072,10 +1073,25 @@ export class BattleScene extends Phaser.Scene {
         this.aiTickEvent = this.time.delayedCall(300, () => {
           this.aiPending = false;
           this.aiTickEvent = null;
-          if (this.reaction) {
-            this.reaction.markers = [];
-            this.confirmReaction();
-          }
+          if (!this.reaction) return;
+          // Mirror the sim path: ask the defender's reaction planner for
+          // markers based on the attacker's path. planReactions only fires
+          // for MOVE / CRAWL — other command types get an empty plan, which
+          // matches rule 4.4 coverage (VAULT/CLIMB/RALLY/COMMAND_* are
+          // reactable per the rules but their path semantics aren't planned
+          // in v1; matches the sim's `acceptsReactions` allowlist).
+          const ct = this.reaction.commandType;
+          const plan =
+            ct === 'MOVE' || ct === 'CRAWL'
+              ? planReactions(this.gameState, defender, {
+                  type: ct,
+                  unitId: this.reaction.moverId,
+                  target: this.reaction.pathTarget,
+                  reactionPlan: { markers: [] },
+                })
+              : { markers: [] };
+          this.reaction.markers = [...plan.markers];
+          this.confirmReaction();
         });
       }
       return;
