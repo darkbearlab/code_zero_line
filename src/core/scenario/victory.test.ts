@@ -119,6 +119,60 @@ describe('defend', () => {
   });
 });
 
+describe('assassinate', () => {
+  it('VIP killed → A wins', () => {
+    const s = stateWith(
+      [
+        baseUnit({ id: 'a1', faction: 'A', position: v2(500, 500) }),
+        baseUnit({ id: 'b1', faction: 'B', position: v2(700, 700) }),
+        baseUnit({ id: 'vip', faction: 'B', damage: 'KILLED' }),
+      ],
+      3,
+    );
+    const v = detectScenarioVictory(
+      s,
+      'assassinate',
+      { vipUnitId: 'vip', assassinateRoundLimit: 8 },
+      { A: 1, B: 2 },
+    );
+    expect(v.winner).toBe('A');
+  });
+
+  it('VIP missing from state (already gone) → A wins (defensive)', () => {
+    const s = stateWith(
+      [
+        baseUnit({ id: 'a1', faction: 'A', position: v2(500, 500) }),
+        baseUnit({ id: 'b1', faction: 'B', position: v2(700, 700) }),
+      ],
+      3,
+    );
+    const v = detectScenarioVictory(
+      s,
+      'assassinate',
+      { vipUnitId: 'vip', assassinateRoundLimit: 8 },
+      { A: 1, B: 1 },
+    );
+    expect(v.winner).toBe('A');
+  });
+
+  it('round > limit, VIP alive → B wins', () => {
+    const s = stateWith(
+      [
+        baseUnit({ id: 'a1', faction: 'A', position: v2(500, 500) }),
+        baseUnit({ id: 'vip', faction: 'B', position: v2(700, 700) }),
+      ],
+      9,
+    );
+    const v = detectScenarioVictory(
+      s,
+      'assassinate',
+      { vipUnitId: 'vip', assassinateRoundLimit: 8 },
+      { A: 1, B: 1 },
+    );
+    expect(v.winner).toBe('B');
+  });
+});
+
 describe('extract', () => {
   it('extractCount A units on objective → A wins', () => {
     const s = stateWith(

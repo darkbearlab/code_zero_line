@@ -725,6 +725,28 @@ export class BattleScene extends Phaser.Scene {
     const arc = container.getByName('arc') as Phaser.GameObjects.Arc | null;
     if (!arc) return;
 
+    // VIP halo for assassinate scenario — always-visible yellow ring so the
+    // player can spot the priority target without selecting it.
+    const isVip =
+      this.missionScenario === 'assassinate' &&
+      this.missionParams.vipUnitId === u.id;
+    let vipRing = container.getByName('vip-ring') as
+      | Phaser.GameObjects.Graphics
+      | null;
+    if (isVip) {
+      if (!vipRing) {
+        vipRing = this.add.graphics();
+        vipRing.setName('vip-ring');
+        // Add behind arc so the unit's color still reads cleanly through.
+        container.addAt(vipRing, 0);
+      }
+      vipRing.clear();
+      vipRing.lineStyle(2.5, 0xffd166, 0.85);
+      vipRing.strokeCircle(0, 0, u.radius + 5);
+    } else if (vipRing) {
+      vipRing.destroy();
+    }
+
     const isSelected = this.selectedUnitId === u.id;
     const isActive =
       this.gameState.initiative.activeActivation?.unitId === u.id;
@@ -1423,6 +1445,21 @@ export class BattleScene extends Phaser.Scene {
         );
       }).length;
       return `⚑ 撤離 ${onObj}/${need}・剩 ${Math.max(0, limit - round + 1)} 回合`;
+    }
+    if (this.missionScenario === 'assassinate') {
+      const limit = this.missionParams.assassinateRoundLimit ?? 8;
+      const vipId = this.missionParams.vipUnitId;
+      const vip = vipId
+        ? this.gameState.units.find((u) => u.id === vipId)
+        : undefined;
+      const status = !vip
+        ? '✓'
+        : vip.damage === 'KILLED'
+          ? '✓'
+          : vip.damage === 'NONE'
+            ? '⬛'
+            : vip.damage; // IMPEDED / SUPPRESSED
+      return `⚑ 斬首目標 ${status}・剩 ${Math.max(0, limit - round + 1)} 回合`;
     }
     return null;
   }

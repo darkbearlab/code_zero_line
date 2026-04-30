@@ -193,21 +193,36 @@ const factionScore = (
     }
   }
 
-  // Scenario objective: each of our units inside an objective circle
-  // earns objectiveControlBonus. Units outside contribute nothing — the
-  // evaluator naturally pulls the AI toward the objective when this
-  // weight is non-zero and the map has objectives.
+  // Scenario objective: each of our units inside an objective circle earns
+  // objectiveControlBonus. Units OUTSIDE the marker still get a graded
+  // proximity pull that decays linearly to 0 at OBJECTIVE_PROXIMITY_RANGE
+  // — without the pull, lookahead at depth 2 can't see "move toward obj"
+  // as positive because a single 1-UD step doesn't yet enter the marker
+  // and the binary control bonus stays 0. With the pull, every step
+  // closer is rewarded, so the beam search actually walks units in.
   const objectives = state.objectives ?? [];
   if (objectives.length > 0 && weights.objectiveControlBonus !== 0) {
+    const proximityRange = UNIT_DISTANCE_PIXELS * 4;
+    const proximityMax = weights.objectiveControlBonus * 0.6;
     for (const u of ours) {
+      let bestContribution = 0;
+      let onObjective = false;
       for (const obj of objectives) {
         const dx = u.position.x - obj.position.x;
         const dy = u.position.y - obj.position.y;
-        if (dx * dx + dy * dy <= obj.radius * obj.radius) {
-          total += weights.objectiveControlBonus;
+        const dist = Math.hypot(dx, dy);
+        if (dist <= obj.radius) {
+          onObjective = true;
           break;
         }
+        const margin = dist - obj.radius;
+        if (margin <= proximityRange) {
+          const pull =
+            ((proximityRange - margin) / proximityRange) * proximityMax;
+          if (pull > bestContribution) bestContribution = pull;
+        }
       }
+      total += onObjective ? weights.objectiveControlBonus : bestContribution;
     }
   }
 

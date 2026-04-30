@@ -18,7 +18,12 @@
 import type { Faction, GameState } from '../state/GameState';
 import { isUnitAlive } from '../state/GameState';
 
-export type ScenarioMode = 'elimination' | 'engage-reach' | 'defend' | 'extract';
+export type ScenarioMode =
+  | 'elimination'
+  | 'engage-reach'
+  | 'defend'
+  | 'extract'
+  | 'assassinate';
 
 export type MatchEndReason =
   | 'ELIMINATED'
@@ -33,6 +38,10 @@ export interface ScenarioParams {
   readonly extractCount?: number;
   /** extract: round at which the clock runs out. Default 8. */
   readonly extractRoundLimit?: number;
+  /** assassinate: id of the enemy unit the player must kill. */
+  readonly vipUnitId?: string;
+  /** assassinate: round at which the clock runs out. Default 8. */
+  readonly assassinateRoundLimit?: number;
 }
 
 export interface VictoryResult {
@@ -67,6 +76,7 @@ export const factionUnitsOnObjective = (
 export const DEFEND_ROUNDS_DEFAULT = 5;
 export const EXTRACT_COUNT_DEFAULT = 2;
 export const EXTRACT_ROUND_LIMIT_DEFAULT = 8;
+export const ASSASSINATE_ROUND_LIMIT_DEFAULT = 8;
 
 export const detectScenarioVictory = (
   state: GameState,
@@ -118,6 +128,23 @@ export const detectScenarioVictory = (
     }
     if (state.initiative.round > roundLimit) {
       return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
+    }
+  }
+
+  if (scenario === 'assassinate') {
+    // Player wins by killing the named VIP. If params omit vipUnitId the
+    // mission is misconfigured and only ELIMINATED can resolve it; the
+    // helper falls through silently rather than crashing the sim.
+    const vipId = params.vipUnitId;
+    if (vipId) {
+      const vip = state.units.find((u) => u.id === vipId);
+      if (!vip || vip.damage === 'KILLED') {
+        return { winner: 'A', reason: 'OBJECTIVE_SECURED' };
+      }
+      const limit = params.assassinateRoundLimit ?? ASSASSINATE_ROUND_LIMIT_DEFAULT;
+      if (state.initiative.round > limit) {
+        return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
+      }
     }
   }
 

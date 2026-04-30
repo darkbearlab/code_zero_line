@@ -83,6 +83,28 @@ describe('evaluateState', () => {
     );
   });
 
+  it('moving toward the objective scores higher than standing far away', () => {
+    // Two snapshots of the same matchup; the only difference is unit A's
+    // position. A at (200, 0) is 200px from obj, A at (50, 0) is 50px →
+    // both outside the marker but the closer one earns more proximity pull.
+    const objAt = v2(0, 0);
+    const far = baseState([
+      makeUnit({ id: 'a1', faction: 'A', position: v2(200, 0) }),
+      makeUnit({ id: 'b1', faction: 'B', position: v2(700, 0) }),
+    ]);
+    const close = baseState([
+      makeUnit({ id: 'a1', faction: 'A', position: v2(50, 0) }),
+      makeUnit({ id: 'b1', faction: 'B', position: v2(700, 0) }),
+    ]);
+    const withObj = (s: GameState): GameState => ({
+      ...s,
+      objectives: [{ id: 'goal', position: objAt, radius: 30 }],
+    });
+    expect(evaluateState(withObj(close), 'A')).toBeGreaterThan(
+      evaluateState(withObj(far), 'A'),
+    );
+  });
+
   it('momentum advantage is positive', () => {
     const balanced = baseState([
       makeUnit({ id: 'a1', faction: 'A' }),

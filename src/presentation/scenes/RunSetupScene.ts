@@ -5,7 +5,8 @@
  */
 import Phaser from 'phaser';
 import { listUnitTemplates } from '../../config/loader';
-import { MISSION_LIBRARY_V1 } from '../../missions/library';
+import { getMissionById } from '../../missions/library';
+import { pickMissions } from '../../missions/pick';
 import { newRunState } from '../../runs/state';
 import type { RosterEntry } from '../../core/setup/types';
 
@@ -18,6 +19,13 @@ const PHASE1_SQUAD: ReadonlyArray<RosterEntry> = [
 
 export class RunSetupScene extends Phaser.Scene {
   private rootEl!: HTMLElement;
+  /**
+   * Per-instance run draft. The seed is fixed when the scene mounts so the
+   * mission preview matches what the player will actually fight if they
+   * click "出擊"; rerolling = reload the scene.
+   */
+  private runSeed!: string;
+  private missionIds!: ReadonlyArray<string>;
 
   constructor() {
     super({ key: 'RunSetup' });
@@ -25,6 +33,8 @@ export class RunSetupScene extends Phaser.Scene {
 
   create(): void {
     hideBattleHud();
+    this.runSeed = `run-${Date.now()}`;
+    this.missionIds = pickMissions(this.runSeed, 3);
     this.rootEl = this.makeRoot();
     this.events.once('shutdown', () => this.rootEl?.remove());
   }
@@ -45,7 +55,8 @@ export class RunSetupScene extends Phaser.Scene {
     `,
     ).join('');
 
-    const missionsHtml = MISSION_LIBRARY_V1.map(
+    const drafted = this.missionIds.map((id) => getMissionById(id));
+    const missionsHtml = drafted.map(
       (m, i) => `
       <li style="padding:8px 12px;background:rgba(20,30,20,0.4);border:1px solid #2a3a2a;display:flex;justify-content:space-between;align-items:center;">
         <span><strong>關 ${i + 1}</strong> — ${m.displayName}</span>
@@ -90,12 +101,7 @@ export class RunSetupScene extends Phaser.Scene {
       };
     root.querySelector<HTMLButtonElement>('[data-action="begin"]')!.onclick =
       () => {
-        const seed = `run-${Date.now()}`;
-        const run = newRunState(
-          seed,
-          PHASE1_SQUAD,
-          MISSION_LIBRARY_V1.map((m) => m.id),
-        );
+        const run = newRunState(this.runSeed, PHASE1_SQUAD, this.missionIds);
         this.rootEl.remove();
         this.scene.start('Battle', { runState: run });
       };
