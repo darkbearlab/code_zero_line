@@ -357,11 +357,19 @@ const processPostAction = (
     return turnover(cleared, 'ACTION_FAILED', TURNOVER_MOMENTUM_GRANT);
   }
 
-  // FORCED_END: action completed but activation ends without turnover (CRAWL,
-  // CLIMB). Distinct from `forcedTurnoverAfterAction` which DOES trigger
-  // turnover.
+  // FORCED_END: action completed but activation ends without turnover.
+  // Used by CRAWL (rule 4.5 — "該輪次不可再行動"), CLIMB (climb spec),
+  // and MOVE that started inside DIFFICULT terrain (rule 4.2C — "移動結束
+  // 後該單位這個主動權不得在進行任何行動"). All three lock the unit out
+  // for the rest of the round: activatedThisRound is already set by
+  // ACTIVATE_SPEND/CHECK; cannotReactThisRound is set here so the unit
+  // can't react-fire either. Distinct from `forcedTurnoverAfterAction`
+  // which DOES trigger turnover.
   if (outcome === 'FORCED_END') {
-    const cleared = setActivation(s, null);
+    const locked = updateUnit(s, act.unitId, {
+      cannotReactThisRound: true,
+    });
+    const cleared = setActivation(locked, null);
     return {
       state: cleared,
       events: [
