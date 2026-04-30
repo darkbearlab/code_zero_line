@@ -261,3 +261,24 @@ export const movementBlockingPolygons = (
   }
   return out;
 };
+
+/**
+ * Polygons whose edges end the move when crossed going OUT, given a mover
+ * starting at `fromPosition`. Currently only HIGH_GROUND platforms the
+ * mover is standing on — stepping off the edge consumes the action, so
+ * descending + advancing on the ground takes two separate moves.
+ * Symmetric framing to DIFFICULT's enter-stop rule.
+ */
+export const movementExitStopPolygons = (
+  terrains: ReadonlyArray<Terrain>,
+  fromPosition: Vec2,
+): Polygon[] => {
+  const out: Polygon[] = [];
+  for (const t of terrains) {
+    if (t.kind !== 'HIGH_GROUND') continue;
+    if (isPointInPolygon(fromPosition, t.polygon)) {
+      out.push(t.polygon);
+    }
+  }
+  return out;
+};

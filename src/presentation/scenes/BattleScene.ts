@@ -40,7 +40,13 @@ import { formatProfile } from '../../core/resolution/dice';
 import { listAvailableShootModes } from '../../core/resolution/shoot_modes';
 import { UNIT_DISTANCE_PIXELS } from '../../core/rules/constants';
 import type { GameState, Unit } from '../../core/state/GameState';
-import { getUnitCircle, isOnHighGround, isUnitAlive, movementBlockingPolygons } from '../../core/state/GameState';
+import {
+  getUnitCircle,
+  isOnHighGround,
+  isUnitAlive,
+  movementBlockingPolygons,
+  movementExitStopPolygons,
+} from '../../core/state/GameState';
 import timersConfig from '../../config/timers.json';
 import type {
   ActionRequest,
@@ -2315,6 +2321,7 @@ export class BattleScene extends Phaser.Scene {
     const enterStopPolygons = this.gameState.terrain
       .filter((t) => t.kind === 'DIFFICULT')
       .map((t) => t.polygon);
+    const exitStopPolygons = movementExitStopPolygons(this.gameState.terrain, u.position);
     const enemyCircles = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
@@ -2326,6 +2333,7 @@ export class BattleScene extends Phaser.Scene {
     const path = computeMovePath(u.position, effectiveTarget, {
       polygons: stoppingPolygons,
       enterStopPolygons,
+      exitStopPolygons,
       enemyCircles,
       friendlyCircles,
       moverRadius: u.radius,
@@ -2499,9 +2507,11 @@ export class BattleScene extends Phaser.Scene {
         )
         .map(getUnitCircle);
       const stoppingPolygons = movementBlockingPolygons(this.gameState.terrain, from);
+      const exitStopPolygons = movementExitStopPolygons(this.gameState.terrain, from);
       const path = computeMovePath(from, effective, {
         polygons: stoppingPolygons,
         enterStopPolygons,
+        exitStopPolygons,
         enemyCircles,
         friendlyCircles,
         moverRadius,

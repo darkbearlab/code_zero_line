@@ -27,6 +27,14 @@ export interface ObstacleSpec {
    * (the mover starts inside; the start-in cap is enforced separately).
    */
   readonly enterStopPolygons?: ReadonlyArray<Polygon>;
+  /**
+   * Polygons whose edges end the move when the mover crosses them going
+   * OUT (start inside, leaving the polygon). Used for HIGH_GROUND walk-off:
+   * stepping off the platform edge is the move's terminal action — to keep
+   * advancing on the ground below, the player must spend a fresh move.
+   * Mirrors `enterStopPolygons` but with the inverse start-position check.
+   */
+  readonly exitStopPolygons?: ReadonlyArray<Polygon>;
   readonly enemyCircles: ReadonlyArray<Circle>;
   /**
    * Friendly units. Pass-through during movement, but the *final* position
@@ -88,6 +96,21 @@ export const computeMovePath = (
   if (obs.enterStopPolygons) {
     for (const poly of obs.enterStopPolygons) {
       if (pointInPolygon(from, poly)) continue;
+      const tHit = segmentVsPolygonFirstHit(from, to, poly);
+      if (tHit !== null && tHit < bestT) {
+        bestT = tHit;
+        bestReason = 'OBSTACLE';
+      }
+    }
+  }
+
+  // High-ground walk-off: starting inside a HIGH_GROUND polygon, the move
+  // ends the moment the centre line first leaves the polygon. Symmetric
+  // to enterStopPolygons but with the inverse start-position guard, so
+  // movement entirely on top of the platform is unblocked.
+  if (obs.exitStopPolygons) {
+    for (const poly of obs.exitStopPolygons) {
+      if (!pointInPolygon(from, poly)) continue;
       const tHit = segmentVsPolygonFirstHit(from, to, poly);
       if (tHit !== null && tHit < bestT) {
         bestT = tHit;

@@ -63,4 +63,44 @@ describe('computeMovePath', () => {
     expect(r.stopReason).toBe('ENEMY');
     expect(r.endpoint.x).toBeLessThan(40);
   });
+
+  it('exitStopPolygons: walking off high ground ends the move at the edge', () => {
+    // Platform spans x ∈ [0, 100], y ∈ [-50, 50]. Mover starts inside at
+    // (50, 0), targets (200, 0). Should stop at x=100 (exit edge).
+    const platform = {
+      vertices: [v2(0, -50), v2(100, -50), v2(100, 50), v2(0, 50)],
+    };
+    const r = computeMovePath(v2(50, 0), v2(200, 0), {
+      polygons: [],
+      exitStopPolygons: [platform],
+      enemyCircles: [],
+      moverRadius: 10,
+    });
+    expect(r.stopReason).toBe('OBSTACLE');
+    expect(r.endpoint.x).toBeCloseTo(100, 1);
+    // Travel inside the polygon doesn't trigger the stop on its own — the
+    // edge crossing is what ends the move.
+    const inside = computeMovePath(v2(20, 0), v2(80, 0), {
+      polygons: [],
+      exitStopPolygons: [platform],
+      enemyCircles: [],
+      moverRadius: 10,
+    });
+    expect(inside.stopReason).toBe('TARGET');
+    expect(inside.endpoint.x).toBeCloseTo(80);
+  });
+
+  it('exitStopPolygons: a mover starting outside is not affected', () => {
+    const platform = {
+      vertices: [v2(0, -50), v2(100, -50), v2(100, 50), v2(0, 50)],
+    };
+    const r = computeMovePath(v2(-50, 0), v2(50, 0), {
+      polygons: [],
+      exitStopPolygons: [platform],
+      enemyCircles: [],
+      moverRadius: 10,
+    });
+    expect(r.stopReason).toBe('TARGET');
+    expect(r.endpoint.x).toBeCloseTo(50);
+  });
 });
