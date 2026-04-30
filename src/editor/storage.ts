@@ -1,10 +1,12 @@
 import type { Weapon } from '../core/state/GameState';
 import type { UnitTemplate } from '../config/loader';
 import type { EditorMapDoc } from '../config/mapDoc';
+import type { MissionDef } from '../missions/types';
 
 const WEAPON_KEY = 'czl.editor.weapons.v1';
 const TEMPLATE_KEY = 'czl.editor.templates.v1';
 const MAP_KEY = 'czl.editor.maps.v1';
+const MISSION_KEY = 'czl.editor.missions.v1';
 
 export interface CustomWeapon extends Weapon {
   /** Marker so future editor versions can migrate. */
@@ -80,8 +82,32 @@ export const removeCustomMap = (id: string): void => {
   saveCustomMaps(loadCustomMaps().filter((m) => m.id !== id));
 };
 
+export interface CustomMission extends MissionDef {
+  readonly _custom?: true;
+}
+
+export const loadCustomMissions = (): CustomMission[] =>
+  safeParse<CustomMission>(localStorage.getItem(MISSION_KEY));
+
+export const saveCustomMissions = (
+  list: ReadonlyArray<CustomMission>,
+): void => {
+  localStorage.setItem(MISSION_KEY, JSON.stringify(list));
+};
+
+export const upsertCustomMission = (m: CustomMission): void => {
+  const list = loadCustomMissions().filter((x) => x.id !== m.id);
+  list.push({ ...m, _custom: true });
+  saveCustomMissions(list);
+};
+
+export const removeCustomMission = (id: string): void => {
+  saveCustomMissions(loadCustomMissions().filter((m) => m.id !== id));
+};
+
 export const resetAllCustomData = (): void => {
   localStorage.removeItem(WEAPON_KEY);
   localStorage.removeItem(TEMPLATE_KEY);
   localStorage.removeItem(MAP_KEY);
+  localStorage.removeItem(MISSION_KEY);
 };
