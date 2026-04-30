@@ -112,6 +112,22 @@ const chooseActiveAction = (
   }
   if (bestShot && bestShot.ev >= 0.5) return bestShot.cmd;
 
+  // Objective-aware fallback: when no good shot is available, prefer
+  // pushing toward the nearest scenario objective (which is the contested
+  // zone in defend / extract / engage-reach). Already-on-objective units
+  // skip this branch so they don't trample their own foothold; they fall
+  // through to the nearest-enemy step. AIs without scenario objectives
+  // (sandbox / elimination) take the legacy nearest-enemy path directly.
+  const objStep = stepTowardNearestObjective(state, u);
+  if (objStep) {
+    return {
+      type: 'MOVE',
+      unitId: u.id,
+      target: objStep,
+      reactionPlan: { markers: [] },
+    };
+  }
+
   const nearest = nearestEnemy(state, u, faction);
   if (nearest) {
     const target = pathfindingStepToward(state, u.position, nearest.position, {
@@ -132,6 +148,40 @@ const chooseActiveAction = (
     };
   }
   return { type: 'END_ACTIVATION' };
+};
+
+/**
+ * Step one UD toward the nearest objective the unit is not already inside.
+ * Returns null when (a) no objectives exist, (b) the unit is on the nearest
+ * objective already, or (c) pathfinding can't make progress toward it. The
+ * caller falls through to the nearest-enemy heuristic in those cases.
+ */
+const stepTowardNearestObjective = (
+  state: GameState,
+  u: Unit,
+): { x: number; y: number } | null => {
+  const objs = state.objectives;
+  if (!objs || objs.length === 0) return null;
+  let best: { x: number; y: number; radius: number } | null = null;
+  let bestDist = Infinity;
+  for (const o of objs) {
+    const d = v2Dist(u.position, o.position);
+    if (d < bestDist) {
+      bestDist = d;
+      best = { x: o.position.x, y: o.position.y, radius: o.radius };
+    }
+  }
+  if (!best) return null;
+  // Already inside the marker — let the unit hold position and engage.
+  if (bestDist <= best.radius) return null;
+  const target = pathfindingStepToward(
+    state,
+    u.position,
+    { x: best.x, y: best.y },
+    { distance: UNIT_DISTANCE_PIXELS, stopShort: 0 },
+  );
+  if (v2Dist(target, u.position) < 1) return null;
+  return target;
 };
 
 const nearestEnemy = (

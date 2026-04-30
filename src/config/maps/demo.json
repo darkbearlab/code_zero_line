@@ -70,6 +70,76 @@
           { "x": 470, "y": 530 }
         ]
       }
+    },
+    {
+      "id": "central-bunker",
+      "kind": "HARD",
+      "height": 200,
+      "displayName": "中央碉堡",
+      "polygon": {
+        "vertices": [
+          { "x": 336, "y": 348 },
+          { "x": 432, "y": 348 },
+          { "x": 432, "y": 396 },
+          { "x": 336, "y": 396 }
+        ]
+      }
+    },
+    {
+      "id": "fwd-crate-b-left",
+      "kind": "HARD",
+      "height": 32,
+      "displayName": "板條箱",
+      "polygon": {
+        "vertices": [
+          { "x": 200, "y": 224 },
+          { "x": 260, "y": 224 },
+          { "x": 260, "y": 244 },
+          { "x": 200, "y": 244 }
+        ]
+      }
+    },
+    {
+      "id": "fwd-crate-b-right",
+      "kind": "HARD",
+      "height": 32,
+      "displayName": "板條箱",
+      "polygon": {
+        "vertices": [
+          { "x": 508, "y": 224 },
+          { "x": 568, "y": 224 },
+          { "x": 568, "y": 244 },
+          { "x": 508, "y": 244 }
+        ]
+      }
+    },
+    {
+      "id": "fwd-crate-a-left",
+      "kind": "HARD",
+      "height": 32,
+      "displayName": "板條箱",
+      "polygon": {
+        "vertices": [
+          { "x": 200, "y": 540 },
+          { "x": 260, "y": 540 },
+          { "x": 260, "y": 560 },
+          { "x": 200, "y": 560 }
+        ]
+      }
+    },
+    {
+      "id": "fwd-crate-a-right",
+      "kind": "HARD",
+      "height": 32,
+      "displayName": "板條箱",
+      "polygon": {
+        "vertices": [
+          { "x": 508, "y": 540 },
+          { "x": 568, "y": 540 },
+          { "x": 568, "y": 560 },
+          { "x": 508, "y": 560 }
+        ]
+      }
     }
   ],
   "deploymentZones": [

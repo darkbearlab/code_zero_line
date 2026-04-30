@@ -155,6 +155,69 @@ describe('chooseAiCommand', () => {
     expect(chooseAiCommand(s, 'A', 1)).toEqual({ type: 'END_ACTIVATION' });
   });
 
+  it('MOVEs toward nearest objective when no shot and obj is set', () => {
+    // Unit has no shot (threshold 7+ unhittable), enemy is to the EAST
+    // at (500, 0), objective is to the NORTH at (0, -300). With objective-
+    // aware fallback, AI prefers obj over nearest enemy.
+    const noShot: Weapon = { ...rifle, modes: ['ACTIVE'], threshold: 7 };
+    const s = baseState({
+      units: [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(0, 0), weapons: [noShot] }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(500, 0) }),
+      ],
+      objectives: [{ id: 'goal', position: v2(0, -300), radius: 30 }],
+      initiative: {
+        holder: 'A',
+        momentum: { A: 0, B: 0 },
+        round: 1,
+        activeActivation: {
+          unitId: 'a1',
+          kind: 'SPEND',
+          actionsRemaining: 1,
+          failureProtection: true,
+          forcedTurnoverAfterAction: false,
+        },
+      },
+    });
+    const cmd = chooseAiCommand(s, 'A');
+    expect(cmd?.type).toBe('MOVE');
+    if (cmd?.type === 'MOVE') {
+      // Should head north (negative y) toward the objective, not east toward
+      // the nearest enemy.
+      expect(cmd.target.y).toBeLessThan(0);
+    }
+  });
+
+  it('on-objective unit falls through to nearest-enemy MOVE', () => {
+    // Unit is sitting on the objective — should not spin in place; should
+    // step toward the enemy as the legacy fallback.
+    const noShot: Weapon = { ...rifle, modes: ['ACTIVE'], threshold: 7 };
+    const s = baseState({
+      units: [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(0, 0), weapons: [noShot] }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(500, 0) }),
+      ],
+      objectives: [{ id: 'goal', position: v2(0, 0), radius: 50 }],
+      initiative: {
+        holder: 'A',
+        momentum: { A: 0, B: 0 },
+        round: 1,
+        activeActivation: {
+          unitId: 'a1',
+          kind: 'SPEND',
+          actionsRemaining: 1,
+          failureProtection: true,
+          forcedTurnoverAfterAction: false,
+        },
+      },
+    });
+    const cmd = chooseAiCommand(s, 'A');
+    expect(cmd?.type).toBe('MOVE');
+    if (cmd?.type === 'MOVE') {
+      expect(cmd.target.x).toBeGreaterThan(0); // toward enemy
+    }
+  });
+
   it('RALLYs when active unit is suppressed', () => {
     const s = baseState({
       units: [makeUnit({ id: 'a1', faction: 'A', damage: 'SUPPRESSED' })],
