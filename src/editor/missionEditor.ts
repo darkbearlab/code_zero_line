@@ -10,11 +10,13 @@
  * override; "Revert to bundled" peels it back.
  */
 import {
+  getMap,
   listBundledMaps,
   listBundledMissionDefs,
   listMissionDefs,
   listUnitTemplates,
 } from '../config/loader';
+import type { MapDef } from '../core/setup/types';
 import type { MissionDef } from '../missions/types';
 import type { ScenarioMode } from '../core/scenario/victory';
 import type { Vec2 } from '../core/geometry/types';
@@ -299,6 +301,17 @@ export const mountMissionEditor = (root: HTMLElement): void => {
     const isBundled = listBundledMissionDefs().some((x) => x.id === m.id);
     const overrideExists = isCustom(m.id);
 
+    // Reactive redraw hook — assigned for real when the canvas is built
+    // below. Subform mutation handlers (renderEnemies / renderSpawns /
+    // renderObjectives, plus numeric x/y inputs) call it so the preview
+    // stays in sync with the form.
+    let redrawCanvas: () => void = () => {};
+    type CanvasTool = 'select' | 'enemy' | 'spawn' | 'objective' | 'delete';
+    let activeCanvasTool: CanvasTool = 'select';
+    let canvasSelected:
+      | { kind: 'enemy' | 'spawn' | 'objective'; index: number }
+      | null = null;
+
     const idInput = el('input', {
       type: 'text',
       value: draft.id,
@@ -337,6 +350,7 @@ export const mountMissionEditor = (root: HTMLElement): void => {
     }
     mapSelect.addEventListener('change', () => {
       draft.mapId = mapSelect.value;
+      redrawCanvas();
     });
 
     const factionSelect = el('select') as HTMLSelectElement;
@@ -503,7 +517,10 @@ export const mountMissionEditor = (root: HTMLElement): void => {
         }) as HTMLInputElement;
         xInp.addEventListener('input', () => {
           const n = Number(xInp.value);
-          if (Number.isFinite(n)) e.position = { x: n, y: e.position.y };
+          if (Number.isFinite(n)) {
+            e.position = { x: n, y: e.position.y };
+            redrawCanvas();
+          }
         });
         const yInp = el('input', {
           type: 'number',
@@ -512,14 +529,20 @@ export const mountMissionEditor = (root: HTMLElement): void => {
         }) as HTMLInputElement;
         yInp.addEventListener('input', () => {
           const n = Number(yInp.value);
-          if (Number.isFinite(n)) e.position = { x: e.position.x, y: n };
+          if (Number.isFinite(n)) {
+            e.position = { x: e.position.x, y: n };
+            redrawCanvas();
+          }
         });
         const delBtn = el('button', {
           text: '−',
           onclick: () => {
             draft.enemies.splice(idx, 1);
+            if (canvasSelected?.kind === 'enemy' && canvasSelected.index === idx)
+              canvasSelected = null;
             renderEnemies();
             renderScenarioParams(); // refresh VIP dropdown
+            redrawCanvas();
           },
         });
         const row = el('div', {
@@ -548,6 +571,7 @@ export const mountMissionEditor = (root: HTMLElement): void => {
           });
           renderEnemies();
           renderScenarioParams();
+          redrawCanvas();
         },
       });
       enemyBox.appendChild(addBtn);
@@ -566,7 +590,10 @@ export const mountMissionEditor = (root: HTMLElement): void => {
         }) as HTMLInputElement;
         xInp.addEventListener('input', () => {
           const n = Number(xInp.value);
-          if (Number.isFinite(n)) draft.playerSpawnPositions[idx] = { x: n, y: p.y };
+          if (Number.isFinite(n)) {
+            draft.playerSpawnPositions[idx] = { x: n, y: p.y };
+            redrawCanvas();
+          }
         });
         const yInp = el('input', {
           type: 'number',
@@ -575,13 +602,19 @@ export const mountMissionEditor = (root: HTMLElement): void => {
         }) as HTMLInputElement;
         yInp.addEventListener('input', () => {
           const n = Number(yInp.value);
-          if (Number.isFinite(n)) draft.playerSpawnPositions[idx] = { x: p.x, y: n };
+          if (Number.isFinite(n)) {
+            draft.playerSpawnPositions[idx] = { x: p.x, y: n };
+            redrawCanvas();
+          }
         });
         const delBtn = el('button', {
           text: '−',
           onclick: () => {
             draft.playerSpawnPositions.splice(idx, 1);
+            if (canvasSelected?.kind === 'spawn' && canvasSelected.index === idx)
+              canvasSelected = null;
             renderSpawns();
+            redrawCanvas();
           },
         });
         spawnBox.appendChild(
@@ -603,6 +636,7 @@ export const mountMissionEditor = (root: HTMLElement): void => {
         onclick: () => {
           draft.playerSpawnPositions.push({ x: 100, y: 600 });
           renderSpawns();
+          redrawCanvas();
         },
       });
       spawnBox.appendChild(addBtn);
@@ -629,7 +663,10 @@ export const mountMissionEditor = (root: HTMLElement): void => {
         }) as HTMLInputElement;
         xInp.addEventListener('input', () => {
           const n = Number(xInp.value);
-          if (Number.isFinite(n)) o.position = { x: n, y: o.position.y };
+          if (Number.isFinite(n)) {
+            o.position = { x: n, y: o.position.y };
+            redrawCanvas();
+          }
         });
         const yInp = el('input', {
           type: 'number',
@@ -638,7 +675,10 @@ export const mountMissionEditor = (root: HTMLElement): void => {
         }) as HTMLInputElement;
         yInp.addEventListener('input', () => {
           const n = Number(yInp.value);
-          if (Number.isFinite(n)) o.position = { x: o.position.x, y: n };
+          if (Number.isFinite(n)) {
+            o.position = { x: o.position.x, y: n };
+            redrawCanvas();
+          }
         });
         const rInp = el('input', {
           type: 'number',
@@ -647,7 +687,10 @@ export const mountMissionEditor = (root: HTMLElement): void => {
         }) as HTMLInputElement;
         rInp.addEventListener('input', () => {
           const n = Number(rInp.value);
-          if (Number.isFinite(n)) o.radius = n;
+          if (Number.isFinite(n)) {
+            o.radius = n;
+            redrawCanvas();
+          }
         });
         const nInp = el('input', {
           type: 'text',
@@ -662,7 +705,10 @@ export const mountMissionEditor = (root: HTMLElement): void => {
           text: '−',
           onclick: () => {
             draft.objectives.splice(idx, 1);
+            if (canvasSelected?.kind === 'objective' && canvasSelected.index === idx)
+              canvasSelected = null;
             renderObjectives();
+            redrawCanvas();
           },
         });
         objBox.appendChild(
@@ -692,6 +738,7 @@ export const mountMissionEditor = (root: HTMLElement): void => {
             radius: 36,
           });
           renderObjectives();
+          redrawCanvas();
         },
       });
       objBox.appendChild(addBtn);
@@ -749,6 +796,418 @@ export const mountMissionEditor = (root: HTMLElement): void => {
           }),
         ],
       });
+
+    // ── Map preview canvas ─────────────────────────────────────────────
+    const CANVAS_PX = 480;
+    const canvas = el('canvas') as HTMLCanvasElement;
+    canvas.width = CANVAS_PX;
+    canvas.height = CANVAS_PX;
+    canvas.style.cursor = 'crosshair';
+    canvas.style.border = '1px solid #2a3a2a';
+    canvas.style.background = '#0e120e';
+
+    const TOOL_LIST: ReadonlyArray<CanvasTool> = [
+      'select',
+      'enemy',
+      'spawn',
+      'objective',
+      'delete',
+    ];
+    const TOOL_LABELS: Record<CanvasTool, string> = {
+      select: 'Select',
+      enemy: '+ Enemy',
+      spawn: '+ Spawn',
+      objective: '+ Objective',
+      delete: 'Delete',
+    };
+    const toolBar = el('div', {
+      style: { display: 'flex', gap: '6px', marginBottom: '6px' },
+    });
+    const toolButtons: HTMLButtonElement[] = [];
+    for (const t of TOOL_LIST) {
+      const b = el('button', {
+        text: TOOL_LABELS[t],
+        onclick: () => {
+          activeCanvasTool = t;
+          for (let i = 0; i < TOOL_LIST.length; i++) {
+            toolButtons[i]!.style.background =
+              TOOL_LIST[i] === t ? '#2a4a2a' : '';
+          }
+          canvas.style.cursor =
+            t === 'select' ? 'pointer' : t === 'delete' ? 'not-allowed' : 'crosshair';
+        },
+      }) as HTMLButtonElement;
+      if (t === activeCanvasTool) b.style.background = '#2a4a2a';
+      toolBar.appendChild(b);
+      toolButtons.push(b);
+    }
+
+    const TERRAIN_FILL: Record<string, string> = {
+      HARD: 'rgba(220,220,220,0.85)',
+      LOW: 'rgba(180,180,180,0.55)',
+      BLOCKER: 'rgba(50,50,50,0.95)',
+      HIGH_GROUND: 'rgba(120,90,60,0.55)',
+      DIFFICULT: 'rgba(160,120,70,0.45)',
+      SOFT: 'rgba(220,220,220,0.25)',
+    };
+    const TERRAIN_STROKE: Record<string, string> = {
+      HARD: '#dcdcdc',
+      LOW: '#9aa89a',
+      BLOCKER: '#000000',
+      HIGH_GROUND: '#d8a76a',
+      DIFFICULT: '#b8884a',
+      SOFT: '#cfcfcf',
+    };
+
+    const getMapSafe = (id: string): MapDef | null => {
+      try {
+        return getMap(id);
+      } catch {
+        return null;
+      }
+    };
+
+    redrawCanvas = (): void => {
+      const ctx = canvas.getContext('2d')!;
+      const mapDef = getMapSafe(draft.mapId);
+      const mapSize = mapDef?.size ?? 768;
+      const scale = CANVAS_PX / mapSize;
+
+      ctx.clearRect(0, 0, CANVAS_PX, CANVAS_PX);
+      ctx.save();
+      ctx.scale(scale, scale);
+
+      // Background grid (1 UD = 96px)
+      ctx.fillStyle = '#0e120e';
+      ctx.fillRect(0, 0, mapSize, mapSize);
+      ctx.strokeStyle = '#1a221a';
+      ctx.lineWidth = 1 / scale;
+      for (let i = 0; i <= mapSize; i += 96) {
+        ctx.beginPath();
+        ctx.moveTo(i, 0);
+        ctx.lineTo(i, mapSize);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0, i);
+        ctx.lineTo(mapSize, i);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = '#2a3a2a';
+      ctx.lineWidth = 2 / scale;
+      ctx.strokeRect(0, 0, mapSize, mapSize);
+
+      // Terrain polygons
+      if (mapDef) {
+        for (const t of mapDef.terrain) {
+          const verts = t.polygon.vertices;
+          if (verts.length < 3) continue;
+          ctx.fillStyle = TERRAIN_FILL[t.kind] ?? 'rgba(180,180,180,0.4)';
+          ctx.strokeStyle = TERRAIN_STROKE[t.kind] ?? '#9aa89a';
+          ctx.lineWidth = 1.5 / scale;
+          ctx.beginPath();
+          ctx.moveTo(verts[0]!.x, verts[0]!.y);
+          for (let i = 1; i < verts.length; i++) {
+            ctx.lineTo(verts[i]!.x, verts[i]!.y);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+
+        // Deployment zones (faint)
+        for (const z of mapDef.deploymentZones) {
+          const verts = z.polygon.vertices;
+          if (verts.length < 3) continue;
+          ctx.fillStyle =
+            z.faction === 'A'
+              ? 'rgba(74,138,207,0.10)'
+              : 'rgba(207,90,74,0.10)';
+          ctx.strokeStyle =
+            z.faction === 'A' ? 'rgba(106,176,255,0.5)' : 'rgba(255,138,106,0.5)';
+          ctx.lineWidth = 1 / scale;
+          ctx.beginPath();
+          ctx.moveTo(verts[0]!.x, verts[0]!.y);
+          for (let i = 1; i < verts.length; i++) {
+            ctx.lineTo(verts[i]!.x, verts[i]!.y);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+
+        // Map-level objectives (read-only background) shown if mission
+        // has none of its own — same logic the engine uses.
+        if (draft.objectives.length === 0 && mapDef.objectives) {
+          for (const o of mapDef.objectives) {
+            ctx.fillStyle = 'rgba(255,209,102,0.10)';
+            ctx.strokeStyle = '#ffd166';
+            ctx.lineWidth = 1 / scale;
+            ctx.beginPath();
+            ctx.arc(o.position.x, o.position.y, o.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
+        }
+      } else {
+        ctx.fillStyle = '#5a3a3a';
+        ctx.font = `${24 / scale}px monospace`;
+        ctx.fillText(`(map '${draft.mapId}' not found)`, 20, 40);
+      }
+
+      // Mission objectives (yellow filled circles)
+      draft.objectives.forEach((o, idx) => {
+        const sel =
+          canvasSelected?.kind === 'objective' && canvasSelected.index === idx;
+        ctx.fillStyle = 'rgba(255,209,102,0.18)';
+        ctx.strokeStyle = sel ? '#ffffff' : '#ffd166';
+        ctx.lineWidth = (sel ? 2.5 : 1.5) / scale;
+        ctx.beginPath();
+        ctx.arc(o.position.x, o.position.y, o.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        // Center marker
+        ctx.fillStyle = '#ffd166';
+        ctx.beginPath();
+        ctx.arc(o.position.x, o.position.y, 3 / scale, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Player spawns (blue diamonds, numbered)
+      draft.playerSpawnPositions.forEach((p, idx) => {
+        const sel =
+          canvasSelected?.kind === 'spawn' && canvasSelected.index === idx;
+        ctx.fillStyle = 'rgba(74,138,207,0.85)';
+        ctx.strokeStyle = sel ? '#ffffff' : '#cfe8ff';
+        ctx.lineWidth = (sel ? 2.5 : 1.5) / scale;
+        ctx.beginPath();
+        const r = 9;
+        ctx.moveTo(p.x, p.y - r);
+        ctx.lineTo(p.x + r, p.y);
+        ctx.lineTo(p.x, p.y + r);
+        ctx.lineTo(p.x - r, p.y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `${10 / scale}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText(String(idx + 1), p.x, p.y + 3 / scale);
+        ctx.textAlign = 'start';
+      });
+
+      // Enemies (red dots with id labels; VIP gets a halo)
+      const vipId = draft.scenarioParams.vipUnitId as string | undefined;
+      draft.enemies.forEach((e, idx) => {
+        const sel =
+          canvasSelected?.kind === 'enemy' && canvasSelected.index === idx;
+        const isVip = e.id === vipId;
+        if (isVip) {
+          ctx.strokeStyle = '#ffd166';
+          ctx.lineWidth = 2 / scale;
+          ctx.beginPath();
+          ctx.arc(e.position.x, e.position.y, 14, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        ctx.fillStyle = 'rgba(207,90,74,0.95)';
+        ctx.strokeStyle = sel ? '#ffffff' : '#ffcfcf';
+        ctx.lineWidth = (sel ? 2.5 : 1.5) / scale;
+        ctx.beginPath();
+        ctx.arc(e.position.x, e.position.y, 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = `${9 / scale}px monospace`;
+        ctx.fillText(e.id, e.position.x + 12, e.position.y + 3);
+      });
+
+      ctx.restore();
+    };
+
+    // ── Canvas pointer interaction ─────────────────────────────────────
+    const toWorld = (
+      clientX: number,
+      clientY: number,
+    ): Vec2 => {
+      const rect = canvas.getBoundingClientRect();
+      const px = clientX - rect.left;
+      const py = clientY - rect.top;
+      const mapDef = getMapSafe(draft.mapId);
+      const mapSize = mapDef?.size ?? 768;
+      const scale = CANVAS_PX / mapSize;
+      return { x: px / scale, y: py / scale };
+    };
+
+    const hitTest = (
+      wp: Vec2,
+    ): { kind: 'enemy' | 'spawn' | 'objective'; index: number } | null => {
+      // Enemies first (smallest), then spawns (diamond ~9px), then objectives (largest).
+      for (let i = draft.enemies.length - 1; i >= 0; i--) {
+        const e = draft.enemies[i]!;
+        const dx = wp.x - e.position.x;
+        const dy = wp.y - e.position.y;
+        if (dx * dx + dy * dy <= 12 * 12) return { kind: 'enemy', index: i };
+      }
+      for (let i = draft.playerSpawnPositions.length - 1; i >= 0; i--) {
+        const p = draft.playerSpawnPositions[i]!;
+        const dx = wp.x - p.x;
+        const dy = wp.y - p.y;
+        if (dx * dx + dy * dy <= 12 * 12) return { kind: 'spawn', index: i };
+      }
+      for (let i = draft.objectives.length - 1; i >= 0; i--) {
+        const o = draft.objectives[i]!;
+        const dx = wp.x - o.position.x;
+        const dy = wp.y - o.position.y;
+        if (dx * dx + dy * dy <= o.radius * o.radius) {
+          return { kind: 'objective', index: i };
+        }
+      }
+      return null;
+    };
+
+    let dragging:
+      | { kind: 'enemy' | 'spawn' | 'objective'; index: number; offX: number; offY: number }
+      | null = null;
+
+    const onPointerDown = (e: PointerEvent): void => {
+      const wp = toWorld(e.clientX, e.clientY);
+      canvas.setPointerCapture(e.pointerId);
+
+      if (activeCanvasTool === 'select') {
+        const hit = hitTest(wp);
+        if (hit) {
+          canvasSelected = hit;
+          let pos: Vec2;
+          if (hit.kind === 'enemy') pos = draft.enemies[hit.index]!.position;
+          else if (hit.kind === 'spawn')
+            pos = draft.playerSpawnPositions[hit.index]!;
+          else pos = draft.objectives[hit.index]!.position;
+          dragging = {
+            kind: hit.kind,
+            index: hit.index,
+            offX: wp.x - pos.x,
+            offY: wp.y - pos.y,
+          };
+          redrawCanvas();
+        } else {
+          canvasSelected = null;
+          redrawCanvas();
+        }
+      } else if (activeCanvasTool === 'delete') {
+        const hit = hitTest(wp);
+        if (!hit) return;
+        if (hit.kind === 'enemy') draft.enemies.splice(hit.index, 1);
+        else if (hit.kind === 'spawn')
+          draft.playerSpawnPositions.splice(hit.index, 1);
+        else draft.objectives.splice(hit.index, 1);
+        canvasSelected = null;
+        renderEnemies();
+        renderSpawns();
+        renderObjectives();
+        renderScenarioParams();
+        redrawCanvas();
+      } else if (activeCanvasTool === 'enemy') {
+        const tpls = listUnitTemplates();
+        const newId = `e${draft.enemies.length + 1}`;
+        draft.enemies.push({
+          id: newId,
+          templateId: tpls[0]?.templateId ?? '',
+          position: { x: Math.round(wp.x), y: Math.round(wp.y) },
+        });
+        canvasSelected = { kind: 'enemy', index: draft.enemies.length - 1 };
+        dragging = {
+          kind: 'enemy',
+          index: draft.enemies.length - 1,
+          offX: 0,
+          offY: 0,
+        };
+        renderEnemies();
+        renderScenarioParams();
+        redrawCanvas();
+      } else if (activeCanvasTool === 'spawn') {
+        draft.playerSpawnPositions.push({
+          x: Math.round(wp.x),
+          y: Math.round(wp.y),
+        });
+        canvasSelected = {
+          kind: 'spawn',
+          index: draft.playerSpawnPositions.length - 1,
+        };
+        dragging = {
+          kind: 'spawn',
+          index: draft.playerSpawnPositions.length - 1,
+          offX: 0,
+          offY: 0,
+        };
+        renderSpawns();
+        redrawCanvas();
+      } else if (activeCanvasTool === 'objective') {
+        draft.objectives.push({
+          id: `obj-${draft.objectives.length + 1}`,
+          position: { x: Math.round(wp.x), y: Math.round(wp.y) },
+          radius: 36,
+        });
+        canvasSelected = {
+          kind: 'objective',
+          index: draft.objectives.length - 1,
+        };
+        dragging = {
+          kind: 'objective',
+          index: draft.objectives.length - 1,
+          offX: 0,
+          offY: 0,
+        };
+        renderObjectives();
+        redrawCanvas();
+      }
+    };
+
+    const onPointerMove = (e: PointerEvent): void => {
+      if (!dragging) return;
+      const wp = toWorld(e.clientX, e.clientY);
+      const newPos = {
+        x: Math.round(wp.x - dragging.offX),
+        y: Math.round(wp.y - dragging.offY),
+      };
+      if (dragging.kind === 'enemy') {
+        draft.enemies[dragging.index]!.position = newPos;
+      } else if (dragging.kind === 'spawn') {
+        draft.playerSpawnPositions[dragging.index] = newPos;
+      } else {
+        draft.objectives[dragging.index]!.position = newPos;
+      }
+      redrawCanvas();
+    };
+
+    const onPointerUp = (e: PointerEvent): void => {
+      if (!dragging) return;
+      canvas.releasePointerCapture(e.pointerId);
+      // Reflect the new position into the form inputs.
+      if (dragging.kind === 'enemy') renderEnemies();
+      else if (dragging.kind === 'spawn') renderSpawns();
+      else renderObjectives();
+      dragging = null;
+    };
+
+    canvas.addEventListener('pointerdown', onPointerDown);
+    canvas.addEventListener('pointermove', onPointerMove);
+    canvas.addEventListener('pointerup', onPointerUp);
+    canvas.addEventListener('pointercancel', onPointerUp);
+
+    const canvasSection = el('div', {
+      style: { marginBottom: '12px' },
+      children: [
+        toolBar,
+        canvas,
+        el('div', {
+          className: 'help',
+          text:
+            'Pick a tool, then click on the map. Select+drag moves an item. Delete removes the item under the cursor.',
+          style: { marginTop: '4px', color: '#7a9a7a', fontSize: '11px' },
+        }),
+      ],
+    });
+    formPanel.appendChild(canvasSection);
+    redrawCanvas();
 
     formPanel.appendChild(
       row(
