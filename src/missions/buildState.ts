@@ -23,6 +23,7 @@ import {
   initialMomentumBonus,
   poolQualityBonus,
 } from '../campaign/upgrades';
+import { veteranAdjustedQuality } from '../campaign/veteran';
 import type { MissionDef } from './types';
 
 export interface MissionBuildOptions {
@@ -156,6 +157,10 @@ export const buildMissionState = (
   const runBoons = opts.runBoons ?? [];
   const upgradeLevels = run.upgradeLevels ?? {};
   const qualityReduction = poolQualityBonus(upgradeLevels);
+  // RosterEntry.id → sortie count, for veteran auto-growth (§6.3).
+  const sortiesById = new Map(
+    run.squad.map((e) => [e.id, e.sorties ?? 0] as const),
+  );
   const playerUnits = baseState.units
     .filter((u) => u.faction === 'A')
     .map((u) => {
@@ -166,12 +171,17 @@ export const buildMissionState = (
         if (carriedDamage === 'SUPPRESSED') next = { ...next, stance: 'PRONE' };
       }
       next = applyBoonsToUnit(next, oneShotBoons, runBoons);
-      // Pool-quality upgrade lowers the threshold (better unit). Min 1+.
-      if (qualityReduction > 0) {
-        next = {
-          ...next,
-          quality: Math.max(1, next.quality - qualityReduction),
-        };
+      // Veteran auto-growth first (caps at quality 3+), pool upgrade
+      // stacks on top (can pierce that floor down to 1+).
+      const veteranQ = veteranAdjustedQuality(
+        next.quality,
+        sortiesById.get(u.id) ?? 0,
+      );
+      const finalQ = qualityReduction > 0
+        ? Math.max(1, veteranQ - qualityReduction)
+        : veteranQ;
+      if (finalQ !== next.quality) {
+        next = { ...next, quality: finalQ };
       }
       return next;
     });

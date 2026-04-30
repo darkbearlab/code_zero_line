@@ -21,6 +21,7 @@ import {
 import { loadCampaign, saveCampaign } from '../../campaign/persist';
 import { newRoundState, type RoundState } from '../../rounds/state';
 import { resolveUnpickedOptions } from '../../rounds/autoResolve';
+import { veteranAdjustedQuality } from '../../campaign/veteran';
 
 const SCENARIO_LABEL: Readonly<Record<string, string>> = {
   'engage-reach': '攻佔目標',
@@ -82,9 +83,19 @@ export class RoundSetupScene extends Phaser.Scene {
           .map((id) => {
             const member = this.campaign.pool.find((u) => u.id === id);
             const tpl = member ? member.templateId : id;
+            const baseQ = tplQuality(tpl);
+            const sorties = member?.sorties ?? 0;
+            const effQ = veteranAdjustedQuality(baseQ, sorties);
+            const veteranBadge = sorties >= 1
+              ? `<span style="color:#f0d090;margin-left:4px;" title="出擊 ${sorties} 次">★</span>`
+              : '';
+            const qHtml = effQ === baseQ
+              ? `<span style="color:#9aa89a;">q${baseQ}+</span>`
+              : `<span style="color:#7a8a7a;text-decoration:line-through;">q${baseQ}+</span>
+                 <span style="color:#f0d090;font-weight:bold;margin-left:2px;">q${effQ}+</span>`;
             return `<li style="padding:3px 0;font-size:11px;color:#cfe8cf;">
               <span style="color:#7aa87a;">${id}</span> — ${tplName(tpl)}
-              <span style="color:#9aa89a;">q${tplQuality(tpl)}+</span>
+              ${qHtml}${veteranBadge}
             </li>`;
           })
           .join('');

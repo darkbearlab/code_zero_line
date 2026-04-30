@@ -16,6 +16,7 @@ import {
 import { type CampaignState } from '../../campaign/state';
 import { POOL_TARGET, ROLE_TARGETS } from '../../campaign/recruit';
 import { loadCampaign } from '../../campaign/persist';
+import { veteranAdjustedQuality } from '../../campaign/veteran';
 
 const ROLE_BADGE: Readonly<Record<RecruitRole, string>> = {
   officer: 'O',
@@ -103,13 +104,19 @@ export class MetaScene extends Phaser.Scene {
         const rowBorder = veteran ? '#7a6a3a' : '#2a3a2a';
         const tplName = tpl?.displayName ?? e.templateId;
         const quality = tpl?.quality ?? 4;
+        // 老兵自動成長：sortie 3 次 → 素質 -1，最多到 q3+（design §6.3）。
+        const effectiveQ = veteranAdjustedQuality(quality, sorties);
+        const qualityHtml = effectiveQ === quality
+          ? `<span style="color:#7a8a7a;margin-left:6px;font-size:10px;">q${quality}+</span>`
+          : `<span style="color:#7a8a7a;margin-left:6px;font-size:10px;text-decoration:line-through;">q${quality}+</span>
+             <span style="color:#f0d090;margin-left:4px;font-size:10px;font-weight:bold;">q${effectiveQ}+</span>`;
         return `
           <li style="padding:7px 12px;background:${rowBg};border:1px solid ${rowBorder};display:grid;grid-template-columns:auto 1fr auto auto;gap:12px;align-items:center;font-size:12px;">
             <span style="color:${starColor};width:16px;text-align:center;">${star}</span>
             <span>
               <span style="color:#cfe8cf;">${e.id}</span>
               <span style="color:#7a9a7a;margin-left:8px;">${tplName}</span>
-              <span style="color:#7a8a7a;margin-left:6px;font-size:10px;">q${quality}+</span>
+              ${qualityHtml}
             </span>
             <span title="${ROLE_LABEL[role]}" style="font-weight:bold;color:${ROLE_COLOR[role]};font-size:11px;">[${ROLE_BADGE[role]}]</span>
             <span style="color:${veteran ? '#f0d090' : '#7a9a7a'};font-size:11px;min-width:62px;text-align:right;">出擊 ${sorties}</span>
@@ -147,7 +154,7 @@ export class MetaScene extends Phaser.Scene {
             ${rowsHtml}
           </ul>
           <div style="margin-top:8px;color:#7a9a7a;font-size:10px;">
-            ★ = 老兵(出擊 ≥ 1)。出擊次數會在後續階段觸發自動素質提升(design §6.3)。
+            ★ = 老兵(出擊 ≥ 1)。每 3 次出擊自動素質 +1 (design §6.3),封頂 q3+。
           </div>
         </div>
       </div>
