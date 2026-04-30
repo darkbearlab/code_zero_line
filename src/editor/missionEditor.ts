@@ -33,7 +33,7 @@ interface MutableObjective {
   displayName?: string;
 }
 import { el } from './dom';
-import { downloadJson, pickJsonFile, timestampForFilename } from './io';
+import { downloadJson, pickJsonFile, saveToBundleEndpoint, timestampForFilename } from './io';
 import {
   loadCustomMissions,
   removeCustomMission,
@@ -51,6 +51,7 @@ interface MissionDraft {
   enemies: MutableEnemySpawn[];
   playerSpawnPositions: Vec2[];
   enemyFaction: 'A' | 'B';
+  includeInCampaignPool: boolean;
 }
 
 const SCENARIOS: ScenarioMode[] = [
@@ -75,6 +76,7 @@ const toDraft = (m: MissionDef): MissionDraft => ({
   enemies: m.enemies.map((e) => ({ ...e, position: { ...e.position } })),
   playerSpawnPositions: m.playerSpawnPositions.map((p) => ({ ...p })),
   enemyFaction: m.enemyFaction,
+  includeInCampaignPool: m.includeInCampaignPool !== false,
 });
 
 const fromDraft = (d: MissionDraft): MissionDef => {
@@ -95,6 +97,11 @@ const fromDraft = (d: MissionDraft): MissionDef => {
     })),
     enemyFaction: d.enemyFaction,
   };
+  // Only emit the flag when off, so existing JSON files stay tidy and
+  // implicit-default = in pool. Loader / picker treat undefined as true.
+  if (d.includeInCampaignPool === false) {
+    out.includeInCampaignPool = false;
+  }
   if (Object.keys(d.scenarioParams).length > 0) {
     out.scenarioParams = { ...d.scenarioParams };
   }
@@ -268,6 +275,9 @@ export const mountMissionEditor = (root: HTMLElement): void => {
           ...(isBundledOnly
             ? [el('span', { className: 'badge', text: 'bundled' })]
             : []),
+          ...(m.includeInCampaignPool === false
+            ? [el('span', { className: 'badge', text: 'not in pool' })]
+            : []),
         ],
       });
       const meta = el('div', {
@@ -361,6 +371,26 @@ export const mountMissionEditor = (root: HTMLElement): void => {
     }
     factionSelect.addEventListener('change', () => {
       draft.enemyFaction = factionSelect.value as 'A' | 'B';
+    });
+
+    const poolCheckbox = el('input', {
+      type: 'checkbox',
+    }) as HTMLInputElement;
+    poolCheckbox.checked = draft.includeInCampaignPool;
+    poolCheckbox.addEventListener('change', () => {
+      draft.includeInCampaignPool = poolCheckbox.checked;
+      // Re-render list so the "not in pool" badge updates while editing.
+      renderList();
+    });
+    const poolWrap = el('div', {
+      style: { display: 'flex', alignItems: 'center', gap: '6px' },
+      children: [
+        poolCheckbox,
+        el('span', {
+          text: 'Include this mission in the random campaign pool',
+          style: { fontSize: '12px' },
+        }),
+      ],
     });
 
     // Scenario radio + dynamic params block ------------------------------
@@ -1220,6 +1250,7 @@ export const mountMissionEditor = (root: HTMLElement): void => {
     formPanel.appendChild(row('description', descInput));
     formPanel.appendChild(row('mapId', mapSelect));
     formPanel.appendChild(row('enemyFaction', factionSelect));
+    formPanel.appendChild(row('campaign pool', poolWrap));
     formPanel.appendChild(row('scenario', scenarioBox));
     formPanel.appendChild(
       row(
@@ -1309,10 +1340,25 @@ export const mountMissionEditor = (root: HTMLElement): void => {
       },
     });
 
+    const saveToBundleBtn = el('button', {
+      text: '⤒ Save to bundle',
+      onclick: async () => {
+        if (!draft.id) { alert('id is required'); return; }
+        try {
+          const result = await saveToBundleEndpoint('mission', draft.id, fromDraft(draft));
+          alert(`Saved to ${result.path}\n\nThe JSON file is now part of the bundle. Commit it to make it permanent.`);
+        } catch (e) {
+          alert(`Save to bundle failed: ${(e as Error).message}`);
+        }
+      },
+    }) as HTMLButtonElement;
+    saveToBundleBtn.title = 'Write to src/config/missions/<id>.json (dev server only)';
+    if (!import.meta.env.DEV) saveToBundleBtn.style.display = 'none';
+
     formPanel.appendChild(
       el('div', {
         className: 'actions',
-        children: [saveBtn, exportSingleBtn, cloneBtn, revertBtn, deleteBtn],
+        children: [saveBtn, exportSingleBtn, cloneBtn, revertBtn, deleteBtn, saveToBundleBtn],
       }),
     );
   };

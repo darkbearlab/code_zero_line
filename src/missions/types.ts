@@ -51,4 +51,11 @@ export interface MissionDef {
   readonly playerSpawnPositions: ReadonlyArray<Vec2>;
   /** AI faction for enemies (always 'B' in v1). */
   readonly enemyFaction: Faction;
+  /**
+   * Whether `pickMissions` (the campaign / round picker) considers this
+   * mission. Undefined or `true` = in pool (default for backwards compat).
+   * Set `false` for tutorials, story-only beats, or work-in-progress drafts
+   * the editor should keep around without throwing them into the random draw.
+   */
+  readonly includeInCampaignPool?: boolean;
 }

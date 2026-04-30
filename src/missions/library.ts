@@ -23,4 +23,14 @@ export const listBundledMissions = (): ReadonlyArray<MissionDef> =>
 
 export const listAllMissions = (): ReadonlyArray<MissionDef> => listMissionDefs();
 
+/**
+ * Subset of missions that the random campaign picker considers.
+ *
+ * A mission is in the pool unless its `includeInCampaignPool` flag is
+ * explicitly `false`. Tutorials, story missions, and editor drafts can opt
+ * out without being deleted from the bundle.
+ */
+export const listCampaignPoolMissions = (): ReadonlyArray<MissionDef> =>
+  listMissionDefs().filter((m) => m.includeInCampaignPool !== false);
+
 export const getMissionById = (id: string): MissionDef => getMissionDef(id);

@@ -7,7 +7,7 @@
  * When generators arrive (later phase) they'll plug in here too.
  */
 import { Rng } from '../core/rng/sfc32';
-import { listAllMissions } from './library';
+import { listCampaignPoolMissions } from './library';
 import type { MissionDef } from './types';
 import type { ScenarioMode } from '../core/scenario/victory';
 
@@ -48,7 +48,7 @@ const seededShuffle = <T>(arr: ReadonlyArray<T>, rng: Rng): T[] => {
 export const pickMissions = (
   seed: string,
   count: number = 3,
-  library: ReadonlyArray<MissionDef> = listAllMissions(),
+  library: ReadonlyArray<MissionDef> = listCampaignPoolMissions(),
 ): string[] => {
   const rng = Rng.fromSeed(`mission-pick:${seed}`);
   const groups = groupByScenario(library);
