@@ -72,6 +72,28 @@ export const pickJsonFile = (): Promise<unknown | null> => {
   });
 };
 
+/**
+ * POST data to the Vite dev-server save endpoint.
+ * Returns `{ ok: true, path }` on success, throws on failure.
+ * Only callable in dev mode — throws if the server is unreachable.
+ */
+export const saveToBundleEndpoint = async (
+  type: 'weapon' | 'unit' | 'map' | 'mission',
+  id: string,
+  data: unknown,
+): Promise<{ ok: true; path: string }> => {
+  const resp = await fetch('/__bundle/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, id, data }),
+  });
+  const json = (await resp.json()) as { ok?: boolean; path?: string; error?: string };
+  if (!resp.ok || !json.ok) {
+    throw new Error(json.error ?? `HTTP ${resp.status}`);
+  }
+  return { ok: true, path: json.path! };
+};
+
 export const timestampForFilename = (): string => {
   const d = new Date();
   const pad = (n: number): string => String(n).padStart(2, '0');

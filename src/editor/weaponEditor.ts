@@ -4,7 +4,7 @@ import {
 } from '../config/loader';
 import type { Weapon, WeaponMode, WeaponKind } from '../core/state/GameState';
 import { el, pillInput } from './dom';
-import { downloadJson, pickJsonFile, timestampForFilename } from './io';
+import { downloadJson, pickJsonFile, saveToBundleEndpoint, timestampForFilename } from './io';
 import {
   loadCustomWeapons,
   removeCustomWeapon,
@@ -329,10 +329,25 @@ export const mountWeaponEditor = (root: HTMLElement): void => {
       },
     });
 
+    const saveToBundleBtn = el('button', {
+      text: '⤒ Save to bundle',
+      onclick: async () => {
+        if (!draft.id) { alert('id is required'); return; }
+        try {
+          const result = await saveToBundleEndpoint('weapon', draft.id, fromDraft(draft));
+          alert(`Saved to ${result.path}\n\nThe JSON file is now part of the bundle. Commit it to make it permanent.`);
+        } catch (e) {
+          alert(`Save to bundle failed: ${(e as Error).message}`);
+        }
+      },
+    }) as HTMLButtonElement;
+    saveToBundleBtn.title = 'Write to src/config/weapons/<id>.json (dev server only)';
+    if (!import.meta.env.DEV) saveToBundleBtn.style.display = 'none';
+
     formPanel.appendChild(
       el('div', {
         className: 'actions',
-        children: [saveBtn, cloneBtn, revertBtn, deleteBtn],
+        children: [saveBtn, cloneBtn, revertBtn, deleteBtn, saveToBundleBtn],
       }),
     );
   };

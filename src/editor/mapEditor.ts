@@ -9,7 +9,7 @@ import {
 } from '../config/mapDoc';
 import { listBundledMaps, listMaps } from '../config/loader';
 import { el } from './dom';
-import { downloadJson, pickJsonFile, timestampForFilename } from './io';
+import { downloadJson, pickJsonFile, saveToBundleEndpoint, timestampForFilename } from './io';
 import {
   loadCustomMaps,
   removeCustomMap,
@@ -637,6 +637,24 @@ export const mountMapEditor = (root: HTMLElement): void => {
       },
     });
     actions.appendChild(validateBtn);
+
+    if (import.meta.env.DEV) {
+      const saveToBundleBtn = el('button', {
+        text: '⤒ Save to bundle',
+        onclick: async () => {
+          if (!doc.id) { alert('Map needs an ID first.'); return; }
+          try {
+            const mapDef = docToMapDef(doc);
+            const result = await saveToBundleEndpoint('map', doc.id, mapDef);
+            alert(`Saved to ${result.path}\n\nThe JSON file is now part of the bundle. Commit it to make it permanent.`);
+          } catch (e) {
+            alert(`Save to bundle failed: ${(e as Error).message}`);
+          }
+        },
+      }) as HTMLButtonElement;
+      saveToBundleBtn.title = 'Write to src/config/maps/<id>.json (dev server only)';
+      actions.appendChild(saveToBundleBtn);
+    }
 
     formInputs.appendChild(actions);
     formPanel.appendChild(formInputs);
