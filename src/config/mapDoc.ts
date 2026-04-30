@@ -78,11 +78,36 @@ export const shapeVertices = (s: EditorMapShape): Vec2[] => {
   return [r(-hw, -hh), r(hw, -hh), r(hw, hh), r(-hw, hh)];
 };
 
+/**
+ * Whether a shape's bounding box is fully outside the map. The editor
+ * keeps such shapes in the doc (so users don't lose work when shrinking
+ * the map), but the runtime never sees them.
+ */
+const shapeFullyOutside = (s: EditorMapShape, size: number): boolean => {
+  if (s.tool === 'objective') {
+    const r = Math.max(s.w, s.h) / 2;
+    return (
+      s.cx + r < 0 || s.cx - r > size || s.cy + r < 0 || s.cy - r > size
+    );
+  }
+  const verts = shapeVertices(s);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const v of verts) {
+    if (v.x < minX) minX = v.x;
+    if (v.y < minY) minY = v.y;
+    if (v.x > maxX) maxX = v.x;
+    if (v.y > maxY) maxY = v.y;
+  }
+  return maxX < 0 || minX > size || maxY < 0 || minY > size;
+};
+
 export const docToMapDef = (doc: EditorMapDoc): MapDef => {
   const terrain: MapTerrainDef[] = [];
   const zones: DeploymentZone[] = [];
   const objectives: MapObjective[] = [];
   for (const s of doc.shapes) {
+    // Out-of-bounds shapes stay in the doc but never reach the runtime.
+    if (shapeFullyOutside(s, doc.size)) continue;
     if (s.tool === 'objective') {
       // Objectives encode their diameter in `w` (== `h`); angle is ignored.
       objectives.push({

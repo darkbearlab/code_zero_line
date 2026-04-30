@@ -35,10 +35,17 @@ type Drag =
   | null;
 
 const CANVAS_PX = 600;
-const DEFAULT_SIZE = 768;
+/** 1 inch in world pixels — also the unit base diameter / unit-distance. */
+const PX_PER_INCH = 96;
+const DEFAULT_SIZE = 8 * PX_PER_INCH;
 const MIN_RECT = 8;
+/** Min/max map size in inches. */
+const MIN_MAP_INCHES = 4;
+const MAX_MAP_INCHES = 32;
 /** Click-to-place objectives spawn at this diameter (1 unit-distance). */
 const OBJECTIVE_DEFAULT_DIAMETER = 96;
+/** Pixel offset applied when duplicating a shape, so it's visible. */
+const DUPLICATE_OFFSET_PX = 16;
 
 const TOOL_ORDER: Tool[] = [
   'select',
@@ -241,9 +248,35 @@ export const mountMapEditor = (root: HTMLElement): void => {
     );
     toolbar.appendChild(
       el('button', {
+        text: 'Duplicate',
+        onclick: () => {
+          duplicateSelected();
+        },
+      }),
+    );
+    toolbar.appendChild(
+      el('button', {
         text: 'Delete',
         onclick: () => {
           deleteSelected();
+        },
+      }),
+    );
+
+    toolbar.appendChild(el('span', { text: ' | ', style: { color: '#3a5a3a' } }));
+    toolbar.appendChild(
+      el('button', {
+        text: '翻轉 ↔ (整張地圖)',
+        onclick: () => {
+          mirrorMap('h');
+        },
+      }),
+    );
+    toolbar.appendChild(
+      el('button', {
+        text: '翻轉 ↕ (整張地圖)',
+        onclick: () => {
+          mirrorMap('v');
         },
       }),
     );
@@ -523,8 +556,86 @@ export const mountMapEditor = (root: HTMLElement): void => {
         renderInfo();
         return;
       }
-      const round = (n: number): string => n.toFixed(1);
-      info.textContent = `${editorToolLabel(s.tool)} · cx=${round(s.cx)} cy=${round(s.cy)} w=${round(s.w)} h=${round(s.h)} angle=${round((s.angle * 180) / Math.PI)}°`;
+      const header = el('div', {
+        text: `${editorToolLabel(s.tool)} · ${s.id}`,
+        style: { color: '#cfe8cf', marginBottom: '6px' },
+      });
+      info.appendChild(header);
+
+      const grid = el('div', {
+        style: {
+          display: 'grid',
+          gridTemplateColumns: 'auto 1fr auto 1fr',
+          gap: '4px 8px',
+          alignItems: 'center',
+          maxWidth: '420px',
+        },
+      });
+
+      const numField = (
+        label: string,
+        value: number,
+        step: number,
+        onChange: (v: number) => void,
+        suffix = 'in',
+      ): void => {
+        grid.appendChild(
+          el('label', { text: label, style: { fontSize: '11px' } }),
+        );
+        const wrap = el('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '3px' },
+        });
+        const input = el('input', {
+          type: 'number',
+          value: value.toFixed(2),
+          style: { width: '70px', fontSize: '11px', padding: '2px 4px' },
+          onchange: (e) => {
+            const n = Number((e.target as HTMLInputElement).value);
+            if (Number.isFinite(n)) onChange(n);
+          },
+        }) as HTMLInputElement;
+        input.step = String(step);
+        wrap.appendChild(input);
+        wrap.appendChild(
+          el('span', {
+            text: suffix,
+            style: { fontSize: '10px', color: '#7a9a7a' },
+          }),
+        );
+        grid.appendChild(wrap);
+      };
+
+      const inches = (px: number): number => px / PX_PER_INCH;
+      const updateShape = (patch: Partial<EditorMapShape>): void => {
+        const idx = doc.shapes.findIndex((x) => x.id === s.id);
+        if (idx < 0) return;
+        const next = [...doc.shapes];
+        next[idx] = { ...s, ...patch };
+        doc = { ...doc, shapes: next };
+        renderForm();
+      };
+
+      numField('cx', inches(s.cx), 0.05, (v) =>
+        updateShape({ cx: v * PX_PER_INCH }),
+      );
+      numField('cy', inches(s.cy), 0.05, (v) =>
+        updateShape({ cy: v * PX_PER_INCH }),
+      );
+      numField('w', inches(s.w), 0.05, (v) =>
+        updateShape({ w: Math.max(MIN_RECT / PX_PER_INCH, v) * PX_PER_INCH }),
+      );
+      numField(isCircleTool(s.tool) ? 'h (=w)' : 'h', inches(s.h), 0.05, (v) =>
+        updateShape({ h: Math.max(MIN_RECT / PX_PER_INCH, v) * PX_PER_INCH }),
+      );
+      numField(
+        'angle',
+        (s.angle * 180) / Math.PI,
+        1,
+        (v) => updateShape({ angle: (v * Math.PI) / 180 }),
+        '°',
+      );
+
+      info.appendChild(grid);
       redraw();
     };
 
@@ -563,13 +674,35 @@ export const mountMapEditor = (root: HTMLElement): void => {
     formInputs.appendChild(nameRow);
 
     const sizeRow = el('div', { className: 'row' });
-    sizeRow.appendChild(el('label', { text: 'Battlefield size' }));
-    sizeRow.appendChild(
+    sizeRow.appendChild(el('label', { text: 'Battlefield size (inches)' }));
+    const sizeWrap = el('div', {
+      style: { display: 'flex', alignItems: 'center', gap: '6px' },
+    });
+    const sizeInput = el('input', {
+      type: 'number',
+      value: (doc.size / PX_PER_INCH).toFixed(0),
+      style: { width: '70px', fontSize: '12px', padding: '2px 4px' },
+      onchange: (e) => {
+        const n = Number((e.target as HTMLInputElement).value);
+        if (!Number.isFinite(n)) return;
+        const clamped = Math.max(MIN_MAP_INCHES, Math.min(MAX_MAP_INCHES, Math.round(n)));
+        const newPx = clamped * PX_PER_INCH;
+        if (newPx === doc.size) return;
+        doc = { ...doc, size: newPx };
+        renderForm();
+      },
+    }) as HTMLInputElement;
+    sizeInput.min = String(MIN_MAP_INCHES);
+    sizeInput.max = String(MAX_MAP_INCHES);
+    sizeInput.step = '1';
+    sizeWrap.appendChild(sizeInput);
+    sizeWrap.appendChild(
       el('span', {
-        text: `${doc.size}px (locked, ${(doc.size / 96).toFixed(0)} unit-distances)`,
-        style: { color: '#7a9a7a', fontSize: '12px' },
+        text: `(= ${doc.size}px). 越界形狀仍會保留, 但遊戲中不 render`,
+        style: { color: '#7a9a7a', fontSize: '11px' },
       }),
     );
+    sizeRow.appendChild(sizeWrap);
     formInputs.appendChild(sizeRow);
 
     const actions = el('div', { className: 'actions' });
@@ -689,6 +822,38 @@ export const mountMapEditor = (root: HTMLElement): void => {
     renderForm();
   };
 
+  const duplicateSelected = (): void => {
+    if (!selectedShapeId) return;
+    const src = doc.shapes.find((s) => s.id === selectedShapeId);
+    if (!src) return;
+    const newId = nextShapeId(doc, src.tool);
+    const copy: EditorMapShape = {
+      ...src,
+      id: newId,
+      cx: src.cx + DUPLICATE_OFFSET_PX,
+      cy: src.cy + DUPLICATE_OFFSET_PX,
+    };
+    doc = { ...doc, shapes: [...doc.shapes, copy] };
+    selectedShapeId = newId;
+    renderForm();
+  };
+
+  /**
+   * Mirror every shape across the map's centre axis. Reflecting a rotated
+   * rectangle around either axis is equivalent to negating its angle (the
+   * rectangle stays rectangular, just mirrored).
+   */
+  const mirrorMap = (axis: 'h' | 'v'): void => {
+    const next = doc.shapes.map((s) => {
+      if (axis === 'h') {
+        return { ...s, cx: doc.size - s.cx, angle: -s.angle };
+      }
+      return { ...s, cy: doc.size - s.cy, angle: -s.angle };
+    });
+    doc = { ...doc, shapes: next };
+    renderForm();
+  };
+
   const keyHandler = (e: KeyboardEvent): void => {
     if (
       e.target instanceof HTMLInputElement ||
@@ -700,6 +865,11 @@ export const mountMapEditor = (root: HTMLElement): void => {
       if (selectedShapeId) {
         e.preventDefault();
         deleteSelected();
+      }
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+      if (selectedShapeId) {
+        e.preventDefault();
+        duplicateSelected();
       }
     } else if (e.key === 'Escape') {
       selectedShapeId = null;
