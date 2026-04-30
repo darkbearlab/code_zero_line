@@ -10,6 +10,7 @@ import { listUnitTemplates } from '../../config/loader';
 import { didRunSucceed, type RunState } from '../../runs/state';
 import {
   advanceCampaignAfterRun,
+  type CampaignState,
   type RunResolution,
 } from '../../campaign/state';
 import { loadCampaign, saveCampaign } from '../../campaign/persist';
@@ -21,6 +22,9 @@ interface InitData {
 export class RunResultScene extends Phaser.Scene {
   private rootEl!: HTMLElement;
   private runState!: RunState;
+  /** Campaign snapshot pre/post advance, handed to RoundResolveScene. */
+  private prevCampaign: CampaignState | null = null;
+  private newCampaign: CampaignState | null = null;
 
   constructor() {
     super({ key: 'RunResult' });
@@ -28,6 +32,8 @@ export class RunResultScene extends Phaser.Scene {
 
   init(data: InitData): void {
     this.runState = data.runState;
+    this.prevCampaign = null;
+    this.newCampaign = null;
   }
 
   create(): void {
@@ -55,6 +61,8 @@ export class RunResultScene extends Phaser.Scene {
     };
     const advanced = advanceCampaignAfterRun(campaign, resolution);
     saveCampaign(advanced);
+    this.prevCampaign = campaign;
+    this.newCampaign = advanced;
   }
 
   private makeRoot(): HTMLElement {
@@ -144,7 +152,18 @@ export class RunResultScene extends Phaser.Scene {
         '[data-action="continue"]',
       )!.onclick = () => {
         this.rootEl.remove();
-        this.scene.start('RoundSetup');
+        // RoundResolve needs the campaign snapshots; if applyCampaignOutcome
+        // bailed (no save / no history) skip straight to RoundSetup so the
+        // player isn't stranded.
+        if (this.prevCampaign && this.newCampaign) {
+          this.scene.start('RoundResolve', {
+            runState: this.runState,
+            prevCampaign: this.prevCampaign,
+            newCampaign: this.newCampaign,
+          });
+        } else {
+          this.scene.start('RoundSetup');
+        }
       };
     } else {
       root.querySelector<HTMLButtonElement>('[data-action="title"]')!.onclick =
