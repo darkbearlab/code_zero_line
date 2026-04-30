@@ -40,7 +40,7 @@ import { formatProfile } from '../../core/resolution/dice';
 import { listAvailableShootModes } from '../../core/resolution/shoot_modes';
 import { UNIT_DISTANCE_PIXELS } from '../../core/rules/constants';
 import type { GameState, Unit } from '../../core/state/GameState';
-import { getUnitCircle, isUnitAlive } from '../../core/state/GameState';
+import { getUnitCircle, isOnHighGround, isUnitAlive, movementBlockingPolygons } from '../../core/state/GameState';
 import timersConfig from '../../config/timers.json';
 import type {
   ActionRequest,
@@ -2311,9 +2311,7 @@ export class BattleScene extends Phaser.Scene {
         };
       }
     }
-    const stoppingPolygons = this.gameState.terrain
-      .filter((t) => t.kind === 'HARD')
-      .map((t) => t.polygon);
+    const stoppingPolygons = movementBlockingPolygons(this.gameState.terrain, u.position);
     const enterStopPolygons = this.gameState.terrain
       .filter((t) => t.kind === 'DIFFICULT')
       .map((t) => t.polygon);
@@ -2460,9 +2458,8 @@ export class BattleScene extends Phaser.Scene {
     if (!officer) return;
 
     // Compute paths for officer + each participant (caps for crawl, edge stops).
-    const stoppingPolygons = this.gameState.terrain
-      .filter((t) => t.kind === 'HARD')
-      .map((t) => t.polygon);
+    // stoppingPolygons differs per mover because HIGH_GROUND only blocks
+    // movers starting outside the platform — see reducer mirror logic.
     const enterStopPolygons = this.gameState.terrain
       .filter((t) => t.kind === 'DIFFICULT')
       .map((t) => t.polygon);
@@ -2501,6 +2498,7 @@ export class BattleScene extends Phaser.Scene {
             isUnitAlive(o),
         )
         .map(getUnitCircle);
+      const stoppingPolygons = movementBlockingPolygons(this.gameState.terrain, from);
       const path = computeMovePath(from, effective, {
         polygons: stoppingPolygons,
         enterStopPolygons,
@@ -2760,6 +2758,10 @@ export class BattleScene extends Phaser.Scene {
       {
         aProne: enemy.stance === 'PRONE',
         bProne: targetUnit?.stance === 'PRONE',
+        aOnHighGround: isOnHighGround(enemy, this.gameState.terrain),
+        bOnHighGround: targetUnit
+          ? isOnHighGround(targetUnit, this.gameState.terrain)
+          : false,
       },
     );
   }

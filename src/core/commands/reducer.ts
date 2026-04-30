@@ -38,6 +38,7 @@ import {
   findUnit,
   getUnitCircle,
   isUnitAlive,
+  movementBlockingPolygons,
   updateUnit,
 } from '../state/GameState';
 import type {
@@ -694,12 +695,13 @@ const moveAction = (
     )
     .map(getUnitCircle);
   // HARD walls block movement (rule 4.2A — base contact ends move).
+  // BLOCKER (sealed wall) acts identically. HIGH_GROUND polygons block
+  // entry from outside (must climb up) but a unit already on top moves
+  // freely on the platform — handled by movementBlockingPolygons.
   // DIFFICULT terrain ends the move when its boundary is crossed (rule 4.2C —
   // 進入與離開). SOFT terrain (smoke / smoke-equivalents) does NOT stop
   // movement — it only affects LOS / cover.
-  const stoppingPolygons = s.terrain
-    .filter((t) => t.kind === 'HARD')
-    .map((t) => t.polygon);
+  const stoppingPolygons = movementBlockingPolygons(s.terrain, u.position);
   const enterStopPolygons = s.terrain
     .filter((t) => t.kind === 'DIFFICULT')
     .map((t) => t.polygon);
@@ -854,9 +856,7 @@ const crawlAction = (
       (o) => o.faction === u.faction && o.id !== u.id && isUnitAlive(o),
     )
     .map(getUnitCircle);
-  const stoppingPolygons = s.terrain
-    .filter((t) => t.kind === 'HARD')
-    .map((t) => t.polygon);
+  const stoppingPolygons = movementBlockingPolygons(s.terrain, u.position);
   const enterStopPolygons = s.terrain
     .filter((t) => t.kind === 'DIFFICULT')
     .map((t) => t.polygon);
@@ -991,6 +991,14 @@ const vaultAction = (
   if (!wall) {
     throw new CommandError('NOT_TOUCHING_WALL', `${unitId} not in contact with any wall`);
   }
+  // BLOCKER explicitly refuses traversal — sealed walls. HIGH_GROUND
+  // platforms aren't vault-able either; you climb up, you don't hop over.
+  if (wall.kind === 'BLOCKER' || wall.kind === 'HIGH_GROUND') {
+    throw new CommandError(
+      'WALL_NOT_VAULTABLE',
+      `${wall.id} (${wall.kind}) refuses VAULT`,
+    );
+  }
   if (
     wall.height === undefined ||
     wall.height > VAULT_HEIGHT_THRESHOLD_PIXELS
@@ -1067,9 +1075,19 @@ const climbAction = (
   if (!wall) {
     throw new CommandError('NOT_TOUCHING_WALL', `${unitId} not in contact with any wall`);
   }
+  // BLOCKER refuses CLIMB by spec — pure sealed walls.
+  if (wall.kind === 'BLOCKER') {
+    throw new CommandError(
+      'WALL_NOT_CLIMBABLE',
+      `${wall.id} (BLOCKER) refuses CLIMB`,
+    );
+  }
+  // HARD walls must be tall to require climbing (low ones use VAULT).
+  // HIGH_GROUND has no height — climbing onto a platform is its own thing.
   if (
-    wall.height === undefined ||
-    wall.height <= VAULT_HEIGHT_THRESHOLD_PIXELS
+    wall.kind === 'HARD' &&
+    (wall.height === undefined ||
+      wall.height <= VAULT_HEIGHT_THRESHOLD_PIXELS)
   ) {
     throw new CommandError(
       'WALL_TOO_SHORT',
@@ -1263,10 +1281,9 @@ const commandMoveAction = (
     }
   }
 
-  // Compute paths for each mover.
-  const stoppingPolygons = working.terrain
-    .filter((t) => t.kind === 'HARD')
-    .map((t) => t.polygon);
+  // Compute paths for each mover. stoppingPolygons differs per mover
+  // because HIGH_GROUND polygons only block when the mover starts outside
+  // (units already on top can walk freely, including stepping off).
   const enterStopPolygons = working.terrain
     .filter((t) => t.kind === 'DIFFICULT')
     .map((t) => t.polygon);
@@ -1274,6 +1291,7 @@ const commandMoveAction = (
   const specs: CommandMoveSpec[] = allMovers.map((m) => {
     const u = findUnit(working, m.unitId)!;
     const target = capForStance(u.position, m.target, m.stance);
+    const stoppingPolygons = movementBlockingPolygons(working.terrain, u.position);
     const enemyCircles = working.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);

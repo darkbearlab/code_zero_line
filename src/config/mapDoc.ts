@@ -19,6 +19,8 @@ import type {
 export type EditorShapeTool =
   | 'low'
   | 'high'
+  | 'blocker'
+  | 'high-ground'
   | 'difficult'
   | 'soft'
   | 'zone-a'
@@ -52,6 +54,8 @@ const HIGH_WALL_HEIGHT = 200;
 const TOOL_LABEL: Readonly<Record<EditorShapeTool, string>> = {
   low: '矮牆',
   high: '高牆',
+  blocker: '封頂牆',
+  'high-ground': '高地',
   difficult: '瓦礫',
   soft: '煙幕',
   'zone-a': 'Zone A',
@@ -95,11 +99,16 @@ export const docToMapDef = (doc: EditorMapDoc): MapDef => {
       zones.push({ id: s.id, faction, polygon: { vertices: verts } });
       continue;
     }
-    const kind = s.tool === 'low' || s.tool === 'high'
-      ? 'HARD'
-      : s.tool === 'difficult'
-        ? 'DIFFICULT'
-        : 'SOFT';
+    const kind =
+      s.tool === 'low' || s.tool === 'high'
+        ? 'HARD'
+        : s.tool === 'blocker'
+          ? 'BLOCKER'
+          : s.tool === 'high-ground'
+            ? 'HIGH_GROUND'
+            : s.tool === 'difficult'
+              ? 'DIFFICULT'
+              : 'SOFT';
     const def: MapTerrainDef = {
       id: s.id,
       kind,
@@ -150,6 +159,8 @@ const terrainTool = (t: MapTerrainDef): EditorShapeTool => {
       ? 'low'
       : 'high';
   }
+  if (t.kind === 'BLOCKER') return 'blocker';
+  if (t.kind === 'HIGH_GROUND') return 'high-ground';
   return t.kind === 'DIFFICULT' ? 'difficult' : 'soft';
 };
 

@@ -2,17 +2,23 @@ import type { Vec2 } from './types';
 import type { Terrain, Unit } from '../state/GameState';
 
 /**
- * Find a HARD terrain piece that the given unit's base is in contact with.
- * Returns null if not touching any. Uses a small ε so "touching" includes
- * a few pixels of slack.
+ * Find a wall-like terrain piece (HARD / BLOCKER / HIGH_GROUND) the unit's
+ * base is in contact with. Returns null if not touching any. Uses a small
+ * ε so "touching" includes a few pixels of slack.
+ *
+ * Callers (vaultAction / climbAction) filter the returned kind to decide
+ * whether the action is legal — BLOCKER refuses both, HIGH_GROUND only
+ * supports CLIMB (onto the platform), HARD splits by height.
  */
-export const findContactedHardWall = (
+export const findContactedWall = (
   terrains: ReadonlyArray<Terrain>,
   unit: Unit,
   epsilon = 4,
 ): Terrain | null => {
   for (const t of terrains) {
-    if (t.kind !== 'HARD') continue;
+    if (t.kind !== 'HARD' && t.kind !== 'BLOCKER' && t.kind !== 'HIGH_GROUND') {
+      continue;
+    }
     const verts = t.polygon.vertices;
     for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
       const a = verts[j]!;
@@ -36,6 +42,9 @@ export const findContactedHardWall = (
   }
   return null;
 };
+
+/** Back-compat alias — old name. New code should use findContactedWall. */
+export const findContactedHardWall = findContactedWall;
 
 /**
  * Decompose a convex polygon into its principal axes by minimum-width

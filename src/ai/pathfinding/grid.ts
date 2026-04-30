@@ -44,8 +44,15 @@ export const buildNavGrid = (
   const cols = Math.ceil(mapSize / cellSize);
   const rows = Math.ceil(mapSize / cellSize);
   const blocked = new Array<boolean>(cols * rows).fill(false);
+  // HARD + BLOCKER block movement unconditionally. HIGH_GROUND blocks
+  // grid cells too (units must climb in). The grid is for ground-level
+  // pathfinding — once a unit is on a platform, they can't reach the
+  // grid anyway. AI lookahead doesn't model on-top movement yet.
   const hardPolys = terrains
-    .filter((t) => t.kind === 'HARD')
+    .filter(
+      (t) =>
+        t.kind === 'HARD' || t.kind === 'BLOCKER' || t.kind === 'HIGH_GROUND',
+    )
     .map((t) => t.polygon);
   const inflateSq = inflateBy * inflateBy;
   for (let r = 0; r < rows; r++) {

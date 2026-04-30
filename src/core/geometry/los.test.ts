@@ -152,4 +152,35 @@ describe('hasLOS', () => {
     const b = { center: v2(100, 0), radius: 30 };
     expect(hasLOS(a, b, ts)).toEqual(hasLOS(b, a, ts));
   });
+
+  it('BLOCKER occludes LOS regardless of stance', () => {
+    const blocker = (
+      id: string,
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+    ): Terrain => ({
+      id,
+      kind: 'BLOCKER',
+      polygon: { vertices: [v2(x1, y1), v2(x2, y1), v2(x2, y2), v2(x1, y2)] },
+    });
+    // Wall spans wider than circle perimeter sample reach so no edge-pair
+    // sneaks around it.
+    const ts = [blocker('seal', 40, -50, 60, 50)];
+    const a = { center: v2(0, 0), radius: 10 };
+    const b = { center: v2(100, 0), radius: 10 };
+    expect(hasLOS(a, b, ts)).toBe(false);
+  });
+
+  it('shooter on HIGH_GROUND sees over a low wall to a prone target', () => {
+    // Without bypass: low wall + prone target → blocked. With bypass on
+    // shooter's side, the wall should be ignored. Wall spans wide so
+    // perimeter sampling can't peek around it.
+    const ts = [lowWall('lw', 40, -50, 60, 50)];
+    const a = { center: v2(0, 0), radius: 10 };
+    const b = { center: v2(100, 0), radius: 10 };
+    expect(hasLOS(a, b, ts, { bProne: true })).toBe(false);
+    expect(hasLOS(a, b, ts, { bProne: true, aOnHighGround: true })).toBe(true);
+  });
 });

@@ -1,4 +1,5 @@
 import type { Circle, Polygon, Vec2 } from '../geometry/types';
+import { isPointInPolygon } from '../geometry/polygon';
 
 /** Generic faction tags. Real factions (Blue/Red/Militia) layered later. */
 export type Faction = 'A' | 'B';
@@ -41,7 +42,27 @@ export interface Unit {
   readonly toughUsed?: boolean;
 }
 
-export type CoverKind = 'HARD' | 'DIFFICULT' | 'SOFT';
+export type CoverKind =
+  | 'HARD'
+  | 'DIFFICULT'
+  | 'SOFT'
+  /**
+   * Sealed wall — pure blocker. Like HARD high wall (always blocks LOS,
+   * blocks movement) but explicitly refuses VAULT and CLIMB. Use for map
+   * boundaries / unscalable obstacles where the designer doesn't want
+   * units cheesing height to bypass.
+   */
+  | 'BLOCKER'
+  /**
+   * Elevated platform you can stand on top of. Movement-wise the polygon
+   * edge blocks entry from outside (must CLIMB up); once a unit's centre
+   * is inside the polygon it's "on top" and walks freely. Walking off
+   * the edge is allowed (drops down). LOS + cover have asymmetric rules:
+   *  - shooter on high ground: their LOS ignores low walls; their target
+   *    doesn't get low-wall cover.
+   *  - target on high ground + shooter not on same: target gets cover.
+   */
+  | 'HIGH_GROUND';
 
 export interface Terrain {
   readonly id: string;
@@ -174,3 +195,69 @@ export const isHighWall = (
   vaultThresholdPx: number,
 ): boolean =>
   t.kind === 'HARD' && (t.height ?? Number.POSITIVE_INFINITY) > vaultThresholdPx;
+
+/** Pure blocker — refuses both VAULT and CLIMB. */
+export const isBlocker = (t: Terrain): boolean => t.kind === 'BLOCKER';
+
+/** Elevated platform — climb in, free movement on top, asymmetric LOS/cover. */
+export const isHighGround = (t: Terrain): boolean => t.kind === 'HIGH_GROUND';
+
+/**
+ * True iff `unit`'s centre sits inside any HIGH_GROUND polygon. Used by the
+ * resolver + AI eval to flip cover / LOS rules per the high-ground spec.
+ */
+export const isOnHighGround = (
+  unit: Unit,
+  terrains: ReadonlyArray<Terrain>,
+): boolean => {
+  for (const t of terrains) {
+    if (t.kind !== 'HIGH_GROUND') continue;
+    if (isPointInPolygon(unit.position, t.polygon)) return true;
+  }
+  return false;
+};
+
+/**
+ * True iff `unit` is inside the *same* HIGH_GROUND polygon as `other`.
+ * Used to decide whether two units are on the same elevation (which neuters
+ * the cover bonus + LOS-ignore-low-walls advantage).
+ */
+export const sharesHighGround = (
+  a: Unit,
+  b: Unit,
+  terrains: ReadonlyArray<Terrain>,
+): boolean => {
+  for (const t of terrains) {
+    if (t.kind !== 'HIGH_GROUND') continue;
+    if (
+      isPointInPolygon(a.position, t.polygon) &&
+      isPointInPolygon(b.position, t.polygon)
+    ) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
+ * Polygons that act as hard movement obstacles for a mover starting at
+ * `fromPosition`. HARD + BLOCKER are unconditional; HIGH_GROUND only
+ * blocks when the mover starts OUTSIDE the platform (a unit on top is
+ * free to walk anywhere on top, and is allowed to step off the edge).
+ */
+export const movementBlockingPolygons = (
+  terrains: ReadonlyArray<Terrain>,
+  fromPosition: Vec2,
+): Polygon[] => {
+  const out: Polygon[] = [];
+  for (const t of terrains) {
+    if (t.kind === 'HARD' || t.kind === 'BLOCKER') {
+      out.push(t.polygon);
+    } else if (t.kind === 'HIGH_GROUND') {
+      if (!isPointInPolygon(fromPosition, t.polygon)) {
+        out.push(t.polygon);
+      }
+    }
+  }
+  return out;
+};

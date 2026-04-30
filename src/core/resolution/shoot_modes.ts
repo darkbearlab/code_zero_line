@@ -7,7 +7,7 @@ import type {
   Weapon,
   WeaponMode,
 } from '../state/GameState';
-import { findUnit, getUnitCircle, isUnitAlive } from '../state/GameState';
+import { findUnit, getUnitCircle, isOnHighGround, isUnitAlive } from '../state/GameState';
 import { unitHasTrait } from '../traits/types';
 import {
   buildDiceProfile,
@@ -119,6 +119,8 @@ export const listAvailableShootModes = (
     hasLOS(getUnitCircle(from), getUnitCircle(to), state.terrain, {
       aProne: from.stance === 'PRONE',
       bProne: to.stance === 'PRONE',
+      aOnHighGround: isOnHighGround(from, state.terrain),
+      bOnHighGround: isOnHighGround(to, state.terrain),
     });
   if (!losTo(shooter, target)) {
     return [];

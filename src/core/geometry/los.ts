@@ -16,6 +16,13 @@ export interface LOSOptions {
   readonly aProne?: boolean;
   /** Endpoint B's unit is prone — low walls block LOS toward B. */
   readonly bProne?: boolean;
+  /**
+   * Endpoint A is standing on HIGH_GROUND — low walls along the LOS line
+   * are bypassed (you see over them from the platform). Symmetric flag
+   * for B; either side on high ground is enough to neuter low-wall block.
+   */
+  readonly aOnHighGround?: boolean;
+  readonly bOnHighGround?: boolean;
 }
 
 /**
@@ -39,19 +46,30 @@ export const buildLosBlockers = (
   options: LOSOptions = {},
 ): Polygon[] => {
   const blockers: Polygon[] = [];
+  // High-ground bypass: when either endpoint stands on a HIGH_GROUND
+  // platform, low walls (and only low walls) along the LOS line lose
+  // their block. High walls + BLOCKERs still occlude — the platform
+  // doesn't make you taller than them.
+  const lowWallBypass = options.aOnHighGround || options.bOnHighGround;
   for (const t of terrains) {
     if (t.kind === 'HARD') {
       if (isHighWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS)) {
         blockers.push(t.polygon);
       } else if (isLowWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS)) {
+        if (lowWallBypass) continue;
         if (options.aProne || options.bProne) blockers.push(t.polygon);
       }
+    } else if (t.kind === 'BLOCKER') {
+      // Sealed wall — always occludes, height-independent.
+      blockers.push(t.polygon);
     } else if (t.kind === 'SOFT') {
       const aIn = isPointInPolygon(a, t.polygon);
       const bIn = isPointInPolygon(b, t.polygon);
       if (!aIn && !bIn) blockers.push(t.polygon);
     }
-    // DIFFICULT — no LOS effect.
+    // DIFFICULT, HIGH_GROUND — no LOS effect (high ground only modifies
+    // *low-wall* visibility via the bypass above; the platform itself
+    // doesn't occlude shots).
   }
   return blockers;
 };

@@ -14,6 +14,22 @@ interface TerrainStyle {
 }
 
 const styleFor = (t: Terrain): TerrainStyle => {
+  if (t.kind === 'BLOCKER') {
+    return {
+      fillColor: 0x1a1a1a,
+      fillAlpha: 1,
+      strokeColor: 0xc04040,
+      strokeWidth: 1.5,
+    };
+  }
+  if (t.kind === 'HIGH_GROUND') {
+    return {
+      fillColor: 0x6a4a30,
+      fillAlpha: 0.6,
+      strokeColor: 0xe0a868,
+      strokeWidth: 2.5,
+    };
+  }
   if (isHighWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS)) {
     return {
       fillColor: 0x3a3a3a,

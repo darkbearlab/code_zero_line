@@ -1,6 +1,14 @@
 import { isPointInPolygon } from '../geometry/polygon';
 import { segmentBlockedByPolygons } from '../geometry/segment';
-import type { Terrain, Unit } from '../state/GameState';
+import {
+  isHighWall,
+  isLowWall,
+  isOnHighGround,
+  sharesHighGround,
+  type Terrain,
+  type Unit,
+} from '../state/GameState';
+import { VAULT_HEIGHT_THRESHOLD_PIXELS } from '../rules/constants';
 
 /**
  * Whether the target gets the cover die-penalty (-1 die to attacker).
@@ -13,6 +21,10 @@ import type { Terrain, Unit } from '../state/GameState';
  *  - 9.3: SOFT cover — both inside and outside benefit from cover when shot
  *    crosses smoke (rule says "彼此視為處於『掩體』中" — implemented as: cover
  *    when *either* shooter or target stands inside a soft polygon).
+ *  - HIGH_GROUND: target on platform vs ground-level shooter → cover (high
+ *    ground advantage). Symmetrically, a shooter on high ground neutralises
+ *    low-wall cover for ground-level targets (overhead shot).
+ *  - BLOCKER: pure obstacle, treated like HARD for cross-cover purposes.
  */
 export const targetHasCover = (
   shooter: Unit,
@@ -20,6 +32,19 @@ export const targetHasCover = (
   terrains: ReadonlyArray<Terrain>,
 ): boolean => {
   if (target.stance === 'PRONE') return true;
+
+  const targetOnHigh = isOnHighGround(target, terrains);
+  const shooterOnHigh = isOnHighGround(shooter, terrains);
+  // Defender on high ground vs shooter on lower ground (or different
+  // platform): grant cover from the elevation itself, no segment check.
+  if (
+    targetOnHigh &&
+    !shooterOnHigh &&
+    !sharesHighGround(shooter, target, terrains)
+  ) {
+    return true;
+  }
+
   for (const t of terrains) {
     if (t.kind === 'DIFFICULT' && isPointInPolygon(target.position, t.polygon)) {
       return true;
@@ -33,8 +58,25 @@ export const targetHasCover = (
       }
     }
   }
-  const hardPolys = terrains
-    .filter((t) => t.kind === 'HARD')
-    .map((t) => t.polygon);
+
+  // Cross-cover from physical walls. Shooter-on-high-ground negates cover
+  // from low walls only — high walls + BLOCKERs still mask their target.
+  const hardPolys: import('../geometry/types').Polygon[] = [];
+  for (const t of terrains) {
+    if (t.kind === 'BLOCKER') {
+      hardPolys.push(t.polygon);
+      continue;
+    }
+    if (t.kind !== 'HARD') continue;
+    if (
+      shooterOnHigh &&
+      isLowWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS) &&
+      !isHighWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS)
+    ) {
+      // Overhead shot — low wall doesn't shield the target.
+      continue;
+    }
+    hardPolys.push(t.polygon);
+  }
   return segmentBlockedByPolygons(shooter.position, target.position, hardPolys);
 };
