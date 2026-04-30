@@ -1,0 +1,28 @@
+{
+  "id": "extraction",
+  "displayName": "緊急撤離",
+  "description": "突破敵線,讓兩名以上隊員抵達北側撤離點。",
+  "mapId": "demo",
+  "scenario": "extract",
+  "scenarioParams": { "extractCount": 2, "extractCycleLimit": 999 },
+  "objectives": [
+    {
+      "id": "extract-objective",
+      "position": { "x": 680, "y": 100 },
+      "radius": 36,
+      "displayName": "撤離點"
+    }
+  ],
+  "enemyFaction": "B",
+  "enemies": [
+    { "id": "r3-1", "templateId": "heavy_gunner", "position": { "x": 560, "y": 280 } },
+    { "id": "r3-2", "templateId": "elite", "position": { "x": 440, "y": 240 } },
+    { "id": "r3-3", "templateId": "trooper", "position": { "x": 620, "y": 200 } }
+  ],
+  "playerSpawnPositions": [
+    { "x": 115, "y": 652 },
+    { "x": 168, "y": 599 },
+    { "x": 80, "y": 700 },
+    { "x": 200, "y": 660 }
+  ]
+}

@@ -9,7 +9,7 @@
  */
 import Phaser from 'phaser';
 import { applyBoon, type RunBoon, type RunState } from '../../runs/state';
-import { MISSION_LIBRARY_V1, getMissionById } from '../../missions/library';
+import { getMissionById } from '../../missions/library';
 
 interface InitData {
   runState: RunState;
@@ -137,5 +137,3 @@ const hideBattleHud = (): void => {
   if (glow) (glow as HTMLElement).style.display = 'none';
 };
 
-// Re-export for sandbox flow ergonomics.
-export { MISSION_LIBRARY_V1 };

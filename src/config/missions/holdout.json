@@ -1,0 +1,29 @@
+{
+  "id": "holdout",
+  "displayName": "陣地堅守",
+  "description": "守住中央哨點,別讓敵人踏入半步。",
+  "mapId": "demo",
+  "scenario": "defend",
+  "scenarioParams": { "defendCycles": 999 },
+  "objectives": [
+    {
+      "id": "holdout-objective",
+      "position": { "x": 384, "y": 540 },
+      "radius": 40,
+      "displayName": "哨點"
+    }
+  ],
+  "enemyFaction": "B",
+  "enemies": [
+    { "id": "r2-1", "templateId": "trooper", "position": { "x": 384, "y": 80 } },
+    { "id": "r2-2", "templateId": "trooper", "position": { "x": 280, "y": 120 } },
+    { "id": "r2-3", "templateId": "conscript", "position": { "x": 488, "y": 120 } },
+    { "id": "r2-4", "templateId": "conscript", "position": { "x": 180, "y": 100 } }
+  ],
+  "playerSpawnPositions": [
+    { "x": 360, "y": 660 },
+    { "x": 420, "y": 660 },
+    { "x": 300, "y": 660 },
+    { "x": 480, "y": 660 }
+  ]
+}

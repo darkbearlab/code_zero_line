@@ -1,0 +1,27 @@
+{
+  "id": "breakthrough",
+  "displayName": "突破前線",
+  "description": "從正面碾過敵陣,搶下西側中繼點。",
+  "mapId": "demo",
+  "scenario": "engage-reach",
+  "objectives": [
+    {
+      "id": "breakthrough-objective",
+      "position": { "x": 160, "y": 280 },
+      "radius": 36,
+      "displayName": "中繼點"
+    }
+  ],
+  "enemyFaction": "B",
+  "enemies": [
+    { "id": "br1", "templateId": "trooper", "position": { "x": 220, "y": 220 } },
+    { "id": "br2", "templateId": "trooper", "position": { "x": 540, "y": 220 } },
+    { "id": "br3", "templateId": "conscript", "position": { "x": 380, "y": 100 } }
+  ],
+  "playerSpawnPositions": [
+    { "x": 115, "y": 652 },
+    { "x": 168, "y": 599 },
+    { "x": 80, "y": 700 },
+    { "x": 200, "y": 660 }
+  ]
+}

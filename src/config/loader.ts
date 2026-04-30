@@ -1,25 +1,16 @@
 import type { Unit, Weapon } from '../core/state/GameState';
 import type { Vec2 } from '../core/geometry/types';
 import type { MapDef } from '../core/setup/types';
+import type { MissionDef } from '../missions/types';
 import { v2 } from '../core/geometry/vec2';
 import { STANDARD_BASE_RADIUS_PIXELS } from '../core/rules/constants';
 import { docToMapDef, type EditorMapDoc } from './mapDoc';
-
-import rifleJson from './weapons/rifle.json';
-import smgJson from './weapons/smg.json';
-import heavyRifleJson from './weapons/heavy_rifle.json';
-import bladeJson from './weapons/blade.json';
-import rpgJson from './weapons/rpg.json';
-
-import trooperJson from './units/trooper.json';
-import eliteJson from './units/elite.json';
-import conscriptJson from './units/conscript.json';
-import heavyGunnerJson from './units/heavy_gunner.json';
-import squadLeadJson from './units/squad_lead.json';
-import veteranJson from './units/veteran.json';
-
-import demoMapJson from './maps/demo.json';
-import testmap1Json from './maps/testmap1.json';
+import {
+  BUNDLED_WEAPONS,
+  BUNDLED_TEMPLATES,
+  BUNDLED_MAPS,
+  BUNDLED_MISSIONS,
+} from './bundles.gen';
 
 export interface UnitTemplate {
   readonly templateId: string;
@@ -33,23 +24,6 @@ export interface UnitTemplate {
    */
   readonly factionTags?: ReadonlyArray<string>;
 }
-
-const BUNDLED_WEAPONS: ReadonlyArray<Weapon> = [
-  rifleJson,
-  smgJson,
-  heavyRifleJson,
-  bladeJson,
-  rpgJson,
-] as Weapon[];
-
-const BUNDLED_TEMPLATES: ReadonlyArray<UnitTemplate> = [
-  trooperJson,
-  eliteJson,
-  conscriptJson,
-  heavyGunnerJson,
-  squadLeadJson,
-  veteranJson,
-];
 
 const EDITOR_WEAPON_KEY = 'czl.editor.weapons.v1';
 const EDITOR_TEMPLATE_KEY = 'czl.editor.templates.v1';
@@ -131,11 +105,6 @@ export const buildUnit = (spawn: UnitSpawn): Unit => {
   };
 };
 
-const BUNDLED_MAPS: ReadonlyArray<MapDef> = [
-  demoMapJson as MapDef,
-  testmap1Json as MapDef,
-];
-
 /**
  * Runtime-registered editor map docs — used by the headless sim CLI so
  * Node can play maps that normally live in browser localStorage. Last-write
@@ -175,3 +144,31 @@ export const getMap = (id: string): MapDef => {
 export const listMaps = (): ReadonlyArray<MapDef> => mergedMaps();
 
 export const listBundledMaps = (): ReadonlyArray<MapDef> => BUNDLED_MAPS;
+
+// ── Missions ──────────────────────────────────────────────────────────────
+//
+// Same overlay pattern as weapons / templates / maps: bundled JSON → custom
+// localStorage overlays by id. The mission editor (Phase C) populates the
+// localStorage layer; bundled missions ship in `src/config/missions/*.json`.
+
+const EDITOR_MISSION_KEY = 'czl.editor.missions.v1';
+
+const mergedMissions = (): ReadonlyArray<MissionDef> => {
+  const custom = safeReadLocal<MissionDef>(EDITOR_MISSION_KEY);
+  if (custom.length === 0) return BUNDLED_MISSIONS;
+  const byId = new Map<string, MissionDef>();
+  for (const m of BUNDLED_MISSIONS) byId.set(m.id, m);
+  for (const m of custom) byId.set(m.id, m);
+  return [...byId.values()];
+};
+
+export const getMissionDef = (id: string): MissionDef => {
+  const m = mergedMissions().find((x) => x.id === id);
+  if (!m) throw new Error(`Unknown mission id: ${id}`);
+  return m;
+};
+
+export const listMissionDefs = (): ReadonlyArray<MissionDef> => mergedMissions();
+
+export const listBundledMissionDefs = (): ReadonlyArray<MissionDef> =>
+  BUNDLED_MISSIONS;

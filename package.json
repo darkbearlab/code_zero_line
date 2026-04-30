@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "gen-bundles": "node scripts/gen-bundles.mjs",
+    "predev": "node scripts/gen-bundles.mjs",
+    "prebuild": "node scripts/gen-bundles.mjs",
+    "pretest": "node scripts/gen-bundles.mjs",
+    "presim": "node scripts/gen-bundles.mjs",
+    "preprobe": "node scripts/gen-bundles.mjs",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",

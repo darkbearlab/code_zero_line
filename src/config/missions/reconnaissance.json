@@ -1,0 +1,26 @@
+{
+  "id": "reconnaissance",
+  "displayName": "前進偵察",
+  "description": "佔領敵方前哨,並至少擊倒一名敵兵。",
+  "mapId": "demo",
+  "scenario": "engage-reach",
+  "objectives": [
+    {
+      "id": "recon-objective",
+      "position": { "x": 384, "y": 130 },
+      "radius": 36,
+      "displayName": "前哨"
+    }
+  ],
+  "enemyFaction": "B",
+  "enemies": [
+    { "id": "r1-1", "templateId": "conscript", "position": { "x": 652, "y": 115 } },
+    { "id": "r1-2", "templateId": "conscript", "position": { "x": 599, "y": 168 } }
+  ],
+  "playerSpawnPositions": [
+    { "x": 115, "y": 652 },
+    { "x": 168, "y": 599 },
+    { "x": 80, "y": 700 },
+    { "x": 200, "y": 660 }
+  ]
+}
