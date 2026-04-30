@@ -11,6 +11,7 @@
  */
 import { Rng } from '../core/rng/sfc32';
 import { pickMissions } from '../missions/pick';
+import { draftSquad } from './draft';
 import type { CampaignState } from '../campaign/state';
 
 export type FuzzyDifficulty = 'low' | 'medium' | 'high';
@@ -37,18 +38,6 @@ export interface RoundState {
 const MISSIONS_PER_ROUND = 3;
 const SQUAD_SIZE = 4;
 
-/** Fisher-Yates shuffle with seeded RNG. Returns a new array. */
-const seededShuffle = <T>(arr: ReadonlyArray<T>, rng: Rng): T[] => {
-  const out = [...arr];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(rng.next() * (i + 1));
-    const tmp = out[i]!;
-    out[i] = out[j]!;
-    out[j] = tmp;
-  }
-  return out;
-};
-
 /**
  * Roll a fresh round for the given campaign. Picks `MISSIONS_PER_ROUND`
  * missions with variety bias (via missions/pick.ts), then drafts
@@ -67,7 +56,7 @@ export const newRoundState = (campaign: CampaignState): RoundState => {
     // Independent draft per mission so they're not correlated.
     const localRng = new Rng({ ...draftRng.state });
     for (let k = 0; k < i; k++) localRng.next(); // small step so each option's shuffle differs
-    const drafted = seededShuffle(campaign.pool, localRng).slice(0, SQUAD_SIZE);
+    const drafted = draftSquad(campaign.pool, SQUAD_SIZE, localRng);
     return {
       missionId,
       squadIds: drafted.map((u) => u.id),

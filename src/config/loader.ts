@@ -12,6 +12,8 @@ import {
   BUNDLED_MISSIONS,
 } from './bundles.gen';
 
+export type RecruitRole = 'officer' | 'specialist' | 'regular';
+
 export interface UnitTemplate {
   readonly templateId: string;
   readonly displayName: string;
@@ -23,6 +25,12 @@ export interface UnitTemplate {
    * 'militia'). Empty/absent = available to anyone.
    */
   readonly factionTags?: ReadonlyArray<string>;
+  /**
+   * Slot category used by the round draft picker (`src/rounds/draft.ts`).
+   * Slot 1 prefers `officer`, slot 2 prefers `specialist`, slots 3+ exclude
+   * officers. Undefined = `regular` (back-compat).
+   */
+  readonly recruitRole?: RecruitRole;
 }
 
 const EDITOR_WEAPON_KEY = 'czl.editor.weapons.v1';

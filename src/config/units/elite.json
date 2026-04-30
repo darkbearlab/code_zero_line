@@ -3,5 +3,6 @@
   "displayName": "Elite",
   "quality": 2,
   "weaponIds": ["rifle", "blade"],
-  "traits": ["INFANTRY"]
+  "traits": ["INFANTRY"],
+  "recruitRole": "specialist"
 }
