@@ -83,6 +83,59 @@ describe('evaluateState', () => {
     );
   });
 
+  it('attacker urgency scales objective bonus with rounds remaining', () => {
+    // For 'extract' scenario, A is the attacker. As round → roundLimit,
+    // A's score for being on the objective should grow (urgency 1.0 → 2.5).
+    const objAt = v2(0, 0);
+    const onObj = (round: number, mode: string, params: Record<string, unknown>): GameState => ({
+      ...baseState([
+        makeUnit({ id: 'a1', faction: 'A', position: v2(0, 0) }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(700, 0) }),
+      ]),
+      objectives: [{ id: 'goal', position: objAt, radius: 30 }],
+      scenarioInfo: { mode, params },
+      initiative: {
+        holder: 'A',
+        momentum: { A: 5, B: 5 },
+        round,
+        activeActivation: null,
+      },
+    });
+    const early = evaluateState(
+      onObj(1, 'extract', { extractRoundLimit: 8 }),
+      'A',
+    );
+    const late = evaluateState(
+      onObj(8, 'extract', { extractRoundLimit: 8 }),
+      'A',
+    );
+    expect(late).toBeGreaterThan(early);
+  });
+
+  it('defender does not get urgency boost', () => {
+    // For 'extract' scenario, B is the defender. Round number alone
+    // shouldn't shift B's objective valuation upward.
+    const objAt = v2(0, 0);
+    const stateAt = (round: number): GameState => ({
+      ...baseState([
+        makeUnit({ id: 'a1', faction: 'A', position: v2(700, 0) }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(0, 0) }),
+      ]),
+      objectives: [{ id: 'goal', position: objAt, radius: 30 }],
+      scenarioInfo: { mode: 'extract', params: { extractRoundLimit: 8 } },
+      initiative: {
+        holder: 'A',
+        momentum: { A: 5, B: 5 },
+        round,
+        activeActivation: null,
+      },
+    });
+    const earlyB = evaluateState(stateAt(1), 'B');
+    const lateB = evaluateState(stateAt(8), 'B');
+    // B is defender — score unchanged across rounds (modulo holder bonus).
+    expect(lateB).toBeCloseTo(earlyB, 5);
+  });
+
   it('moving toward the objective scores higher than standing far away', () => {
     // Two snapshots of the same matchup; the only difference is unit A's
     // position. A at (200, 0) is 200px from obj, A at (50, 0) is 50px →

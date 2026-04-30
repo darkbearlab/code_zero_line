@@ -264,7 +264,12 @@ const run = (): void => {
   let contextLabel: string;
 
   if (args.mission) {
-    const mission = getMissionById(args.mission);
+    const baseMission = getMissionById(args.mission);
+    // --map override applies to mission too, useful for "validate this
+    // mission on a denser map without rewriting the mission def".
+    const mission = args.mapId
+      ? { ...baseMission, mapId: args.mapId }
+      : baseMission;
     scenario = mission.scenario;
     scenarioParams = mission.scenarioParams ?? {};
     buildInitial = (seed: string) => {

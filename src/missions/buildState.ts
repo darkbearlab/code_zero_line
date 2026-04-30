@@ -173,9 +173,17 @@ export const buildMissionState = (
       }))
     : baseState.objectives;
 
+  // Surface scenario type + params so the AI evaluator can apply
+  // scenario-aware modifiers (time pressure, attacker urgency).
+  const scenarioInfo = {
+    mode: mission.scenario as string,
+    params: (mission.scenarioParams ?? {}) as Readonly<Record<string, unknown>>,
+  };
+
   return {
     ...baseState,
     units: [...playerUnits, ...enemies],
     ...(objectives && objectives.length > 0 ? { objectives } : {}),
+    scenarioInfo,
   };
 };

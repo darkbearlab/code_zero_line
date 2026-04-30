@@ -108,6 +108,18 @@ export interface GameStateCombatIntel {
   readonly melee: Readonly<Record<string, number>>;
 }
 
+/**
+ * Scenario context piggybacked on GameState so the AI evaluator can apply
+ * scenario-aware modifiers (time pressure, attacker urgency) without taking
+ * an extra plumbed-through parameter on every decision call. Plain
+ * string-keyed shape to avoid cross-package imports; matches `ScenarioMode`
+ * and `ScenarioParams` from `core/scenario/victory.ts` structurally.
+ */
+export interface GameStateScenarioInfo {
+  readonly mode: string;
+  readonly params: Readonly<Record<string, unknown>>;
+}
+
 export interface GameState {
   /** Master seed; combined with `commandCount` to derive per-command RNG. */
   readonly seed: string;
@@ -118,6 +130,8 @@ export interface GameState {
   readonly objectives?: ReadonlyArray<Objective>;
   /** Combat-intel meta levels for the active player (faction A in run mode). */
   readonly combatIntel?: GameStateCombatIntel;
+  /** Scenario type + tunables used by the AI evaluator. Optional. */
+  readonly scenarioInfo?: GameStateScenarioInfo;
   readonly initiative: Initiative;
 }
 

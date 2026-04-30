@@ -19,6 +19,7 @@ import squadLeadJson from './units/squad_lead.json';
 import veteranJson from './units/veteran.json';
 
 import demoMapJson from './maps/demo.json';
+import testmap1Json from './maps/testmap1.json';
 
 export interface UnitTemplate {
   readonly templateId: string;
@@ -130,7 +131,10 @@ export const buildUnit = (spawn: UnitSpawn): Unit => {
   };
 };
 
-const BUNDLED_MAPS: ReadonlyArray<MapDef> = [demoMapJson as MapDef];
+const BUNDLED_MAPS: ReadonlyArray<MapDef> = [
+  demoMapJson as MapDef,
+  testmap1Json as MapDef,
+];
 
 /**
  * Runtime-registered editor map docs — used by the headless sim CLI so

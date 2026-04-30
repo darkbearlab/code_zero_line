@@ -5,6 +5,53 @@ import { UNIT_DISTANCE_PIXELS } from '../core/rules/constants';
 import type { Faction, GameState, Unit } from '../core/state/GameState';
 import { isUnitAlive } from '../core/state/GameState';
 
+/**
+ * Which faction is the active *attacker* of each scenario — the side that
+ * needs to push the objective to win. Defenders win by stalling. Used to
+ * scale objective-related eval terms by time-remaining urgency: attackers
+ * get more impatient as the clock ticks; defenders are happy to wait.
+ *
+ * `null` = no attacker bias (mutual elimination etc.).
+ */
+const SCENARIO_ATTACKER: Readonly<Record<string, 'A' | 'B' | null>> = {
+  'engage-reach': 'A',
+  defend: 'B',
+  extract: 'A',
+  assassinate: 'A',
+  elimination: null,
+};
+
+/**
+ * Param key naming the round limit for each scenario. When set + the round
+ * is approaching the limit, the attacker faction's objective bonuses scale
+ * up. `null` means the scenario has no clock — urgency stays 1.
+ */
+const SCENARIO_LIMIT_KEY: Readonly<Record<string, string | null>> = {
+  'engage-reach': null,
+  defend: 'defendRounds',
+  extract: 'extractRoundLimit',
+  assassinate: 'assassinateRoundLimit',
+  elimination: null,
+};
+
+/**
+ * Multiplier on objective-related score terms for the scenario's attacker.
+ * Ramps from 1.0 at round 1 to ~MAX at round = limit. Value > 1 means the
+ * attacker should weigh "advance toward / sit on the objective" more
+ * heavily as time runs out, pushing them out of camping behaviour.
+ */
+const computeAttackerUrgency = (state: GameState, faction: Faction): number => {
+  const info = state.scenarioInfo;
+  if (!info) return 1;
+  if (SCENARIO_ATTACKER[info.mode] !== faction) return 1;
+  const limitKey = SCENARIO_LIMIT_KEY[info.mode];
+  if (!limitKey) return 1;
+  const limit = info.params[limitKey];
+  if (typeof limit !== 'number' || limit <= 0) return 1;
+  const progress = Math.min(1, state.initiative.round / limit);
+  return 1 + progress * 1.5; // 1.0 → 2.5 across the timer
+};
+
 export interface EvalWeights {
   /** Base value of being alive at all. */
   readonly unitAliveBase: number;
@@ -201,6 +248,7 @@ const factionScore = (
   // and the binary control bonus stays 0. With the pull, every step
   // closer is rewarded, so the beam search actually walks units in.
   const objectives = state.objectives ?? [];
+  const urgency = computeAttackerUrgency(state, faction);
   if (objectives.length > 0 && weights.objectiveControlBonus !== 0) {
     const proximityRange = UNIT_DISTANCE_PIXELS * 4;
     const proximityMax = weights.objectiveControlBonus * 0.6;
@@ -222,7 +270,9 @@ const factionScore = (
           if (pull > bestContribution) bestContribution = pull;
         }
       }
-      total += onObjective ? weights.objectiveControlBonus : bestContribution;
+      total +=
+        (onObjective ? weights.objectiveControlBonus : bestContribution) *
+        urgency;
     }
   }
 
