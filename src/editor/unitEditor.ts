@@ -6,8 +6,9 @@ import {
   type RecruitRole,
   type UnitTemplate,
 } from '../config/loader';
-import { TRAITS } from '../core/traits/registry';
-import { el, pillInput } from './dom';
+import { listTraits } from '../core/traits/registry';
+import { parseTrait } from '../core/traits/types';
+import { el } from './dom';
 import { downloadJson, pickJsonFile, saveToBundleEndpoint, timestampForFilename } from './io';
 import {
   loadCustomTemplates,
@@ -286,15 +287,73 @@ export const mountUnitEditor = (root: HTMLElement): void => {
       );
     }
 
-    const traitPills = pillInput(
-      draft.traits,
-      (next) => (draft.traits = next),
-      'e.g. OFFICER, STALWART, ARMOR:1',
-    );
+    // Trait picker — checkbox list of every registered trait, so users can
+    // never typo `OFFICER` as `Officer` (which would silently fail
+    // unitHasTrait checks). Param-bearing traits (ARMOR, AGITATOR) get an
+    // inline number input that's enabled only when the box is checked.
+    const PARAM_TRAITS = new Set(['ARMOR', 'AGITATOR']);
+    const traitState = new Map<string, number>();
+    for (const raw of draft.traits) {
+      const inst = parseTrait(raw);
+      traitState.set(inst.id, inst.param);
+    }
+    const writeTraits = (): void => {
+      const next: string[] = [];
+      for (const [id, param] of traitState) {
+        next.push(PARAM_TRAITS.has(id) && param > 0 ? `${id}:${param}` : id);
+      }
+      draft.traits = next;
+    };
+    const traitsBox = el('div', { className: 'checkbox-row' });
+    for (const td of listTraits()) {
+      const isOn = traitState.has(td.id);
+      const cb = el('input', { type: 'checkbox' }) as HTMLInputElement;
+      cb.checked = isOn;
 
-    const traitHints = Object.values(TRAITS)
-      .map((td) => `${td.id}${td.tbd ? ' (TBD)' : ''}`)
-      .join(', ');
+      const wrap = el('label', {
+        style: {
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '2px',
+          margin: '2px 10px 2px 0',
+        },
+      });
+      wrap.title = `${td.displayName} — ${td.description}`;
+      wrap.appendChild(cb);
+      wrap.appendChild(
+        document.createTextNode(` ${td.id}${td.tbd ? ' (TBD)' : ''}`),
+      );
+
+      let paramInp: HTMLInputElement | null = null;
+      if (PARAM_TRAITS.has(td.id)) {
+        paramInp = el('input', {
+          type: 'number',
+          value: String(traitState.get(td.id) ?? 1),
+          style: { width: '40px', marginLeft: '4px' },
+        }) as HTMLInputElement;
+        paramInp.min = '0';
+        paramInp.disabled = !isOn;
+        paramInp.addEventListener('change', () => {
+          const v = Math.max(0, Number(paramInp!.value) || 0);
+          traitState.set(td.id, v);
+          writeTraits();
+        });
+        wrap.appendChild(paramInp);
+      }
+
+      cb.addEventListener('change', () => {
+        if (cb.checked) {
+          const param = paramInp ? Math.max(0, Number(paramInp.value) || 1) : 0;
+          traitState.set(td.id, param);
+        } else {
+          traitState.delete(td.id);
+        }
+        if (paramInp) paramInp.disabled = !cb.checked;
+        writeTraits();
+      });
+
+      traitsBox.appendChild(wrap);
+    }
 
     const row = (
       label: string,
@@ -362,8 +421,8 @@ export const mountUnitEditor = (root: HTMLElement): void => {
     formPanel.appendChild(
       row(
         'traits',
-        traitPills,
-        `Type and press Enter. Known: ${traitHints}.`,
+        traitsBox,
+        '勾選即啟用；ARMOR / AGITATOR 旁的數字是參數值 (0 = 純標籤)。Hover 看說明。',
       ),
     );
 
