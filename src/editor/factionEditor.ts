@@ -28,6 +28,12 @@ import {
 
 const NEUTRAL_ID = 'neutral';
 
+type SortDir = 'checkedFirst' | 'uncheckedFirst';
+interface MatrixSort {
+  readonly factionId: string;
+  readonly dir: SortDir;
+}
+
 const cell = (
   tag: 'th' | 'td',
   txt: string,
@@ -46,6 +52,10 @@ const cell = (
 };
 
 export const mountFactionEditor = (root: HTMLElement): void => {
+  // Persists across re-renders so toggling a checkbox keeps the active sort
+  // and the row jumps to its new position immediately.
+  let matrixSort: MatrixSort | null = null;
+
   const render = (): void => {
     root.innerHTML = '';
 
@@ -60,15 +70,22 @@ export const mountFactionEditor = (root: HTMLElement): void => {
       }),
     );
 
-    renderRegistry(root);
+    const layout = el('div', {
+      style: {
+        display: 'flex',
+        gap: '24px',
+        alignItems: 'flex-start',
+        flexWrap: 'wrap',
+      },
+    });
+    const leftPanel = el('div', { style: { flex: '1 1 520px', minWidth: '0' } });
+    const rightPanel = el('div', { style: { flex: '1 1 380px', minWidth: '0' } });
+    layout.appendChild(leftPanel);
+    layout.appendChild(rightPanel);
+    root.appendChild(layout);
 
-    root.appendChild(
-      el('div', {
-        style: { height: '20px' },
-      }),
-    );
-
-    renderMatrix(root);
+    renderRegistry(leftPanel);
+    renderMatrix(rightPanel);
   };
 
   const renderRegistry = (mount: HTMLElement): void => {
@@ -247,7 +264,7 @@ export const mountFactionEditor = (root: HTMLElement): void => {
   };
 
   const renderMatrix = (mount: HTMLElement): void => {
-    const templates = listUnitTemplates();
+    const allTemplates = listUnitTemplates();
     const factions = listFactions();
 
     mount.appendChild(
@@ -257,31 +274,82 @@ export const mountFactionEditor = (root: HTMLElement): void => {
       }),
     );
 
-    if (templates.length === 0) {
+    // If the active sort references a faction that has been deleted, drop it.
+    if (matrixSort && !factions.some((f) => f.id === matrixSort!.factionId)) {
+      matrixSort = null;
+    }
+
+    if (allTemplates.length === 0) {
       mount.appendChild(el('div', { className: 'empty', text: 'No templates.' }));
       return;
     }
+
+    const sorted = applyMatrixSort(allTemplates, matrixSort);
 
     const table = el('table', {
       style: { borderCollapse: 'collapse', fontSize: '12px' },
     });
 
-    // Header
+    // Header — faction columns are clickable to cycle sort state.
     const thead = el('thead');
     const headRow = el('tr');
     headRow.appendChild(cell('th', 'template', { minWidth: '220px' }));
     for (const f of factions) {
-      headRow.appendChild(cell('th', f.id, { textAlign: 'center', minWidth: '80px' }));
+      const indicator =
+        matrixSort?.factionId === f.id
+          ? matrixSort.dir === 'checkedFirst' ? ' ▼' : ' ▲'
+          : '';
+      const th = cell('th', f.id + indicator, {
+        textAlign: 'center',
+        minWidth: '80px',
+        cursor: 'pointer',
+      });
+      th.title = '點擊：勾選置頂 → 未勾選置頂 → 取消排序';
+      th.addEventListener('click', () => {
+        matrixSort = nextSortState(matrixSort, f.id);
+        render();
+      });
+      headRow.appendChild(th);
     }
     thead.appendChild(headRow);
     table.appendChild(thead);
 
     const tbody = el('tbody');
-    for (const t of templates) {
+    for (const t of sorted) {
       tbody.appendChild(renderMatrixRow(t, factions));
     }
     table.appendChild(tbody);
     mount.appendChild(table);
+  };
+
+  const nextSortState = (
+    cur: MatrixSort | null,
+    factionId: string,
+  ): MatrixSort | null => {
+    if (!cur || cur.factionId !== factionId) {
+      return { factionId, dir: 'checkedFirst' };
+    }
+    if (cur.dir === 'checkedFirst') return { factionId, dir: 'uncheckedFirst' };
+    return null;
+  };
+
+  const applyMatrixSort = (
+    templates: ReadonlyArray<UnitTemplate>,
+    sort: MatrixSort | null,
+  ): ReadonlyArray<UnitTemplate> => {
+    if (!sort) return templates;
+    // Stable sort: keep original order within each (checked/unchecked) bucket.
+    const indexed = templates.map((t, i) => ({ t, i }));
+    indexed.sort((a, b) => {
+      const aHas = tagsOf(a.t).includes(sort.factionId);
+      const bHas = tagsOf(b.t).includes(sort.factionId);
+      if (aHas !== bHas) {
+        const wantTop = sort.dir === 'checkedFirst' ? aHas : !aHas;
+        return wantTop ? -1 : 1;
+      }
+      return a.i - b.i;
+    });
+    return indexed.map((x) => x.t);
   };
 
   const renderMatrixRow = (
