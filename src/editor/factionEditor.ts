@@ -16,6 +16,7 @@ import { el } from './dom';
 import {
   type Faction,
   type UnitTemplate,
+  getFaction,
   listFactions,
   listUnitTemplates,
   tagsOf,
@@ -145,8 +146,14 @@ export const mountFactionEditor = (root: HTMLElement): void => {
     const row = el('tr');
     const isBundledNeutral = f.id === NEUTRAL_ID;
 
-    // id — bundled neutral locked; custom id editable but rename triggers
-    // remove + insert (and templates referencing the old id will lose it).
+    // Always read the freshest value from store before each upsert so that
+    // editing several fields without an intervening render does not stomp
+    // earlier edits with a stale `f` snapshot.
+    const fresh = (): Faction => getFaction(f.id) ?? f;
+
+    // id — bundled neutral locked; custom id editable, with cascade to
+    // migrate template factionTags from the old id to the new one (otherwise
+    // matrix checkboxes appear "cleared").
     const idInp = el('input', {
       type: 'text',
       value: f.id,
@@ -155,17 +162,27 @@ export const mountFactionEditor = (root: HTMLElement): void => {
     idInp.disabled = isBundledNeutral;
     idInp.addEventListener('change', () => {
       const next = idInp.value.trim();
-      if (!next || next === f.id) {
-        idInp.value = f.id;
+      const oldId = f.id;
+      if (!next || next === oldId) {
+        idInp.value = oldId;
         return;
       }
       if (listFactions().some((x) => x.id === next)) {
         alert(`派系 id "${next}" 已存在`);
-        idInp.value = f.id;
+        idInp.value = oldId;
         return;
       }
-      removeCustomFaction(f.id);
-      upsertCustomFaction({ ...f, id: next });
+      // Migrate template references first so matrix doesn't show orphans.
+      for (const t of listUnitTemplates()) {
+        const tags = t.factionTags ?? [];
+        if (!tags.includes(oldId)) continue;
+        upsertCustomTemplate({
+          ...t,
+          factionTags: tags.map((x) => (x === oldId ? next : x)),
+        });
+      }
+      removeCustomFaction(oldId);
+      upsertCustomFaction({ ...fresh(), id: next });
       render();
     });
     const idTd = cell('td', '');
@@ -180,7 +197,7 @@ export const mountFactionEditor = (root: HTMLElement): void => {
       style: { width: '100%', boxSizing: 'border-box' },
     }) as HTMLInputElement;
     nameInp.addEventListener('change', () => {
-      upsertCustomFaction({ ...f, name: nameInp.value });
+      upsertCustomFaction({ ...fresh(), name: nameInp.value });
     });
     const nameTd = cell('td', '');
     nameTd.innerHTML = '';
@@ -196,7 +213,7 @@ export const mountFactionEditor = (root: HTMLElement): void => {
     }) as HTMLInputElement;
     descInp.addEventListener('change', () => {
       upsertCustomFaction({
-        ...f,
+        ...fresh(),
         description: descInp.value.trim() || undefined,
       });
     });
@@ -207,12 +224,12 @@ export const mountFactionEditor = (root: HTMLElement): void => {
 
     // playable
     row.appendChild(boolCell(f.playable, (next) => {
-      upsertCustomFaction({ ...f, playable: next });
+      upsertCustomFaction({ ...fresh(), playable: next });
     }));
 
     // hostile
     row.appendChild(boolCell(f.hostile, (next) => {
-      upsertCustomFaction({ ...f, hostile: next });
+      upsertCustomFaction({ ...fresh(), hostile: next });
     }));
 
     // delete

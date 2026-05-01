@@ -55,8 +55,12 @@ export const removeCustomWeapon = (id: string): void => {
 };
 
 export const upsertCustomTemplate = (t: CustomTemplate): void => {
-  const list = loadCustomTemplates().filter((x) => x.templateId !== t.templateId);
-  list.push({ ...t, _custom: true });
+  const list = loadCustomTemplates();
+  const idx = list.findIndex((x) => x.templateId === t.templateId);
+  const next: CustomTemplate = { ...t, _custom: true };
+  // Update in place; same reasoning as upsertCustomFaction.
+  if (idx >= 0) list[idx] = next;
+  else list.push(next);
   saveCustomTemplates(list);
 };
 
@@ -120,8 +124,14 @@ export const saveCustomFactions = (
 };
 
 export const upsertCustomFaction = (f: CustomFaction): void => {
-  const list = loadCustomFactions().filter((x) => x.id !== f.id);
-  list.push({ ...f, _custom: true });
+  const list = loadCustomFactions();
+  const idx = list.findIndex((x) => x.id === f.id);
+  const next: CustomFaction = { ...f, _custom: true };
+  // Update in place so editing a faction does not silently reorder it to
+  // the tail of the list (which made the Factions tab visually reshuffle
+  // both panels on every edit).
+  if (idx >= 0) list[idx] = next;
+  else list.push(next);
   saveCustomFactions(list);
 };
 
