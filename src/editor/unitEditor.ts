@@ -318,11 +318,34 @@ export const mountUnitEditor = (root: HTMLElement): void => {
           margin: '2px 10px 2px 0',
         },
       });
-      wrap.title = `${td.displayName} — ${td.description}`;
       wrap.appendChild(cb);
       wrap.appendChild(
         document.createTextNode(` ${td.id}${td.tbd ? ' (TBD)' : ''}`),
       );
+      // 問號 hint — hover 顯示 trait 說明 / 規則。獨立成一個 span 而不是
+      // 整個 label 的 title，避免 user 誤以為 hover label 會影響 checkbox。
+      const help = el('span', {
+        style: {
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '14px',
+          height: '14px',
+          marginLeft: '4px',
+          borderRadius: '50%',
+          border: '1px solid #5a7a5a',
+          color: '#9af09a',
+          fontSize: '10px',
+          fontFamily: 'ui-monospace, monospace',
+          cursor: 'help',
+          userSelect: 'none',
+        },
+      });
+      help.textContent = '?';
+      help.title = `${td.displayName} (${td.id})\n\n${td.description}`;
+      // 點 ? 不要連帶 toggle checkbox
+      help.addEventListener('click', (e) => e.preventDefault());
+      wrap.appendChild(help);
 
       let paramInp: HTMLInputElement | null = null;
       if (PARAM_TRAITS.has(td.id)) {
