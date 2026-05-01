@@ -19,7 +19,12 @@
 import type { RosterEntry } from '../core/setup/types';
 import { Rng } from '../core/rng/sfc32';
 import type { RecruitRole, UnitTemplate } from './../config/loader';
-import { listBundledTemplates } from './../config/loader';
+import {
+  listBundledTemplates,
+  listFactions,
+  listUnitTemplates,
+  tagsOf,
+} from './../config/loader';
 
 /** Total pool size we top up to. */
 export const POOL_TARGET = 30;
@@ -38,13 +43,17 @@ export const ROLE_TARGETS: Record<RecruitRole, number> = {
 const roleOf = (entry: RosterEntry, byId: Map<string, UnitTemplate>): RecruitRole =>
   byId.get(entry.templateId)?.recruitRole ?? 'regular';
 
-const groupBundledByRole = (): Record<RecruitRole, UnitTemplate[]> => {
+const groupAvailableByRole = (): Record<RecruitRole, UnitTemplate[]> => {
   const out: Record<RecruitRole, UnitTemplate[]> = {
     officer: [],
     specialist: [],
     regular: [],
   };
-  for (const t of listBundledTemplates()) {
+  const playableSet = new Set(
+    listFactions().filter((f) => f.playable).map((f) => f.id),
+  );
+  for (const t of listUnitTemplates()) {
+    if (!tagsOf(t).some((tag) => playableSet.has(tag))) continue;
     out[t.recruitRole ?? 'regular'].push(t);
   }
   return out;
@@ -68,7 +77,7 @@ export const replenishPool = (
 ): ReplenishResult => {
   const bundled = listBundledTemplates();
   const byId = new Map(bundled.map((t) => [t.templateId, t] as const));
-  const buckets = groupBundledByRole();
+  const buckets = groupAvailableByRole();
 
   const counts: Record<RecruitRole, number> = { officer: 0, specialist: 0, regular: 0 };
   for (const e of pool) counts[roleOf(e, byId)] += 1;

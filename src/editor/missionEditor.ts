@@ -13,9 +13,12 @@ import {
   getMap,
   listBundledMaps,
   listBundledMissionDefs,
+  listFactions,
   listMissionDefs,
   listUnitTemplates,
+  tagsOf,
 } from '../config/loader';
+import type { UnitTemplate } from '../config/loader';
 import type { MapDef } from '../core/setup/types';
 import type { MissionDef } from '../missions/types';
 import type { ScenarioMode } from '../core/scenario/victory';
@@ -529,7 +532,12 @@ export const mountMissionEditor = (root: HTMLElement): void => {
     const enemyBox = el('div', { className: 'subform' });
     const renderEnemies = (): void => {
       enemyBox.innerHTML = '';
-      const templates = listUnitTemplates();
+      const hostileSet = new Set(
+        listFactions().filter((f) => f.hostile).map((f) => f.id),
+      );
+      const isEnemyEligible = (t: UnitTemplate): boolean =>
+        tagsOf(t).some((tag) => hostileSet.has(tag));
+      const templates = listUnitTemplates().filter(isEnemyEligible);
       draft.enemies.forEach((e, idx) => {
         const idInp = el('input', {
           type: 'text',
@@ -1147,7 +1155,12 @@ export const mountMissionEditor = (root: HTMLElement): void => {
         renderScenarioParams();
         redrawCanvas();
       } else if (activeCanvasTool === 'enemy') {
-        const tpls = listUnitTemplates();
+        const hostileSet = new Set(
+          listFactions().filter((f) => f.hostile).map((f) => f.id),
+        );
+        const tpls = listUnitTemplates().filter((t) =>
+          tagsOf(t).some((tag) => hostileSet.has(tag)),
+        );
         const newId = `e${draft.enemies.length + 1}`;
         draft.enemies.push({
           id: newId,

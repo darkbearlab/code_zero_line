@@ -2,6 +2,7 @@ import {
   listBundledTemplates,
   listUnitTemplates,
   listWeapons,
+  tagsOf,
   type RecruitRole,
   type UnitTemplate,
 } from '../config/loader';
@@ -22,6 +23,11 @@ interface TemplateDraft {
   traits: string[];
   recruitRole: RecruitRole;
   spriteKey: string;
+  /**
+   * Carried through so saving from this editor does not blow away the
+   * factionTags maintained in the Factions tab.
+   */
+  factionTags: string[];
 }
 
 const ROLE_LABEL: Record<RecruitRole, string> = {
@@ -43,6 +49,7 @@ const toDraft = (t: UnitTemplate): TemplateDraft => ({
   traits: [...t.traits],
   recruitRole: t.recruitRole ?? 'regular',
   spriteKey: t.spriteKey ?? '',
+  factionTags: t.factionTags ? [...t.factionTags] : [],
 });
 
 const fromDraft = (d: TemplateDraft): UnitTemplate => {
@@ -55,6 +62,7 @@ const fromDraft = (d: TemplateDraft): UnitTemplate => {
     // Only include recruitRole when non-default, so JSON files stay tidy.
     ...(d.recruitRole !== 'regular' ? { recruitRole: d.recruitRole } : {}),
     ...(d.spriteKey.trim() !== '' ? { spriteKey: d.spriteKey.trim() } : {}),
+    ...(d.factionTags.length > 0 ? { factionTags: [...d.factionTags] } : {}),
   };
   return out;
 };
@@ -331,6 +339,17 @@ export const mountUnitEditor = (root: HTMLElement): void => {
         'spriteKey',
         spriteInput,
         '對應 spriteManifest.ts 的 key。空白 = 用程式繪製圓形。',
+      ),
+    );
+    const factionDisplay = el('div', {
+      text: tagsOf(fromDraft(draft)).join(', '),
+      style: { color: '#9aa89a', fontSize: '12px' },
+    });
+    formPanel.appendChild(
+      row(
+        '派系',
+        factionDisplay,
+        '從 Factions 分頁編輯。空 → fallback 為 neutral。',
       ),
     );
     formPanel.appendChild(

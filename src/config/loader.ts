@@ -14,6 +14,34 @@ import {
 
 export type RecruitRole = 'officer' | 'specialist' | 'regular';
 
+export interface Faction {
+  readonly id: string;
+  readonly name: string;
+  /** Lore / background blurb shown in editor and (future) unlock tree. */
+  readonly description?: string;
+  /** Templates of this faction can be drawn into the campaign recruit pool. */
+  readonly playable: boolean;
+  /** Templates of this faction appear in the mission editor enemy picker. */
+  readonly hostile: boolean;
+  /**
+   * v1 always true; placeholder for the future unlock tree which will gate
+   * playable factions behind campaign progression at runtime.
+   */
+  readonly unlockedByDefault?: boolean;
+}
+
+const BUNDLED_FACTIONS: ReadonlyArray<Faction> = [
+  {
+    id: 'neutral',
+    name: '中立 (fallback)',
+    description: '預設派系。任何沒有指定 factionTags 的 template 自動歸屬於此。'
+      + '兩個 flag 都開，以保留改造前的行為。可改 flag 但不能刪。',
+    playable: true,
+    hostile: true,
+    unlockedByDefault: true,
+  },
+];
+
 export interface UnitTemplate {
   readonly templateId: string;
   readonly displayName: string;
@@ -45,6 +73,7 @@ export interface UnitTemplate {
 const EDITOR_WEAPON_KEY = 'czl.editor.weapons.v1';
 const EDITOR_TEMPLATE_KEY = 'czl.editor.templates.v1';
 const EDITOR_MAP_KEY = 'czl.editor.maps.v1';
+const EDITOR_FACTION_KEY = 'czl.editor.factions.v1';
 
 const safeReadLocal = <T>(key: string): T[] => {
   try {
@@ -97,6 +126,29 @@ export const listWeapons = (): ReadonlyArray<Weapon> => mergedWeapons();
 export const listBundledWeapons = (): ReadonlyArray<Weapon> => BUNDLED_WEAPONS;
 export const listBundledTemplates = (): ReadonlyArray<UnitTemplate> =>
   BUNDLED_TEMPLATES;
+
+const mergedFactions = (): ReadonlyArray<Faction> => {
+  const custom = safeReadLocal<Faction>(EDITOR_FACTION_KEY);
+  if (custom.length === 0) return BUNDLED_FACTIONS;
+  const byId = new Map<string, Faction>();
+  for (const f of BUNDLED_FACTIONS) byId.set(f.id, f);
+  for (const f of custom) byId.set(f.id, f);
+  return [...byId.values()];
+};
+
+export const listFactions = (): ReadonlyArray<Faction> => mergedFactions();
+export const listBundledFactions = (): ReadonlyArray<Faction> => BUNDLED_FACTIONS;
+export const getFaction = (id: string): Faction | undefined =>
+  mergedFactions().find((f) => f.id === id);
+
+/**
+ * Effective faction tags for a template. Templates without explicit tags
+ * fall back to `['neutral']` so the recruit/enemy filters can treat
+ * untagged bundled units as belonging to the default fallback faction
+ * without mutating bundled JSON.
+ */
+export const tagsOf = (t: UnitTemplate): ReadonlyArray<string> =>
+  t.factionTags && t.factionTags.length > 0 ? t.factionTags : ['neutral'];
 
 export interface UnitSpawn {
   readonly id: string;
