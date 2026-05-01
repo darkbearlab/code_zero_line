@@ -1344,18 +1344,31 @@ const commandMoveAction = (
     const enemyCircles = working.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
-    // Non-participating friendlies block end-overlap for each path. Other
-    // command-move participants are excluded since they are themselves
-    // moving — the user's target picker is responsible for keeping each
-    // participant's endpoint clear of the others.
-    const friendlyCircles = working.units
-      .filter(
-        (o) =>
-          o.faction === u.faction &&
-          !moverIds.has(o.id) &&
-          isUnitAlive(o),
-      )
-      .map(getUnitCircle);
+    // End-overlap blockers = non-participating friendlies + every OTHER
+    // mover's intended endpoint. Including peer movers' desired ends means
+    // the path backs off if two participants would land on each other —
+    // base-stacking is forbidden at rest (rule 4.2A) and the reducer must
+    // enforce it independent of any UI picker.
+    const otherMoverEndCircles = allMovers
+      .filter((other) => other.unitId !== m.unitId)
+      .map((other) => {
+        const ou = findUnit(working, other.unitId)!;
+        return {
+          center: capForStance(ou.position, other.target, other.stance),
+          radius: ou.radius,
+        };
+      });
+    const friendlyCircles = [
+      ...working.units
+        .filter(
+          (o) =>
+            o.faction === u.faction &&
+            !moverIds.has(o.id) &&
+            isUnitAlive(o),
+        )
+        .map(getUnitCircle),
+      ...otherMoverEndCircles,
+    ];
     const path = computeMovePath(u.position, target, {
       polygons: stoppingPolygons,
       enterStopPolygons,

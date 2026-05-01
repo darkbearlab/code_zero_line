@@ -52,6 +52,9 @@ const baseState = (units: Unit[]): GameState => ({
 
 describe('COMMAND_MOVE', () => {
   it('officer + 1 ally both arrive at their targets', () => {
+    // Targets spaced ≥ 2 base radii apart so the reducer's mover-vs-mover
+    // overlap guard (rule 4.2A: bases never share a position at rest) does
+    // not back either of them off.
     const s0 = baseState([
       makeUnit({
         id: 'cap',
@@ -60,7 +63,7 @@ describe('COMMAND_MOVE', () => {
         traits: ['OFFICER'],
         quality: 2,
       }),
-      makeUnit({ id: 'a1', faction: 'A', position: v2(20, 0) }),
+      makeUnit({ id: 'a1', faction: 'A', position: v2(40, 0) }),
       makeUnit({ id: 'b1', faction: 'B', position: v2(2000, 0) }),
     ]);
     const r = applyCommands(s0, [
@@ -68,13 +71,13 @@ describe('COMMAND_MOVE', () => {
       {
         type: 'COMMAND_MOVE',
         officerId: 'cap',
-        officerTarget: v2(80, 0),
+        officerTarget: v2(60, 0),
         participants: [{ unitId: 'a1', target: v2(100, 0) }],
       },
     ]);
     const cap = r.state.units.find((u) => u.id === 'cap')!;
     const a1 = r.state.units.find((u) => u.id === 'a1')!;
-    expect(cap.position.x).toBeCloseTo(80, 0);
+    expect(cap.position.x).toBeCloseTo(60, 0);
     expect(a1.position.x).toBeCloseTo(100, 0);
   });
 
