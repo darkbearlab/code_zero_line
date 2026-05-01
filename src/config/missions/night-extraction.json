@@ -4,7 +4,7 @@
   "description": "左翼煙幕掩護,兩人抵達西側陰影下的撤離點。",
   "mapId": "demo",
   "scenario": "extract",
-  "scenarioParams": { "extractCount": 2, "extractCycleLimit": 999 },
+  "scenarioParams": { "extractCount": 2, "extractActivations": 999 },
   "objectives": [
     {
       "id": "night-extract-objective",

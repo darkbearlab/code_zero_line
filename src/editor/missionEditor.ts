@@ -464,13 +464,23 @@ export const mountMissionEditor = (root: HTMLElement): void => {
         });
       };
 
+      const hint = (text: string): HTMLElement =>
+        el('div', {
+          text,
+          style: { fontSize: '11px', color: '#7a9a7a', marginTop: '2px' },
+        });
+
       if (draft.scenario === 'defend') {
-        paramsBox.appendChild(numField('defendCycles', 'defendCycles', 999));
+        paramsBox.appendChild(
+          numField('defendActivations', 'defendActivations', 999),
+        );
+        paramsBox.appendChild(hint('玩家方累計啟動次數，超過則任務失敗'));
       } else if (draft.scenario === 'extract') {
         paramsBox.appendChild(numField('extractCount', 'extractCount', 2));
         paramsBox.appendChild(
-          numField('extractCycleLimit', 'extractCycleLimit', 999),
+          numField('extractActivations', 'extractActivations', 999),
         );
+        paramsBox.appendChild(hint('玩家方累計啟動次數，超過則任務失敗'));
       } else if (draft.scenario === 'assassinate') {
         paramsBox.appendChild(
           strField(
@@ -481,11 +491,12 @@ export const mountMissionEditor = (root: HTMLElement): void => {
         );
         paramsBox.appendChild(
           numField(
-            'assassinateCycleLimit',
-            'assassinateCycleLimit',
+            'assassinateActivations',
+            'assassinateActivations',
             999,
           ),
         );
+        paramsBox.appendChild(hint('玩家方累計啟動次數，超過則任務失敗'));
       } else {
         paramsBox.appendChild(
           el('span', { text: '(no params)', style: { color: '#7a9a7a' } }),

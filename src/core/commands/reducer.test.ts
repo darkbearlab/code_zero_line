@@ -32,6 +32,7 @@ const makeState = (overrides: Partial<GameState> = {}): GameState => ({
     holder: 'A',
     momentum: { A: 5, B: 0 },
     cycle: 1,
+    playerActivations: 0,
     activeActivation: null,
   },
   ...overrides,
@@ -59,6 +60,7 @@ describe('ACTIVATE_SPEND', () => {
       holder: 'A',
       momentum: { A: 1, B: 0 },
       cycle: 1,
+      playerActivations: 0,
       activeActivation: null,
     }});
     expect(() => applyCommand(s0, { type: 'ACTIVATE_SPEND', unitId: 'a1' })).toThrow(
@@ -118,6 +120,7 @@ describe('ACTIVATE_OVERDRAFT', () => {
         holder: 'A',
         momentum: { A: 1, B: 0 },
         cycle: 1,
+        playerActivations: 0,
         activeActivation: null,
       },
     };
@@ -143,6 +146,7 @@ describe('ACTIVATE_OVERDRAFT', () => {
         holder: 'A',
         momentum: { A: 1, B: 0 },
         cycle: 1,
+        playerActivations: 0,
         activeActivation: null,
       },
     };
@@ -202,6 +206,7 @@ describe('Round transitions', () => {
         holder: 'A',
         momentum: { A: 5, B: 0 },
         cycle: 1,
+        playerActivations: 0,
         activeActivation: null,
       },
     });

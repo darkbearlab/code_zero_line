@@ -6,11 +6,17 @@
  *  - elimination:  classic — last side standing wins.
  *  - engage-reach: hold the objective AND have done some damage. Walk-on
  *                  wins are forbidden.
- *  - defend:       keep the enemy off the objective until round limit.
- *                  An enemy on the marker = instant defender loss; outlasting
- *                  to round N+1 = defender wins.
- *  - extract:      get N units inside the marker before the clock runs out.
- *                  Failure to extract by `extractRoundLimit` = enemy wins.
+ *  - defend:       keep the enemy off the objective until the player has
+ *                  burnt through `defendActivations` activations.
+ *                  An enemy on the marker = instant defender loss.
+ *  - extract:      get N units inside the marker before the player runs
+ *                  out of `extractActivations` activations.
+ *
+ * The clock for defend / extract / assassinate is driven by
+ * `state.initiative.playerActivations` — the cumulative number of times
+ * faction A has spent / checked / overdrafted into a fresh activation.
+ * This unifies the cost of SPEND, CHECK, and OVERDRAFT (each = 1 tick)
+ * and prices command-driven moves the same as single-unit pushes.
  *
  * Scenario victory is layered: ELIMINATED is always checked first regardless
  * of scenario, so wiping the enemy is always a valid win path.
@@ -33,18 +39,25 @@ export type MatchEndReason =
 
 export interface ScenarioParams {
   /**
-   * defend: defender wins after this many initiative cycles if still
-   * holding the objective. Game terminology: 主動權. Default 999 (off).
+   * defend: defender wins after the player has issued this many activations
+   * while still holding the objective. Counted on faction A regardless of
+   * activation kind (SPEND / CHECK / OVERDRAFT). Default 999 (off).
    */
-  readonly defendCycles?: number;
+  readonly defendActivations?: number;
   /** extract: required friendly count inside the marker. Default 2. */
   readonly extractCount?: number;
-  /** extract: cycle at which the clock runs out. Default 999 (off). */
-  readonly extractCycleLimit?: number;
+  /**
+   * extract: player-activation budget. If exceeded without enough units
+   * extracted, defender wins. Default 999 (off).
+   */
+  readonly extractActivations?: number;
   /** assassinate: id of the enemy unit the player must kill. */
   readonly vipUnitId?: string;
-  /** assassinate: cycle at which the clock runs out. Default 999 (off). */
-  readonly assassinateCycleLimit?: number;
+  /**
+   * assassinate: player-activation budget. If exceeded without VIP killed,
+   * defender wins. Default 999 (off).
+   */
+  readonly assassinateActivations?: number;
 }
 
 export interface VictoryResult {
@@ -76,16 +89,13 @@ export const factionUnitsOnObjective = (
   return count;
 };
 
-// All cycle limits default to 999 — effectively "no clock". Concrete
-// missions opt in to a real clock by overriding their scenarioParams.
-// Round-based timers (defendCycles 5, extractCycleLimit 8, etc.) were
-// disabled when the round → cycle terminology rename happened to avoid
-// helper drift; tune them per-mission once the clock semantics are
-// re-confirmed.
-export const DEFEND_CYCLES_DEFAULT = 999;
+// All player-activation limits default to 999 — effectively "no clock".
+// Concrete missions opt in to a real clock by overriding their scenarioParams.
+// Tune per-mission once sim runs let us see typical activation distributions.
+export const DEFEND_ACTIVATIONS_DEFAULT = 999;
 export const EXTRACT_COUNT_DEFAULT = 2;
-export const EXTRACT_CYCLE_LIMIT_DEFAULT = 999;
-export const ASSASSINATE_CYCLE_LIMIT_DEFAULT = 999;
+export const EXTRACT_ACTIVATIONS_DEFAULT = 999;
+export const ASSASSINATE_ACTIVATIONS_DEFAULT = 999;
 
 export const detectScenarioVictory = (
   state: GameState,
@@ -113,11 +123,12 @@ export const detectScenarioVictory = (
   }
 
   if (scenario === 'defend') {
-    const defendCycles = params.defendCycles ?? DEFEND_CYCLES_DEFAULT;
+    const defendActivations =
+      params.defendActivations ?? DEFEND_ACTIVATIONS_DEFAULT;
     const bOnObj = factionUnitsOnObjective(state, 'B');
     // Enemy on the marker — defender loses instantly.
     if (bOnObj > 0) return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
-    if (state.initiative.cycle > defendCycles) {
+    if (state.initiative.playerActivations > defendActivations) {
       const aOnObj = factionUnitsOnObjective(state, 'A');
       // Defender wins by holding past the timer. If A has abandoned the
       // marker too, fall back to alive-count tiebreak so the run still ends.
@@ -130,12 +141,12 @@ export const detectScenarioVictory = (
 
   if (scenario === 'extract') {
     const extractCount = params.extractCount ?? EXTRACT_COUNT_DEFAULT;
-    const cycleLimit = params.extractCycleLimit ?? EXTRACT_CYCLE_LIMIT_DEFAULT;
+    const limit = params.extractActivations ?? EXTRACT_ACTIVATIONS_DEFAULT;
     const aOnObj = factionUnitsOnObjective(state, 'A');
     if (aOnObj >= extractCount) {
       return { winner: 'A', reason: 'OBJECTIVE_SECURED' };
     }
-    if (state.initiative.cycle > cycleLimit) {
+    if (state.initiative.playerActivations > limit) {
       return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
     }
   }
@@ -150,8 +161,9 @@ export const detectScenarioVictory = (
       if (!vip || vip.damage === 'KILLED') {
         return { winner: 'A', reason: 'OBJECTIVE_SECURED' };
       }
-      const limit = params.assassinateCycleLimit ?? ASSASSINATE_CYCLE_LIMIT_DEFAULT;
-      if (state.initiative.cycle > limit) {
+      const limit =
+        params.assassinateActivations ?? ASSASSINATE_ACTIVATIONS_DEFAULT;
+      if (state.initiative.playerActivations > limit) {
         return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
       }
     }

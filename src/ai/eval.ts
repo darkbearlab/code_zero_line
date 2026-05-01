@@ -22,24 +22,25 @@ const SCENARIO_ATTACKER: Readonly<Record<string, 'A' | 'B' | null>> = {
 };
 
 /**
- * Param key naming the cycle limit for each scenario. When set + the
- * current cycle is approaching the limit, the attacker faction's
+ * Param key naming the player-activation budget for each scenario. When
+ * set and the player is approaching the budget, the attacker faction's
  * objective bonuses scale up. `null` means the scenario has no clock —
  * urgency stays 1.
  */
 const SCENARIO_LIMIT_KEY: Readonly<Record<string, string | null>> = {
   'engage-reach': null,
-  defend: 'defendCycles',
-  extract: 'extractCycleLimit',
-  assassinate: 'assassinateCycleLimit',
+  defend: 'defendActivations',
+  extract: 'extractActivations',
+  assassinate: 'assassinateActivations',
   elimination: null,
 };
 
 /**
  * Multiplier on objective-related score terms for the scenario's attacker.
- * Ramps from 1.0 at round 1 to ~MAX at round = limit. Value > 1 means the
- * attacker should weigh "advance toward / sit on the objective" more
- * heavily as time runs out, pushing them out of camping behaviour.
+ * Ramps from 1.0 at zero activations to ~MAX as the player approaches the
+ * activation budget. Value > 1 means the attacker should weigh "advance
+ * toward / sit on the objective" more heavily as time runs out, pushing
+ * them out of camping behaviour.
  */
 const computeAttackerUrgency = (state: GameState, faction: Faction): number => {
   const info = state.scenarioInfo;
@@ -49,8 +50,8 @@ const computeAttackerUrgency = (state: GameState, faction: Faction): number => {
   if (!limitKey) return 1;
   const limit = info.params[limitKey];
   if (typeof limit !== 'number' || limit <= 0) return 1;
-  const progress = Math.min(1, state.initiative.cycle / limit);
-  return 1 + progress * 1.5; // 1.0 → 2.5 across the timer
+  const progress = Math.min(1, state.initiative.playerActivations / limit);
+  return 1 + progress * 1.5; // 1.0 → 2.5 across the budget
 };
 
 export interface EvalWeights {

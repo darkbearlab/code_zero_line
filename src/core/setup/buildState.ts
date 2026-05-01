@@ -67,6 +67,7 @@ export const buildInitialState = (input: BuildInitialStateInput): GameState => {
       holder: input.firstHolder,
       momentum: { A: 0, B: 0 },
       cycle: 1,
+      playerActivations: 0,
       activeActivation: null,
     },
   };

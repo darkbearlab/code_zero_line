@@ -27,6 +27,7 @@ const baseState = (units: Unit[]): GameState => ({
     holder: 'A',
     momentum: { A: 5, B: 5 },
     cycle: 1,
+    playerActivations: 0,
     activeActivation: null,
   },
 });
@@ -83,11 +84,16 @@ describe('evaluateState', () => {
     );
   });
 
-  it('attacker urgency scales objective bonus with cycles remaining', () => {
-    // For 'extract' scenario, A is the attacker. As cycle → cycleLimit,
-    // A's score for being on the objective should grow (urgency 1.0 → 2.5).
+  it('attacker urgency scales objective bonus with player activations remaining', () => {
+    // For 'extract' scenario, A is the attacker. As playerActivations
+    // approaches the budget, A's score for being on the objective should
+    // grow (urgency 1.0 → 2.5).
     const objAt = v2(0, 0);
-    const onObj = (cycle: number, mode: string, params: Record<string, unknown>): GameState => ({
+    const onObj = (
+      playerActivations: number,
+      mode: string,
+      params: Record<string, unknown>,
+    ): GameState => ({
       ...baseState([
         makeUnit({ id: 'a1', faction: 'A', position: v2(0, 0) }),
         makeUnit({ id: 'b1', faction: 'B', position: v2(700, 0) }),
@@ -97,42 +103,44 @@ describe('evaluateState', () => {
       initiative: {
         holder: 'A',
         momentum: { A: 5, B: 5 },
-        cycle,
+        cycle: 1,
+        playerActivations,
         activeActivation: null,
       },
     });
     const early = evaluateState(
-      onObj(1, 'extract', { extractCycleLimit: 8 }),
+      onObj(1, 'extract', { extractActivations: 8 }),
       'A',
     );
     const late = evaluateState(
-      onObj(8, 'extract', { extractCycleLimit: 8 }),
+      onObj(8, 'extract', { extractActivations: 8 }),
       'A',
     );
     expect(late).toBeGreaterThan(early);
   });
 
   it('defender does not get urgency boost', () => {
-    // For 'extract' scenario, B is the defender. Cycle number alone
-    // shouldn't shift B's objective valuation upward.
+    // For 'extract' scenario, B is the defender. Player activation count
+    // alone shouldn't shift B's objective valuation upward.
     const objAt = v2(0, 0);
-    const stateAt = (cycle: number): GameState => ({
+    const stateAt = (playerActivations: number): GameState => ({
       ...baseState([
         makeUnit({ id: 'a1', faction: 'A', position: v2(700, 0) }),
         makeUnit({ id: 'b1', faction: 'B', position: v2(0, 0) }),
       ]),
       objectives: [{ id: 'goal', position: objAt, radius: 30 }],
-      scenarioInfo: { mode: 'extract', params: { extractCycleLimit: 8 } },
+      scenarioInfo: { mode: 'extract', params: { extractActivations: 8 } },
       initiative: {
         holder: 'A',
         momentum: { A: 5, B: 5 },
-        cycle,
+        cycle: 1,
+        playerActivations,
         activeActivation: null,
       },
     });
     const earlyB = evaluateState(stateAt(1), 'B');
     const lateB = evaluateState(stateAt(8), 'B');
-    // B is defender — score unchanged across cycles (modulo holder bonus).
+    // B is defender — score unchanged across budget (modulo holder bonus).
     expect(lateB).toBeCloseTo(earlyB, 5);
   });
 

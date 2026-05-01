@@ -4,7 +4,7 @@
   "description": "更猛的攻勢 — 撐住別讓對方踏入指揮所。",
   "mapId": "demo",
   "scenario": "defend",
-  "scenarioParams": { "defendCycles": 999 },
+  "scenarioParams": { "defendActivations": 999 },
   "objectives": [
     {
       "id": "lstand-objective",

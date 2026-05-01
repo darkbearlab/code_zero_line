@@ -56,6 +56,7 @@ const makeStateForReactions = (
     holder: 'A',
     momentum: { A: 5, B: 0 },
     cycle: 1,
+    playerActivations: 0,
     activeActivation: null,
   },
 });

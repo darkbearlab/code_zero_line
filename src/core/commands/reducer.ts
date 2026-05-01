@@ -125,6 +125,22 @@ const setActivation = (
   initiative: { ...s.initiative, activeActivation: act },
 });
 
+/**
+ * Bump the player-side budget. Called by the three activate*() entry points
+ * (SPEND, CHECK regardless of success, OVERDRAFT) when the active unit is
+ * faction A. Drives mission deadlines via state.initiative.playerActivations.
+ */
+const bumpPlayerActivationsIf = (s: GameState, faction: Faction): GameState =>
+  faction === 'A'
+    ? {
+        ...s,
+        initiative: {
+          ...s.initiative,
+          playerActivations: s.initiative.playerActivations + 1,
+        },
+      }
+    : s;
+
 const markUnitActivated = (s: GameState, unitId: string): GameState => ({
   ...s,
   units: s.units.map((u) =>
@@ -174,6 +190,7 @@ const turnover = (
       holder: to,
       momentum: newMomentum,
       cycle: s.initiative.cycle + cycleBump,
+      playerActivations: s.initiative.playerActivations,
       activeActivation: null,
     },
     // lockedThisInitiative is per-initiative-phase: any turnover clears
@@ -218,6 +235,7 @@ const activateSpend = (s: GameState, unitId: string): CommandResult => {
     );
   }
   let next = setMomentum(s, u.faction, cur - cost);
+  next = bumpPlayerActivationsIf(next, u.faction);
   next = markUnitActivated(next, u.id);
   next = setActivation(next, {
     unitId: u.id,
@@ -251,8 +269,11 @@ const activateCheck = (
     roll,
     success,
   };
+  // Both success and failure consume one player activation slot — the
+  // attempt itself is the resource-spending event for the budget clock.
+  const bumped = bumpPlayerActivationsIf(s, u.faction);
   if (success) {
-    let next = markUnitActivated(s, u.id);
+    let next = markUnitActivated(bumped, u.id);
     // Trait-based action cap (e.g., CUMBERSOME = 1) overrides unlimited.
     const cap = capActionsForTraits(u);
     next = setActivation(next, {
@@ -270,7 +291,7 @@ const activateCheck = (
       ],
     };
   }
-  const t = turnover(s, 'CHECK_FAILED', TURNOVER_MOMENTUM_GRANT);
+  const t = turnover(bumped, 'CHECK_FAILED', TURNOVER_MOMENTUM_GRANT);
   return { state: t.state, events: [checkEvent, ...t.events] };
 };
 
@@ -286,6 +307,7 @@ const activateOverdraft = (s: GameState, unitId: string): CommandResult => {
   }
   const deficit = cost - cur;
   let next = setMomentum(s, u.faction, 0);
+  next = bumpPlayerActivationsIf(next, u.faction);
   next = markUnitActivated(next, u.id);
   next = setActivation(next, {
     unitId: u.id,

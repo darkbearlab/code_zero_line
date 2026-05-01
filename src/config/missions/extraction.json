@@ -4,7 +4,7 @@
   "description": "突破敵線,讓兩名以上隊員抵達北側撤離點。",
   "mapId": "demo",
   "scenario": "extract",
-  "scenarioParams": { "extractCount": 2, "extractCycleLimit": 999 },
+  "scenarioParams": { "extractCount": 2, "extractActivations": 999 },
   "objectives": [
     {
       "id": "extract-objective",

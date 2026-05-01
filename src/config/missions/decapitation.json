@@ -4,7 +4,7 @@
   "description": "幹掉敵方指揮官 — 其他人怎樣都好。",
   "mapId": "demo",
   "scenario": "assassinate",
-  "scenarioParams": { "vipUnitId": "vip-1", "assassinateCycleLimit": 999 },
+  "scenarioParams": { "vipUnitId": "vip-1", "assassinateActivations": 999 },
   "objectives": [],
   "enemyFaction": "B",
   "enemies": [

@@ -122,6 +122,15 @@ export interface Initiative {
    * 戰役回合 concept.
    */
   readonly cycle: number;
+  /**
+   * Cumulative activation count for the player faction (A). Increments on
+   * every ACTIVATE_SPEND / ACTIVATE_CHECK / ACTIVATE_OVERDRAFT issued by A
+   * (COMMAND_MOVE/RALLY ride on top of SPEND, so 1 SPEND = 1 activation
+   * regardless of action shape). Drives mission deadlines (defendActivations
+   * / extractActivations / assassinateActivations) — see scenario/victory.ts.
+   * AI-vs-AI sim treats faction A as "player side" for budget purposes.
+   */
+  readonly playerActivations: number;
   readonly activeActivation: ActiveActivation | null;
 }
 

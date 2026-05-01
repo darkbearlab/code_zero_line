@@ -78,6 +78,7 @@ const baseState = (
     holder: 'A',
     momentum: { A: 5, B: 5 },
     cycle: 1,
+    playerActivations: 0,
     activeActivation: activeUnitId
       ? {
           unitId: activeUnitId,

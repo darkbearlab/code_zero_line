@@ -36,6 +36,7 @@ const baseState = (overrides: Partial<GameState> = {}): GameState => ({
     holder: 'A',
     momentum: { A: 0, B: 0 },
     cycle: 1,
+    playerActivations: 0,
     activeActivation: null,
   },
   ...overrides,
@@ -56,6 +57,7 @@ describe('chooseAiCommand', () => {
         holder: 'A',
         momentum: { A: 5, B: 0 },
         cycle: 1,
+        playerActivations: 0,
         activeActivation: null,
       },
     });
@@ -88,6 +90,7 @@ describe('chooseAiCommand', () => {
         holder: 'A',
         momentum: { A: 0, B: 0 },
         cycle: 1,
+        playerActivations: 0,
         activeActivation: {
           unitId: 'a1',
           kind: 'SPEND',
@@ -119,6 +122,7 @@ describe('chooseAiCommand', () => {
         holder: 'A',
         momentum: { A: 0, B: 0 },
         cycle: 1,
+        playerActivations: 0,
         activeActivation: {
           unitId: 'a1',
           kind: 'SPEND',
@@ -143,6 +147,7 @@ describe('chooseAiCommand', () => {
         holder: 'A',
         momentum: { A: 0, B: 0 },
         cycle: 1,
+        playerActivations: 0,
         activeActivation: {
           unitId: 'a1',
           kind: 'CHECK_SUCCESS',
@@ -170,6 +175,7 @@ describe('chooseAiCommand', () => {
         holder: 'A',
         momentum: { A: 0, B: 0 },
         cycle: 1,
+        playerActivations: 0,
         activeActivation: {
           unitId: 'a1',
           kind: 'SPEND',
@@ -202,6 +208,7 @@ describe('chooseAiCommand', () => {
         holder: 'A',
         momentum: { A: 0, B: 0 },
         cycle: 1,
+        playerActivations: 0,
         activeActivation: {
           unitId: 'a1',
           kind: 'SPEND',
@@ -225,6 +232,7 @@ describe('chooseAiCommand', () => {
         holder: 'A',
         momentum: { A: 0, B: 0 },
         cycle: 1,
+        playerActivations: 0,
         activeActivation: {
           unitId: 'a1',
           kind: 'SPEND',

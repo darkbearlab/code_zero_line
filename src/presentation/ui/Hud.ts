@@ -185,6 +185,7 @@ export class Hud {
   private actionsEl: HTMLElement;
   private logEl: HTMLElement;
   private roundEl: HTMLElement;
+  private activationsEl: HTMLElement;
   private holderEl: HTMLElement;
   private momentumAEl: HTMLElement;
   private momentumBEl: HTMLElement;
@@ -225,6 +226,7 @@ export class Hud {
     this.actionsEl = mustElement('hud-actions');
     this.logEl = mustElement('hud-log');
     this.roundEl = mustElement('hud-round');
+    this.activationsEl = mustElement('hud-activations');
     this.holderEl = mustElement('hud-holder');
     this.momentumAEl = mustElement('hud-momentum-a');
     this.momentumBEl = mustElement('hud-momentum-b');
@@ -303,6 +305,7 @@ export class Hud {
     ctx?: HudContext,
   ): void {
     this.roundEl.textContent = String(state.initiative.cycle);
+    this.activationsEl.textContent = String(state.initiative.playerActivations);
     this.holderEl.textContent = state.initiative.holder;
     this.holderEl.className = `holder-${state.initiative.holder}`;
     this.momentumAEl.textContent = String(state.initiative.momentum.A);

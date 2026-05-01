@@ -1433,21 +1433,21 @@ export class BattleScene extends Phaser.Scene {
    * Build the top-of-HUD scenario tag — shows the win condition + any
    * scenario-specific countdown / count progress so the player can see at
    * a glance what they're racing toward. Time-based scenarios measure
-   * their clock in 主動權 (initiative cycles).
+   * their clock in 玩家活動數 (cumulative player activations).
    */
   private formatMissionLabel(): string | null {
-    const cycle = this.gameState.initiative.cycle;
+    const acts = this.gameState.initiative.playerActivations;
     if (this.missionScenario === 'engage-reach') {
       return '⚑ 攻佔目標';
     }
     if (this.missionScenario === 'defend') {
-      const goal = this.missionParams.defendCycles ?? 999;
+      const goal = this.missionParams.defendActivations ?? 999;
       if (goal >= 999) return '⚑ 守住目標';
-      return `⚑ 守住目標 ${Math.min(cycle, goal)}/${goal} 主動權`;
+      return `⚑ 守住目標 ${Math.min(acts, goal)}/${goal} 活動`;
     }
     if (this.missionScenario === 'extract') {
       const need = this.missionParams.extractCount ?? 2;
-      const limit = this.missionParams.extractCycleLimit ?? 999;
+      const limit = this.missionParams.extractActivations ?? 999;
       const onObj = this.gameState.units.filter((u) => {
         if (u.faction !== 'A' || !isUnitAlive(u)) return false;
         const objs = this.gameState.objectives ?? [];
@@ -1459,10 +1459,10 @@ export class BattleScene extends Phaser.Scene {
         );
       }).length;
       if (limit >= 999) return `⚑ 撤離 ${onObj}/${need}`;
-      return `⚑ 撤離 ${onObj}/${need}・剩 ${Math.max(0, limit - cycle + 1)} 主動權`;
+      return `⚑ 撤離 ${onObj}/${need}・剩 ${Math.max(0, limit - acts)} 活動`;
     }
     if (this.missionScenario === 'assassinate') {
-      const limit = this.missionParams.assassinateCycleLimit ?? 999;
+      const limit = this.missionParams.assassinateActivations ?? 999;
       const vipId = this.missionParams.vipUnitId;
       const vip = vipId
         ? this.gameState.units.find((u) => u.id === vipId)
@@ -1475,7 +1475,7 @@ export class BattleScene extends Phaser.Scene {
             ? '⬛'
             : vip.damage; // IMPEDED / SUPPRESSED
       if (limit >= 999) return `⚑ 斬首目標 ${status}`;
-      return `⚑ 斬首目標 ${status}・剩 ${Math.max(0, limit - cycle + 1)} 主動權`;
+      return `⚑ 斬首目標 ${status}・剩 ${Math.max(0, limit - acts)} 活動`;
     }
     return null;
   }
