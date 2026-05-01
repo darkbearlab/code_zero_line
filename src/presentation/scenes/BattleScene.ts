@@ -82,6 +82,11 @@ const FACTION_COLOR: Readonly<Record<'A' | 'B', number>> = {
   B: 0xcf5a4a,
 };
 
+// Translucent overlay alpha for faction tint on sprites. ~0.4 reads clearly
+// on white/light areas of the sprite while keeping the sprite's own
+// shading/detail visible (avoiding the crushing effect of multiplicative tint).
+const TINT_OVERLAY_ALPHA = 0.4;
+
 interface CommandMover {
   unitId: string;
   start: Vec2;
@@ -696,22 +701,33 @@ export class BattleScene extends Phaser.Scene {
     // Optional sprite layer — shown only when the unit's template registers
     // a `spriteKey` AND the corresponding texture is loaded. When shown,
     // the ring's fill is hidden so the sprite displays cleanly; the stroke
-    // still carries selection / activation feedback. Faction differentiation
-    // is via tint (Faction.color resolved through tagsOf). Otherwise we
-    // fall back to the procedural circle.
+    // still carries selection / activation feedback.
+    //
+    // Faction tint is applied as a translucent solid-fill copy of the sprite
+    // *on top* of the original (NOT setTint, which is multiplicative and
+    // crushes shaded areas to near-black). This preserves the sprite's
+    // internal contrast while making the faction colour read clearly on
+    // the bright/white parts.
     if (u.templateId) {
       const tmpl = listUnitTemplates().find(
         (t) => t.templateId === u.templateId,
       );
       const texKey = tmpl?.spriteKey ?? null;
       if (texKey && this.textures.exists(texKey)) {
-        const spr = this.add.sprite(0, 0, texKey);
         const size = u.radius * 2.4;
+        const spr = this.add.sprite(0, 0, texKey);
         spr.setDisplaySize(size, size);
         spr.setName('sprite');
-        const tint = tmpl ? resolveFactionColorForTags(tagsOf(tmpl)) : null;
-        if (tint !== null) spr.setTint(tint);
         container.add(spr);
+        const tint = tmpl ? resolveFactionColorForTags(tagsOf(tmpl)) : null;
+        if (tint !== null) {
+          const overlay = this.add.sprite(0, 0, texKey);
+          overlay.setDisplaySize(size, size);
+          overlay.setName('spriteTint');
+          overlay.setTintFill(tint);
+          overlay.setAlpha(TINT_OVERLAY_ALPHA);
+          container.add(overlay);
+        }
         arc.setFillStyle(FACTION_COLOR[u.faction], 0);
       }
     }
@@ -736,6 +752,8 @@ export class BattleScene extends Phaser.Scene {
     chev.rotation = initial;
     const initSpr = container.getByName('sprite') as Phaser.GameObjects.Sprite | null;
     if (initSpr) initSpr.rotation = initial;
+    const initTint = container.getByName('spriteTint') as Phaser.GameObjects.Sprite | null;
+    if (initTint) initTint.rotation = initial;
 
     return container;
   }
@@ -748,6 +766,8 @@ export class BattleScene extends Phaser.Scene {
     if (chev) chev.rotation = angle;
     const sprite = c.getByName('sprite') as Phaser.GameObjects.Sprite | null;
     if (sprite) sprite.rotation = angle;
+    const tintSpr = c.getByName('spriteTint') as Phaser.GameObjects.Sprite | null;
+    if (tintSpr) tintSpr.rotation = angle;
   }
 
   private faceUnitTowardPoint(unitId: string, target: Vec2): void {
@@ -832,6 +852,10 @@ export class BattleScene extends Phaser.Scene {
     if (sprite) {
       arc.setFillStyle(FACTION_COLOR[u.faction], 0);
       sprite.setAlpha(proneAlpha);
+      const tintSpr = container.getByName('spriteTint') as
+        | Phaser.GameObjects.Sprite
+        | null;
+      if (tintSpr) tintSpr.setAlpha(proneAlpha * TINT_OVERLAY_ALPHA);
     } else {
       arc.setFillStyle(FACTION_COLOR[u.faction], proneAlpha);
     }
