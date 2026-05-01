@@ -49,7 +49,11 @@ import {
   movementExitStopPolygons,
 } from '../../core/state/GameState';
 import timersConfig from '../../config/timers.json';
-import { listUnitTemplates } from '../../config/loader';
+import {
+  listUnitTemplates,
+  resolveFactionColorForTags,
+  tagsOf,
+} from '../../config/loader';
 import type {
   ActionRequest,
   AimMode,
@@ -688,22 +692,23 @@ export class BattleScene extends Phaser.Scene {
     container.add(arc);
 
     // Optional sprite layer — shown only when the unit's template registers
-    // a `spriteKey` AND the corresponding texture is loaded (`${key}-A` or
-    // `${key}-B`). When shown, the ring's fill is hidden so the sprite
-    // displays cleanly; the stroke still carries selection / activation
-    // feedback. Otherwise we fall back to the procedural circle.
+    // a `spriteKey` AND the corresponding texture is loaded. When shown,
+    // the ring's fill is hidden so the sprite displays cleanly; the stroke
+    // still carries selection / activation feedback. Faction differentiation
+    // is via tint (Faction.color resolved through tagsOf). Otherwise we
+    // fall back to the procedural circle.
     if (u.templateId) {
       const tmpl = listUnitTemplates().find(
         (t) => t.templateId === u.templateId,
       );
-      const texKey = tmpl?.spriteKey
-        ? `${tmpl.spriteKey}-${u.faction}`
-        : null;
+      const texKey = tmpl?.spriteKey ?? null;
       if (texKey && this.textures.exists(texKey)) {
         const spr = this.add.sprite(0, 0, texKey);
         const size = u.radius * 2.4;
         spr.setDisplaySize(size, size);
         spr.setName('sprite');
+        const tint = tmpl ? resolveFactionColorForTags(tagsOf(tmpl)) : null;
+        if (tint !== null) spr.setTint(tint);
         container.add(spr);
         arc.setFillStyle(FACTION_COLOR[u.faction], 0);
       }
@@ -727,6 +732,8 @@ export class BattleScene extends Phaser.Scene {
       (u.faction === 'A' ? -Math.PI / 2 : Math.PI / 2);
     this.unitFacings.set(u.id, initial);
     chev.rotation = initial;
+    const initSpr = container.getByName('sprite') as Phaser.GameObjects.Sprite | null;
+    if (initSpr) initSpr.rotation = initial;
 
     return container;
   }
@@ -737,6 +744,8 @@ export class BattleScene extends Phaser.Scene {
     if (!c) return;
     const chev = c.getByName('facing') as Phaser.GameObjects.Graphics | null;
     if (chev) chev.rotation = angle;
+    const sprite = c.getByName('sprite') as Phaser.GameObjects.Sprite | null;
+    if (sprite) sprite.rotation = angle;
   }
 
   private faceUnitTowardPoint(unitId: string, target: Vec2): void {

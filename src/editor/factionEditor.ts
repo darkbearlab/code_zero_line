@@ -106,10 +106,11 @@ export const mountFactionEditor = (root: HTMLElement): void => {
     const thead = el('thead');
     const headRow = el('tr');
     headRow.appendChild(cell('th', 'id', { width: '120px' }));
-    headRow.appendChild(cell('th', 'name', { width: '160px' }));
+    headRow.appendChild(cell('th', 'name', { width: '140px' }));
     headRow.appendChild(cell('th', 'description', {}));
-    headRow.appendChild(cell('th', 'playable', { width: '80px', textAlign: 'center' }));
-    headRow.appendChild(cell('th', 'hostile', { width: '80px', textAlign: 'center' }));
+    headRow.appendChild(cell('th', 'color', { width: '80px', textAlign: 'center' }));
+    headRow.appendChild(cell('th', 'playable', { width: '70px', textAlign: 'center' }));
+    headRow.appendChild(cell('th', 'hostile', { width: '70px', textAlign: 'center' }));
     headRow.appendChild(cell('th', '', { width: '40px' }));
     thead.appendChild(headRow);
     table.appendChild(thead);
@@ -221,6 +222,45 @@ export const mountFactionEditor = (root: HTMLElement): void => {
     descTd.innerHTML = '';
     descTd.appendChild(descInp);
     row.appendChild(descTd);
+
+    // color — drives sprite tint at render time. Optional; absent = no tint.
+    const colorTd = cell('td', '', { textAlign: 'center' });
+    colorTd.innerHTML = '';
+    const colorWrap = el('div', {
+      style: { display: 'inline-flex', alignItems: 'center', gap: '4px' },
+    });
+    const colorInp = el('input', {
+      type: 'color',
+      value: f.color ?? '#888888',
+      style: {
+        width: '32px',
+        height: '20px',
+        padding: '0',
+        border: '1px solid #3a5a3a',
+        cursor: 'pointer',
+      },
+    }) as HTMLInputElement;
+    if (!f.color) colorInp.style.opacity = '0.4';
+    colorInp.title = '套用為單位 sprite tint 的顏色';
+    colorInp.addEventListener('change', () => {
+      upsertCustomFaction({ ...fresh(), color: colorInp.value });
+      render();
+    });
+    colorWrap.appendChild(colorInp);
+    if (f.color) {
+      const clearBtn = el('button', {
+        text: '✕',
+        style: { fontSize: '10px', padding: '0 4px' },
+        onclick: () => {
+          upsertCustomFaction({ ...fresh(), color: undefined });
+          render();
+        },
+      });
+      clearBtn.title = '清除顏色（不套用 tint）';
+      colorWrap.appendChild(clearBtn);
+    }
+    colorTd.appendChild(colorWrap);
+    row.appendChild(colorTd);
 
     // playable
     row.appendChild(boolCell(f.playable, (next) => {

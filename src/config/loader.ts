@@ -19,6 +19,13 @@ export interface Faction {
   readonly name: string;
   /** Lore / background blurb shown in editor and (future) unlock tree. */
   readonly description?: string;
+  /**
+   * Tint colour applied to a unit's sprite at render time, as a CSS hex
+   * string (e.g. '#9af09a'). When a unit's effective factionTags resolve to
+   * a faction with a colour, the sprite is `setTint`-ed with it so a single
+   * grayscale / neutral PNG can serve every faction. Unset → no tint.
+   */
+  readonly color?: string;
   /** Templates of this faction can be drawn into the campaign recruit pool. */
   readonly playable: boolean;
   /** Templates of this faction appear in the mission editor enemy picker. */
@@ -61,11 +68,11 @@ export interface UnitTemplate {
   readonly recruitRole?: RecruitRole;
   /**
    * Sprite key for the BattleScene renderer. When set, the renderer looks
-   * up textures `${spriteKey}-A` / `${spriteKey}-B` and shows them in
-   * place of the procedural faction-colored circle. Unset, or texture
-   * not loaded → falls back to the circle. Asset files live under
-   * `public/assets/units/` and are registered in
-   * `src/presentation/assets/spriteManifest.ts`.
+   * up the texture registered under this exact key and shows it in place
+   * of the procedural faction-colored circle, applying the matching
+   * Faction.color as a tint. Unset, or texture not loaded → falls back to
+   * the circle. Asset files live under `public/assets/units/` and are
+   * registered in `src/presentation/assets/spriteManifest.ts`.
    */
   readonly spriteKey?: string;
 }
@@ -149,6 +156,27 @@ export const getFaction = (id: string): Faction | undefined =>
  */
 export const tagsOf = (t: UnitTemplate): ReadonlyArray<string> =>
   t.factionTags && t.factionTags.length > 0 ? t.factionTags : ['neutral'];
+
+/**
+ * First faction (in tag order) that defines a colour, returned as a
+ * 0xRRGGBB number for Phaser tint APIs. Used by BattleScene to colourise
+ * sprites without needing per-faction PNGs. Returns null when no matching
+ * faction has a colour set.
+ */
+export const resolveFactionColorForTags = (
+  tags: ReadonlyArray<string>,
+): number | null => {
+  const factions = mergedFactions();
+  for (const tag of tags) {
+    const f = factions.find((x) => x.id === tag);
+    const raw = f?.color;
+    if (!raw) continue;
+    const hex = raw.startsWith('#') ? raw.slice(1) : raw;
+    const n = parseInt(hex, 16);
+    if (!Number.isNaN(n)) return n;
+  }
+  return null;
+};
 
 export interface UnitSpawn {
   readonly id: string;

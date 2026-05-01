@@ -8,8 +8,7 @@ export class BootScene extends Phaser.Scene {
 
   preload(): void {
     for (const e of UNIT_SPRITES) {
-      this.load.image(`${e.key}-A`, `${e.path}-A.png`);
-      this.load.image(`${e.key}-B`, `${e.path}-B.png`);
+      this.load.image(e.key, e.path);
     }
   }
 
