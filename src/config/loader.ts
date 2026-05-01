@@ -31,6 +31,15 @@ export interface UnitTemplate {
    * officers. Undefined = `regular` (back-compat).
    */
   readonly recruitRole?: RecruitRole;
+  /**
+   * Sprite key for the BattleScene renderer. When set, the renderer looks
+   * up textures `${spriteKey}-A` / `${spriteKey}-B` and shows them in
+   * place of the procedural faction-colored circle. Unset, or texture
+   * not loaded → falls back to the circle. Asset files live under
+   * `public/assets/units/` and are registered in
+   * `src/presentation/assets/spriteManifest.ts`.
+   */
+  readonly spriteKey?: string;
 }
 
 const EDITOR_WEAPON_KEY = 'czl.editor.weapons.v1';
@@ -100,6 +109,7 @@ export const buildUnit = (spawn: UnitSpawn): Unit => {
   const tpl = getUnitTemplate(spawn.templateId);
   return {
     id: spawn.id,
+    templateId: spawn.templateId,
     faction: spawn.faction,
     position: v2(spawn.position.x, spawn.position.y),
     radius: STANDARD_BASE_RADIUS_PIXELS,

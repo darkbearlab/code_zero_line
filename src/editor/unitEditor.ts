@@ -21,6 +21,7 @@ interface TemplateDraft {
   weaponIds: string[];
   traits: string[];
   recruitRole: RecruitRole;
+  spriteKey: string;
 }
 
 const ROLE_LABEL: Record<RecruitRole, string> = {
@@ -41,6 +42,7 @@ const toDraft = (t: UnitTemplate): TemplateDraft => ({
   weaponIds: [...t.weaponIds],
   traits: [...t.traits],
   recruitRole: t.recruitRole ?? 'regular',
+  spriteKey: t.spriteKey ?? '',
 });
 
 const fromDraft = (d: TemplateDraft): UnitTemplate => {
@@ -52,6 +54,7 @@ const fromDraft = (d: TemplateDraft): UnitTemplate => {
     traits: [...d.traits],
     // Only include recruitRole when non-default, so JSON files stay tidy.
     ...(d.recruitRole !== 'regular' ? { recruitRole: d.recruitRole } : {}),
+    ...(d.spriteKey.trim() !== '' ? { spriteKey: d.spriteKey.trim() } : {}),
   };
   return out;
 };
@@ -242,6 +245,15 @@ export const mountUnitEditor = (root: HTMLElement): void => {
       draft.recruitRole = roleSelect.value as RecruitRole;
     });
 
+    const spriteInput = el('input', {
+      type: 'text',
+      value: draft.spriteKey,
+      style: { width: '200px' },
+    }) as HTMLInputElement;
+    spriteInput.addEventListener('input', () => {
+      draft.spriteKey = spriteInput.value;
+    });
+
     // Weapon multi-pick: render as checkboxes for each available weapon.
     const weaponBoxes = el('div', { className: 'checkbox-row' });
     for (const w of listWeapons()) {
@@ -312,6 +324,13 @@ export const mountUnitEditor = (root: HTMLElement): void => {
         'recruit role',
         roleSelect,
         'Slot draft category. Slot 1 prefers officer, slot 2 prefers specialist, slots 3+ exclude officers.',
+      ),
+    );
+    formPanel.appendChild(
+      row(
+        'spriteKey',
+        spriteInput,
+        '對應 spriteManifest.ts 的 key。空白 = 用程式繪製圓形。',
       ),
     );
     formPanel.appendChild(

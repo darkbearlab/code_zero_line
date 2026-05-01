@@ -49,6 +49,7 @@ import {
   movementExitStopPolygons,
 } from '../../core/state/GameState';
 import timersConfig from '../../config/timers.json';
+import { listUnitTemplates } from '../../config/loader';
 import type {
   ActionRequest,
   AimMode,
@@ -686,6 +687,28 @@ export class BattleScene extends Phaser.Scene {
     );
     container.add(arc);
 
+    // Optional sprite layer — shown only when the unit's template registers
+    // a `spriteKey` AND the corresponding texture is loaded (`${key}-A` or
+    // `${key}-B`). When shown, the ring's fill is hidden so the sprite
+    // displays cleanly; the stroke still carries selection / activation
+    // feedback. Otherwise we fall back to the procedural circle.
+    if (u.templateId) {
+      const tmpl = listUnitTemplates().find(
+        (t) => t.templateId === u.templateId,
+      );
+      const texKey = tmpl?.spriteKey
+        ? `${tmpl.spriteKey}-${u.faction}`
+        : null;
+      if (texKey && this.textures.exists(texKey)) {
+        const spr = this.add.sprite(0, 0, texKey);
+        const size = u.radius * 2.4;
+        spr.setDisplaySize(size, size);
+        spr.setName('sprite');
+        container.add(spr);
+        arc.setFillStyle(FACTION_COLOR[u.faction], 0);
+      }
+    }
+
     const label = this.add.text(0, -u.radius - 14, `${u.id}\n${u.quality}+`, {
       fontFamily: 'ui-monospace, monospace',
       fontSize: '10px',
@@ -788,9 +811,19 @@ export class BattleScene extends Phaser.Scene {
     arc.setStrokeStyle(strokeWidth, strokeColor);
 
     // Prone visual: dim fill + show "PRONE" stance tag. Chevron also dims so
-    // the unit reads as low-profile from above.
+    // the unit reads as low-profile from above. When a sprite is layered on
+    // top of the ring, the ring's fill stays hidden (alpha 0) and the
+    // sprite carries the prone dim instead.
     const proneAlpha = u.stance === 'PRONE' ? 0.55 : 1;
-    arc.setFillStyle(FACTION_COLOR[u.faction], proneAlpha);
+    const sprite = container.getByName('sprite') as
+      | Phaser.GameObjects.Sprite
+      | null;
+    if (sprite) {
+      arc.setFillStyle(FACTION_COLOR[u.faction], 0);
+      sprite.setAlpha(proneAlpha);
+    } else {
+      arc.setFillStyle(FACTION_COLOR[u.faction], proneAlpha);
+    }
     const facingChev = container.getByName('facing') as
       | Phaser.GameObjects.Graphics
       | null;

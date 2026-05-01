@@ -23,6 +23,13 @@ export interface Weapon {
 
 export interface Unit {
   readonly id: string;
+  /**
+   * Template the unit was instantiated from (e.g. 'squad_lead', 'trooper').
+   * Renderer uses it to resolve `spriteKey` from the template registry.
+   * Optional for back-compat with legacy hand-built fixtures (test units
+   * omit it; renderer falls back to procedural drawing).
+   */
+  readonly templateId?: string;
   readonly faction: Faction;
   readonly position: Vec2;
   readonly radius: number;

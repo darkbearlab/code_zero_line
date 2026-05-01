@@ -1,8 +1,16 @@
 import Phaser from 'phaser';
+import { UNIT_SPRITES } from '../assets/spriteManifest';
 
 export class BootScene extends Phaser.Scene {
   constructor() {
     super({ key: 'Boot' });
+  }
+
+  preload(): void {
+    for (const e of UNIT_SPRITES) {
+      this.load.image(`${e.key}-A`, `${e.path}-A.png`);
+      this.load.image(`${e.key}-B`, `${e.path}-B.png`);
+    }
   }
 
   create(): void {
