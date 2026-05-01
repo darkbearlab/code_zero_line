@@ -414,6 +414,22 @@ export class BattleScene extends Phaser.Scene {
 
   private drawBoardEdge(): void {
     this.boardEdgeGfx.clear();
+
+    // Light checkerboard floor (1 UD tiles) — gives sprites contrast and
+    // doubles as a visible scale ruler.
+    const tile = UNIT_DISTANCE_PIXELS;
+    const cols = Math.ceil(BATTLEFIELD_SIZE_PIXELS / tile);
+    const rows = Math.ceil(BATTLEFIELD_SIZE_PIXELS / tile);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        this.boardEdgeGfx.fillStyle(
+          (r + c) % 2 === 0 ? 0xf0f0f0 : 0xd6d6d6,
+          1,
+        );
+        this.boardEdgeGfx.fillRect(c * tile, r * tile, tile, tile);
+      }
+    }
+
     this.boardEdgeGfx.lineStyle(2, 0x2a3a2a);
     this.boardEdgeGfx.strokeRect(
       0,
