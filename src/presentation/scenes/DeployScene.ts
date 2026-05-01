@@ -244,7 +244,10 @@ export class DeployScene extends Phaser.Scene {
       (z) => z.faction === faction,
     );
     if (!zone) return false;
-    if (!pointInPolygon(pos, zone.polygon)) return false;
+    // 規則：底盤整圈都必須落在部署區內，不能超過邊緣。
+    if (!this.circleInsidePolygon(pos, STANDARD_BASE_RADIUS_PIXELS, zone.polygon)) {
+      return false;
+    }
     // Don't overlap existing units.
     for (const f of ['A', 'B'] as const) {
       for (const p of this.placements[f]) {
@@ -287,6 +290,30 @@ export class DeployScene extends Phaser.Scene {
       if (Math.hypot(px, py) < r) return true;
     }
     return false;
+  }
+
+  // 圓是否完全在多邊形內：圓心在內 + 圓心到每條邊的最短距離 >= r。
+  private circleInsidePolygon(
+    c: Vec2,
+    r: number,
+    poly: { vertices: ReadonlyArray<Vec2> },
+  ): boolean {
+    if (!pointInPolygon(c, poly)) return false;
+    const v = poly.vertices;
+    for (let i = 0, j = v.length - 1; i < v.length; j = i++) {
+      const ax = v[j]!.x;
+      const ay = v[j]!.y;
+      const bx = v[i]!.x;
+      const by = v[i]!.y;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const len2 = dx * dx + dy * dy;
+      const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((c.x - ax) * dx + (c.y - ay) * dy) / len2));
+      const px = ax + dx * t - c.x;
+      const py = ay + dy * t - c.y;
+      if (Math.hypot(px, py) < r) return false;
+    }
+    return true;
   }
 
   private makeRoot(): HTMLElement {
