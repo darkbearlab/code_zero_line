@@ -225,7 +225,7 @@
       <a class="back" href="./">← Back to game</a>
     </header>
     <main id="editor-main"></main>
-    <footer id="editor-footer">Edits persist in localStorage and override bundled JSON in battle.</footer>
+    <footer id="editor-footer">儲存會直接寫進 src/config/&lt;type&gt;/&lt;id&gt;.json — git commit 後就是產品內容。離線/server 失聯時 fallback 到 localStorage（頂端會顯示警示）。</footer>
     <script type="module" src="/src/editor/index.ts"></script>
   </body>
 </html>

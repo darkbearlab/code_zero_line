@@ -10,6 +10,7 @@ import {
   BUNDLED_TEMPLATES,
   BUNDLED_MAPS,
   BUNDLED_MISSIONS,
+  BUNDLED_FACTIONS,
 } from './bundles.gen';
 
 export type RecruitRole = 'officer' | 'specialist' | 'regular';
@@ -36,18 +37,6 @@ export interface Faction {
    */
   readonly unlockedByDefault?: boolean;
 }
-
-const BUNDLED_FACTIONS: ReadonlyArray<Faction> = [
-  {
-    id: 'neutral',
-    name: '中立 (fallback)',
-    description: '預設派系。任何沒有指定 factionTags 的 template 自動歸屬於此。'
-      + '兩個 flag 都開，以保留改造前的行為。可改 flag 但不能刪。',
-    playable: true,
-    hostile: true,
-    unlockedByDefault: true,
-  },
-];
 
 export interface UnitTemplate {
   readonly templateId: string;

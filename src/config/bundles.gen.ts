@@ -5,6 +5,7 @@ import type { Weapon } from '../core/state/GameState';
 import type { UnitTemplate } from './loader';
 import type { MapDef } from '../core/setup/types';
 import type { MissionDef } from '../missions/types';
+import type { Faction } from './loader';
 
 import weapons_blade from './weapons/blade.json';
 import weapons_heavy_rifle from './weapons/heavy_rifle.json';
@@ -26,6 +27,7 @@ import missions_holdout from './missions/holdout.json';
 import missions_last_stand from './missions/last-stand.json';
 import missions_night_extraction from './missions/night-extraction.json';
 import missions_reconnaissance from './missions/reconnaissance.json';
+import factions_neutral from './factions/neutral.json';
 
 export const BUNDLED_WEAPONS: ReadonlyArray<Weapon> = [
   weapons_blade as unknown as Weapon,
@@ -54,4 +56,7 @@ export const BUNDLED_MISSIONS: ReadonlyArray<MissionDef> = [
   missions_last_stand as unknown as MissionDef,
   missions_night_extraction as unknown as MissionDef,
   missions_reconnaissance as unknown as MissionDef,
+];
+export const BUNDLED_FACTIONS: ReadonlyArray<Faction> = [
+  factions_neutral as unknown as Faction,
 ];

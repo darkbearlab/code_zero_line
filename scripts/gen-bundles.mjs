@@ -43,6 +43,12 @@ const SECTIONS = [
     typeImport: "import type { MissionDef } from '../missions/types';",
     typeName: 'MissionDef',
   },
+  {
+    dir: 'factions',
+    exportName: 'BUNDLED_FACTIONS',
+    typeImport: "import type { Faction } from './loader';",
+    typeName: 'Faction',
+  },
 ];
 
 const slugToVar = (slug, prefix) => {

@@ -3,6 +3,7 @@ import { mountUnitEditor } from './unitEditor';
 import { mountMapEditor } from './mapEditor';
 import { mountMissionEditor } from './missionEditor';
 import { mountFactionEditor } from './factionEditor';
+import { mountSyncBanner } from './syncBanner';
 import { downloadJson, pickJsonFile, timestampForFilename } from './io';
 import {
   loadCustomFactions,
@@ -61,6 +62,7 @@ tabs.forEach((b) => {
 const initialTab =
   (localStorage.getItem('czl.editor.lastTab') as Tab | null) ?? 'weapons';
 setActive(initialTab);
+mountSyncBanner();
 
 // --- Bundle export / import (header-level) --------------------------------
 
