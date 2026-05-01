@@ -9,12 +9,22 @@ import {
   hasSavedCampaign,
   clearCampaign,
 } from '../../campaign/persist';
+import { UNIT_SPRITES } from '../assets/spriteManifest';
 
 export class TitleScene extends Phaser.Scene {
   private rootEl!: HTMLElement;
 
   constructor() {
     super({ key: 'Title' });
+  }
+
+  preload(): void {
+    // Title is the actual game entry point (BootScene is not registered in
+    // src/index.ts scene list, so its preload never runs). Load unit sprites
+    // here so every downstream scene can use them.
+    for (const e of UNIT_SPRITES) {
+      this.load.image(e.key, e.path);
+    }
   }
 
   create(): void {
