@@ -9,6 +9,7 @@ import {
 } from '../config/mapDoc';
 import { listBundledMaps, listMaps } from '../config/loader';
 import { el } from './dom';
+import { paintBoardFloorCanvas } from '../presentation/rendering/boardFloor';
 import { downloadJson, pickJsonFile, saveToBundleEndpoint, timestampForFilename } from './io';
 import {
   loadCustomMaps,
@@ -340,23 +341,8 @@ export const mountMapEditor = (root: HTMLElement): void => {
       ctx.save();
       ctx.scale(scale, scale);
 
-      // Background grid
-      ctx.fillStyle = '#0e120e';
-      ctx.fillRect(0, 0, doc.size, doc.size);
-      ctx.strokeStyle = '#1a221a';
-      ctx.lineWidth = 1 / scale;
-      const step = 96; // 1 unit-distance
-      for (let i = 0; i <= doc.size; i += step) {
-        ctx.beginPath();
-        ctx.moveTo(i, 0);
-        ctx.lineTo(i, doc.size);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(0, i);
-        ctx.lineTo(doc.size, i);
-        ctx.stroke();
-      }
-      // Outer board edge
+      // 1-UD checker floor — same look as in-game battlefield.
+      paintBoardFloorCanvas(ctx, doc.size);
       ctx.strokeStyle = '#2a3a2a';
       ctx.lineWidth = 2 / scale;
       ctx.strokeRect(0, 0, doc.size, doc.size);

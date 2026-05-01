@@ -7,6 +7,7 @@ import { UNIT_DISTANCE_PIXELS } from '../../core/rules/constants';
 import type { GameState, Unit } from '../../core/state/GameState';
 import { isUnitAlive } from '../../core/state/GameState';
 import { drawTerrain } from '../rendering/terrain';
+import { paintBoardFloorPhaser } from '../rendering/boardFloor';
 import type { ReplayLog } from '../../core/replay/log';
 import { loadLatestReplay } from '../../core/replay/storage';
 import { BATTLEFIELD_SIZE_PIXELS } from '../state/setupBattleState';
@@ -98,6 +99,7 @@ export class ReplayScene extends Phaser.Scene {
     cam.setZoom(zoom);
     cam.centerOn(BATTLEFIELD_SIZE_PIXELS / 2, BATTLEFIELD_SIZE_PIXELS / 2);
     this.boardEdgeGfx.clear();
+    paintBoardFloorPhaser(this.boardEdgeGfx, BATTLEFIELD_SIZE_PIXELS);
     this.boardEdgeGfx.lineStyle(2, 0x2a3a2a);
     this.boardEdgeGfx.strokeRect(
       0,

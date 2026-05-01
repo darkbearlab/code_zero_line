@@ -37,6 +37,7 @@ interface MutableObjective {
 }
 import { el } from './dom';
 import { downloadJson, pickJsonFile, saveToBundleEndpoint, timestampForFilename } from './io';
+import { paintBoardFloorCanvas } from '../presentation/rendering/boardFloor';
 import {
   loadCustomMissions,
   removeCustomMission,
@@ -926,21 +927,8 @@ export const mountMissionEditor = (root: HTMLElement): void => {
       ctx.save();
       ctx.scale(scale, scale);
 
-      // Background grid (1 UD = 96px)
-      ctx.fillStyle = '#0e120e';
-      ctx.fillRect(0, 0, mapSize, mapSize);
-      ctx.strokeStyle = '#1a221a';
-      ctx.lineWidth = 1 / scale;
-      for (let i = 0; i <= mapSize; i += 96) {
-        ctx.beginPath();
-        ctx.moveTo(i, 0);
-        ctx.lineTo(i, mapSize);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(0, i);
-        ctx.lineTo(mapSize, i);
-        ctx.stroke();
-      }
+      // 1-UD checker floor — same look as in-game battlefield.
+      paintBoardFloorCanvas(ctx, mapSize);
       ctx.strokeStyle = '#2a3a2a';
       ctx.lineWidth = 2 / scale;
       ctx.strokeRect(0, 0, mapSize, mapSize);

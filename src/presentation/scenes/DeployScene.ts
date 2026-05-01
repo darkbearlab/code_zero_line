@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { buildUnit, getMap, listUnitTemplates } from '../../config/loader';
 import { drawTerrain, polygonCentroid } from '../rendering/terrain';
+import { paintBoardFloorPhaser } from '../rendering/boardFloor';
 import type { Vec2 } from '../../core/geometry/types';
 import { v2 } from '../../core/geometry/vec2';
 import { STANDARD_BASE_RADIUS_PIXELS } from '../../core/rules/constants';
@@ -98,6 +99,7 @@ export class DeployScene extends Phaser.Scene {
     cam.setZoom(zoom);
     cam.centerOn(this.map.size / 2, this.map.size / 2);
     this.boardEdgeGfx.clear();
+    paintBoardFloorPhaser(this.boardEdgeGfx, this.map.size);
     this.boardEdgeGfx.lineStyle(2, 0x2a3a2a);
     this.boardEdgeGfx.strokeRect(0, 0, this.map.size, this.map.size);
     this.renderTerrain();
