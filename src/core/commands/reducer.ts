@@ -1416,11 +1416,72 @@ const commandMoveAction = (
   const events: GameEvent[] = [...groupReaction.events];
 
   const interruptT = groupReaction.interruptT;
+  // When a reaction interrupts mid-path, naively lerping each mover to
+  // the same parameter t can stack units on top of each other. Recompute
+  // each interrupted path against the same obstacle setup, sequentially,
+  // so peer movers' resolved interrupt endpoints become obstacles for
+  // later movers — same approach as the original spec resolution above.
+  const finalEndpoints = new Map<string, Vec2>();
+  if (interruptT === null) {
+    for (const spec of specs) finalEndpoints.set(spec.unitId, spec.pathEnd);
+  } else {
+    const interruptResolved = new Map<string, Vec2>();
+    for (const spec of specs) {
+      const u = findUnit(working, spec.unitId)!;
+      const interruptTarget = v2Lerp(
+        spec.pathStart,
+        spec.pathEnd,
+        interruptT,
+      );
+      const stoppingPolygons = movementBlockingPolygons(
+        working.terrain,
+        u.position,
+      );
+      const exitStopPolygons = movementExitStopPolygons(
+        working.terrain,
+        u.position,
+      );
+      const enemyCircles = working.units
+        .filter((o) => o.faction !== u.faction && isUnitAlive(o))
+        .map(getUnitCircle);
+      const otherMoverEndCircles = specs
+        .filter((other) => other.unitId !== spec.unitId)
+        .map((other) => {
+          const ou = findUnit(working, other.unitId)!;
+          const resolved = interruptResolved.get(other.unitId);
+          const fallback = v2Lerp(
+            other.pathStart,
+            other.pathEnd,
+            interruptT,
+          );
+          return { center: resolved ?? fallback, radius: ou.radius };
+        });
+      const friendlyCircles = [
+        ...working.units
+          .filter(
+            (o) =>
+              o.faction === u.faction &&
+              !moverIds.has(o.id) &&
+              isUnitAlive(o),
+          )
+          .map(getUnitCircle),
+        ...otherMoverEndCircles,
+      ];
+      const path = computeMovePath(u.position, interruptTarget, {
+        polygons: stoppingPolygons,
+        enterStopPolygons,
+        exitStopPolygons,
+        enemyCircles,
+        friendlyCircles,
+        moverRadius: u.radius,
+      });
+      interruptResolved.set(spec.unitId, path.endpoint);
+      finalEndpoints.set(spec.unitId, path.endpoint);
+    }
+  }
+
   for (const spec of specs) {
-    const finalEndpoint =
-      interruptT !== null
-        ? v2Lerp(spec.pathStart, spec.pathEnd, interruptT)
-        : spec.pathEnd;
+    const finalEndpoint = finalEndpoints.get(spec.unitId)!;
     finalState = updateUnit(finalState, spec.unitId, {
       position: finalEndpoint,
     });
