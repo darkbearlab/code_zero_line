@@ -20,21 +20,29 @@ export interface ObstacleSpec {
    */
   readonly polygons: ReadonlyArray<Polygon>;
   /**
-   * Difficult-terrain polygons. Rule 4.2C: "移動路徑接觸困難地形邊緣 →
-   * 該次移動立即結束". The *center line* (not the swept circle) determines
-   * the stop point — the unit ends with its centre on the boundary, i.e.
-   * partially inside. Polygons that already contain `from` are ignored
-   * (the mover starts inside; the start-in cap is enforced separately).
+   * Difficult-terrain polygons (DIFFICULT/SOFT). Rule 4.2C: "移動路徑接觸
+   * 困難地形邊緣 → 該次移動立即結束". Treated as a hard swept-circle
+   * barrier from outside — the mover stops with its base just touching
+   * the polygon edge (centre held off by `moverRadius`). Crossing in then
+   * requires a fresh move ("grace": polygons whose boundary is already
+   * within the moverRadius of `from` are skipped for this move so the
+   * mover can step over the line).
    */
   readonly enterStopPolygons?: ReadonlyArray<Polygon>;
   /**
-   * Polygons whose edges end the move when the mover crosses them going
-   * OUT (start inside, leaving the polygon). Used for HIGH_GROUND walk-off:
-   * stepping off the platform edge is the move's terminal action — to keep
-   * advancing on the ground below, the player must spend a fresh move.
-   * Mirrors `enterStopPolygons` but with the inverse start-position check.
+   * Symmetric to `enterStopPolygons` but for a mover starting INSIDE: stop
+   * when the base touches the polygon edge from the inside (centre held
+   * `moverRadius` short of the boundary). Same grace rule for tangent
+   * starts. Used for DIFFICULT/SOFT exit; HIGH_GROUND walk-off is in
+   * `walkOffPolygons` because it uses centre-crossing semantics.
    */
   readonly exitStopPolygons?: ReadonlyArray<Polygon>;
+  /**
+   * HIGH_GROUND polygons the mover starts on top of. The move ends the
+   * moment the *centre* first leaves the polygon (stepping off the edge,
+   * not a base-touching stop). Movement entirely on top is unblocked.
+   */
+  readonly walkOffPolygons?: ReadonlyArray<Polygon>;
   readonly enemyCircles: ReadonlyArray<Circle>;
   /**
    * Friendly units. Pass-through during movement, but the *final* position
@@ -90,26 +98,45 @@ export const computeMovePath = (
     }
   }
 
-  // Difficult-terrain entry stop: centre line crosses the polygon boundary.
-  // Skip polygons that already contain `from` (start-inside is governed by
-  // rule 4.2C max-1-UD cap, applied upstream).
+  // Difficult-terrain entry stop: base touches polygon edge from outside.
+  // Same swept-circle treatment as a HARD obstacle, EXCEPT we skip the
+  // polygon if the mover's base is already touching its edge at start
+  // (grace: a fresh move from a tangent stop is allowed to cross over).
+  // Polygons that already contain `from` are skipped here too — those are
+  // governed by exit-stop logic instead.
   if (obs.enterStopPolygons) {
     for (const poly of obs.enterStopPolygons) {
       if (pointInPolygon(from, poly)) continue;
-      const tHit = segmentVsPolygonFirstHit(from, to, poly);
-      if (tHit !== null && tHit < bestT) {
-        bestT = tHit;
+      if (baseTouchesPolygon(from, poly, obs.moverRadius)) continue;
+      const t = sweptCircleVsPolygon(from, to, obs.moverRadius, poly);
+      if (t !== null && t < bestT) {
+        bestT = t;
+        bestReason = 'OBSTACLE';
+      }
+    }
+  }
+
+  // Difficult-terrain exit stop: base touches polygon edge from inside.
+  // Mirror of the entry stop. Same grace for tangent starts so a fresh
+  // move from a stopped position can cross outward.
+  if (obs.exitStopPolygons) {
+    for (const poly of obs.exitStopPolygons) {
+      if (!pointInPolygon(from, poly)) continue;
+      if (baseTouchesPolygon(from, poly, obs.moverRadius)) continue;
+      const t = sweptCircleVsPolygon(from, to, obs.moverRadius, poly);
+      if (t !== null && t < bestT) {
+        bestT = t;
         bestReason = 'OBSTACLE';
       }
     }
   }
 
   // High-ground walk-off: starting inside a HIGH_GROUND polygon, the move
-  // ends the moment the centre line first leaves the polygon. Symmetric
-  // to enterStopPolygons but with the inverse start-position guard, so
-  // movement entirely on top of the platform is unblocked.
-  if (obs.exitStopPolygons) {
-    for (const poly of obs.exitStopPolygons) {
+  // ends the moment the centre line first leaves the polygon. Different
+  // from enter/exit stop because walking off the edge is a discrete
+  // step-down, not a base-touching stop.
+  if (obs.walkOffPolygons) {
+    for (const poly of obs.walkOffPolygons) {
       if (!pointInPolygon(from, poly)) continue;
       const tHit = segmentVsPolygonFirstHit(from, to, poly);
       if (tHit !== null && tHit < bestT) {
@@ -245,6 +272,27 @@ const segmentVsPolygonFirstHit = (
     }
   }
   return bestT;
+};
+
+/**
+ * True when a circle of radius `r` centred at `from` is tangent to or
+ * overlaps any edge of `poly` (within a small tolerance). Used to grant
+ * "grace" on enter/exit stops — when a previous move ended with the base
+ * touching a polygon edge, the next move is allowed to cross instead of
+ * immediately stopping again at t≈0.
+ */
+const baseTouchesPolygon = (from: Vec2, poly: Polygon, r: number): boolean => {
+  const verts = poly.vertices;
+  const n = verts.length;
+  if (n < 2) return false;
+  const tol = 0.5;
+  const limit = (r + tol) * (r + tol);
+  for (let j = 0; j < n; j++) {
+    const a = verts[j]!;
+    const b = verts[(j + 1) % n]!;
+    if (distancePointToSegmentSq(from, a, b) < limit) return true;
+  }
+  return false;
 };
 
 const pointInPolygon = (p: Vec2, poly: Polygon): boolean => {

@@ -48,6 +48,7 @@ import {
   movementBlockingPolygons,
   movementEnterStopPolygons,
   movementExitStopPolygons,
+  movementWalkOffPolygons,
 } from '../../core/state/GameState';
 import timersConfig from '../../config/timers.json';
 import {
@@ -2591,6 +2592,7 @@ export class BattleScene extends Phaser.Scene {
     const stoppingPolygons = movementBlockingPolygons(this.gameState.terrain, u.position);
     const enterStopPolygons = movementEnterStopPolygons(this.gameState.terrain);
     const exitStopPolygons = movementExitStopPolygons(this.gameState.terrain, u.position);
+    const walkOffPolygons = movementWalkOffPolygons(this.gameState.terrain, u.position);
     const enemyCircles = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
@@ -2603,6 +2605,7 @@ export class BattleScene extends Phaser.Scene {
       polygons: stoppingPolygons,
       enterStopPolygons,
       exitStopPolygons,
+      walkOffPolygons,
       enemyCircles,
       friendlyCircles,
       moverRadius: u.radius,
@@ -2775,10 +2778,12 @@ export class BattleScene extends Phaser.Scene {
         .map(getUnitCircle);
       const stoppingPolygons = movementBlockingPolygons(this.gameState.terrain, from);
       const exitStopPolygons = movementExitStopPolygons(this.gameState.terrain, from);
+      const walkOffPolygons = movementWalkOffPolygons(this.gameState.terrain, from);
       const path = computeMovePath(from, effective, {
         polygons: stoppingPolygons,
         enterStopPolygons,
         exitStopPolygons,
+        walkOffPolygons,
         enemyCircles,
         friendlyCircles,
         moverRadius,
@@ -3265,6 +3270,10 @@ export class BattleScene extends Phaser.Scene {
       this.gameState.terrain,
       mover.position,
     );
+    const walkOffPolygons = movementWalkOffPolygons(
+      this.gameState.terrain,
+      mover.position,
+    );
     const enemyCircles = this.gameState.units
       .filter((o) => o.faction !== mover.faction && isUnitAlive(o))
       .map(getUnitCircle);
@@ -3283,6 +3292,7 @@ export class BattleScene extends Phaser.Scene {
       polygons: stoppingPolygons,
       enterStopPolygons,
       exitStopPolygons,
+      walkOffPolygons,
       enemyCircles,
       friendlyCircles,
       moverRadius: mover.radius,

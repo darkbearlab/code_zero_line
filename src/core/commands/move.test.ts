@@ -223,9 +223,9 @@ describe('MOVE command', () => {
       { type: 'MOVE', unitId: 'a1', target: v2(300, 0) },
     ]);
     const a1 = r.state.units.find((u) => u.id === 'a1')!;
-    // Started inside smoke (x=100). Move stops at the smoke polygon's
-    // east edge (x=150) — leaving costs a separate move.
-    expect(a1.position.x).toBeCloseTo(150, 0);
+    // Started inside smoke (x=100). Base touches the smoke polygon's east
+    // edge (x=150) and stops there — leaving costs a separate move.
+    expect(a1.position.x).toBeCloseTo(150 - STANDARD_BASE_RADIUS_PIXELS, 1);
   });
 
   it('move starting inside DIFFICULT stops at the exit edge', () => {
@@ -250,9 +250,9 @@ describe('MOVE command', () => {
       { type: 'MOVE', unitId: 'a1', target: v2(300, 0) },
     ]);
     const a1 = r.state.units.find((u) => u.id === 'a1')!;
-    // Started inside rubble (x=100). Move stops at the rubble's east
-    // edge (x=150). Continuing onto open ground requires a fresh move.
-    expect(a1.position.x).toBeCloseTo(150, 0);
+    // Started inside rubble (x=100). Base touches the rubble's east edge
+    // (x=150) and stops. Continuing onto open ground requires a fresh move.
+    expect(a1.position.x).toBeCloseTo(150 - STANDARD_BASE_RADIUS_PIXELS, 1);
   });
 
   it('move stops at SOFT (smoke) edge — entering costs a separate move', () => {
@@ -273,9 +273,9 @@ describe('MOVE command', () => {
       { type: 'MOVE', unitId: 'a1', target: v2(200, 0) },
     ]);
     const a1 = r.state.units.find((u) => u.id === 'a1')!;
-    // Per the unified terrain-edge rule, SOFT entry stops the move at the
-    // boundary; advancing further requires a separate move action.
-    expect(a1.position.x).toBeCloseTo(50, 0);
+    // Per the unified terrain-edge rule, SOFT entry stops the move when the
+    // base touches the boundary (x=50); advancing further requires a fresh move.
+    expect(a1.position.x).toBeCloseTo(50 - STANDARD_BASE_RADIUS_PIXELS, 1);
   });
 
   it('move backs off short of a friendly at the target (rule 4.2A)', () => {

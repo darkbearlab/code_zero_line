@@ -41,6 +41,7 @@ import {
   movementBlockingPolygons,
   movementEnterStopPolygons,
   movementExitStopPolygons,
+  movementWalkOffPolygons,
   updateUnit,
 } from '../state/GameState';
 import type {
@@ -748,6 +749,7 @@ const moveAction = (
   const stoppingPolygons = movementBlockingPolygons(s.terrain, u.position);
   const enterStopPolygons = movementEnterStopPolygons(s.terrain);
   const exitStopPolygons = movementExitStopPolygons(s.terrain, u.position);
+  const walkOffPolygons = movementWalkOffPolygons(s.terrain, u.position);
   // LOS during movement only blocked by terrain that actually breaks vision —
   // computed inside the LOS helpers from terrains; for now we forward all.
   const losTerrains = s.terrain;
@@ -756,6 +758,7 @@ const moveAction = (
     polygons: stoppingPolygons,
     enterStopPolygons,
     exitStopPolygons,
+    walkOffPolygons,
     enemyCircles,
     friendlyCircles,
     moverRadius: u.radius,
@@ -903,11 +906,13 @@ const crawlAction = (
   const stoppingPolygons = movementBlockingPolygons(s.terrain, u.position);
   const enterStopPolygons = movementEnterStopPolygons(s.terrain);
   const exitStopPolygons = movementExitStopPolygons(s.terrain, u.position);
+  const walkOffPolygons = movementWalkOffPolygons(s.terrain, u.position);
 
   const path = computeMovePath(u.position, cappedTarget, {
     polygons: stoppingPolygons,
     enterStopPolygons,
     exitStopPolygons,
+    walkOffPolygons,
     enemyCircles,
     friendlyCircles,
     moverRadius: u.radius,
@@ -1342,6 +1347,7 @@ const commandMoveAction = (
     const target = capForStance(u.position, m.target, m.stance);
     const stoppingPolygons = movementBlockingPolygons(working.terrain, u.position);
     const exitStopPolygons = movementExitStopPolygons(working.terrain, u.position);
+    const walkOffPolygons = movementWalkOffPolygons(working.terrain, u.position);
     const enemyCircles = working.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
@@ -1371,6 +1377,7 @@ const commandMoveAction = (
       polygons: stoppingPolygons,
       enterStopPolygons,
       exitStopPolygons,
+      walkOffPolygons,
       enemyCircles,
       friendlyCircles,
       moverRadius: u.radius,
@@ -1441,6 +1448,10 @@ const commandMoveAction = (
         working.terrain,
         u.position,
       );
+      const walkOffPolygons = movementWalkOffPolygons(
+        working.terrain,
+        u.position,
+      );
       const enemyCircles = working.units
         .filter((o) => o.faction !== u.faction && isUnitAlive(o))
         .map(getUnitCircle);
@@ -1471,6 +1482,7 @@ const commandMoveAction = (
         polygons: stoppingPolygons,
         enterStopPolygons,
         exitStopPolygons,
+        walkOffPolygons,
         enemyCircles,
         friendlyCircles,
         moverRadius: u.radius,

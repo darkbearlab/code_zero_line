@@ -320,13 +320,11 @@ export const movementEnterStopPolygons = (
 };
 
 /**
- * Polygons whose edges stop the move when crossed going OUT, given a mover
- * starting at `fromPosition`. Symmetric to movementEnterStopPolygons —
- * leaving costs a move action just like entering.
- *
- * HIGH_GROUND (mover is on top), DIFFICULT (mover inside rubble), and SOFT
- * (mover inside smoke) all qualify. The check is "was the start inside?"
- * — internal movement that doesn't leave the polygon is unblocked.
+ * Polygons whose edges stop the move when the mover's BASE touches them
+ * going OUT (start inside, leaving). DIFFICULT (rubble) and SOFT (smoke)
+ * only — leaving costs a move action just like entering. HIGH_GROUND
+ * walk-off uses different semantics (centre crossing) and is returned by
+ * `movementWalkOffPolygons` instead.
  */
 export const movementExitStopPolygons = (
   terrains: ReadonlyArray<Terrain>,
@@ -334,13 +332,26 @@ export const movementExitStopPolygons = (
 ): Polygon[] => {
   const out: Polygon[] = [];
   for (const t of terrains) {
-    if (
-      t.kind !== 'HIGH_GROUND' &&
-      t.kind !== 'DIFFICULT' &&
-      t.kind !== 'SOFT'
-    ) {
-      continue;
+    if (t.kind !== 'DIFFICULT' && t.kind !== 'SOFT') continue;
+    if (isPointInPolygon(fromPosition, t.polygon)) {
+      out.push(t.polygon);
     }
+  }
+  return out;
+};
+
+/**
+ * HIGH_GROUND polygons the mover is currently standing on. Walking off the
+ * edge ends the move at the *centre* crossing of the polygon boundary
+ * (treated as stepping off, not as a base-touching stop).
+ */
+export const movementWalkOffPolygons = (
+  terrains: ReadonlyArray<Terrain>,
+  fromPosition: Vec2,
+): Polygon[] => {
+  const out: Polygon[] = [];
+  for (const t of terrains) {
+    if (t.kind !== 'HIGH_GROUND') continue;
     if (isPointInPolygon(fromPosition, t.polygon)) {
       out.push(t.polygon);
     }
