@@ -3084,6 +3084,119 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Mirror of the reducer's command-move endpoint resolution: applies stance
+   * cap, then runs computeMovePath against terrain + non-mover units + peer
+   * movers' desired ends. The visual placement of each command-move circle
+   * needs this so the previewed position matches where the unit will
+   * actually stop, not the raw click point that may sit inside a wall.
+   *
+   * Excludes `mover.id` from friendly obstacles so the unit doesn't collide
+   * with itself; treats every other officer/participant's target (or
+   * current position if they have no target yet) as an obstacle, just like
+   * the reducer does at line 1352-1370.
+   */
+  private resolveCommandMoveEndpoint(
+    mover: Unit,
+    desiredTarget: Vec2,
+    stance: 'STANDING' | 'CRAWL',
+  ): Vec2 {
+    // Stance cap (same logic as updateMovePreview / capForStance).
+    let target = desiredTarget;
+    if (stance === 'CRAWL') {
+      const dx = target.x - mover.position.x;
+      const dy = target.y - mover.position.y;
+      const len = Math.hypot(dx, dy);
+      if (len > UNIT_DISTANCE_PIXELS) {
+        target = {
+          x: mover.position.x + (dx / len) * UNIT_DISTANCE_PIXELS,
+          y: mover.position.y + (dy / len) * UNIT_DISTANCE_PIXELS,
+        };
+      }
+    }
+
+    const pcm = this.pendingCommandMove;
+    const moverIds = new Set<string>();
+    if (pcm) {
+      const act = this.gameState.initiative.activeActivation;
+      if (act) moverIds.add(act.unitId);
+      for (const [id, slot] of pcm.participants) {
+        if (slot.included) moverIds.add(id);
+      }
+    }
+
+    // Other movers' desired endpoints (cap-stance applied) become obstacles.
+    const peerEndCircles: Array<{ center: Vec2; radius: number }> = [];
+    if (pcm) {
+      const act = this.gameState.initiative.activeActivation;
+      const officer = act
+        ? this.gameState.units.find((x) => x.id === act.unitId)
+        : null;
+      if (officer && officer.id !== mover.id && pcm.officerTarget) {
+        const cap =
+          (pcm.officerStance ?? 'STANDING') === 'CRAWL'
+            ? this.capCrawlTarget(officer.position, pcm.officerTarget)
+            : pcm.officerTarget;
+        peerEndCircles.push({ center: cap, radius: officer.radius });
+      }
+      for (const [pid, slot] of pcm.participants) {
+        if (pid === mover.id) continue;
+        if (!slot.included || !slot.target) continue;
+        const pu = this.gameState.units.find((x) => x.id === pid);
+        if (!pu) continue;
+        const cap =
+          slot.stance === 'CRAWL'
+            ? this.capCrawlTarget(pu.position, slot.target)
+            : slot.target;
+        peerEndCircles.push({ center: cap, radius: pu.radius });
+      }
+    }
+
+    const stoppingPolygons = movementBlockingPolygons(
+      this.gameState.terrain,
+      mover.position,
+    );
+    const enterStopPolygons = movementEnterStopPolygons(this.gameState.terrain);
+    const exitStopPolygons = movementExitStopPolygons(
+      this.gameState.terrain,
+      mover.position,
+    );
+    const enemyCircles = this.gameState.units
+      .filter((o) => o.faction !== mover.faction && isUnitAlive(o))
+      .map(getUnitCircle);
+    const friendlyCircles = [
+      ...this.gameState.units
+        .filter(
+          (o) =>
+            o.faction === mover.faction &&
+            !moverIds.has(o.id) &&
+            isUnitAlive(o),
+        )
+        .map(getUnitCircle),
+      ...peerEndCircles,
+    ];
+    const path = computeMovePath(mover.position, target, {
+      polygons: stoppingPolygons,
+      enterStopPolygons,
+      exitStopPolygons,
+      enemyCircles,
+      friendlyCircles,
+      moverRadius: mover.radius,
+    });
+    return path.endpoint;
+  }
+
+  private capCrawlTarget(from: Vec2, target: Vec2): Vec2 {
+    const dx = target.x - from.x;
+    const dy = target.y - from.y;
+    const len = Math.hypot(dx, dy);
+    if (len <= UNIT_DISTANCE_PIXELS) return target;
+    return {
+      x: from.x + (dx / len) * UNIT_DISTANCE_PIXELS,
+      y: from.y + (dy / len) * UNIT_DISTANCE_PIXELS,
+    };
+  }
+
   private drawCommandMoveOverlay(): void {
     this.aimGfx.clear();
     if (!this.pendingCommandMove) return;
@@ -3094,20 +3207,24 @@ export class BattleScene extends Phaser.Scene {
     const officer = this.gameState.units.find((u) => u.id === act.unitId);
     if (!officer) return;
 
-    // Officer's path
+    // Officer's resolved endpoint (collision-aware) for the visual circle;
+    // line + validity ring still anchor on the desired target so the player
+    // sees their original click intent next to the actual stop position.
+    const officerEnd = this.resolveCommandMoveEndpoint(
+      officer,
+      pcm.officerTarget,
+      pcm.officerStance ?? 'STANDING',
+    );
     this.aimGfx.lineStyle(1.5, FACTION_COLOR[officer.faction], 0.9);
     this.aimGfx.beginPath();
     this.aimGfx.moveTo(officer.position.x, officer.position.y);
-    this.aimGfx.lineTo(pcm.officerTarget.x, pcm.officerTarget.y);
+    this.aimGfx.lineTo(officerEnd.x, officerEnd.y);
     this.aimGfx.strokePath();
     this.aimGfx.fillStyle(FACTION_COLOR[officer.faction], 0.35);
-    this.aimGfx.fillCircle(
-      pcm.officerTarget.x,
-      pcm.officerTarget.y,
-      officer.radius,
-    );
+    this.aimGfx.fillCircle(officerEnd.x, officerEnd.y, officer.radius);
 
-    // Validity ring around officer's target (1 UD).
+    // Validity ring around officer's TARGET (not endpoint) — that's the
+    // 1-UD reach the player picks participant clicks against.
     this.aimGfx.lineStyle(1.5, 0x9af09a, 0.85);
     this.aimGfx.strokeCircle(
       pcm.officerTarget.x,
@@ -3115,19 +3232,21 @@ export class BattleScene extends Phaser.Scene {
       UNIT_DISTANCE_PIXELS,
     );
 
-    // Each participant's planned target (if any).
+    // Each participant's planned target → resolved to a collision-aware
+    // endpoint for the rendered circle.
     for (const [id, slot] of pcm.participants) {
       const u = this.gameState.units.find((x) => x.id === id);
       if (!u || !slot.target) continue;
       const valid = v2Dist(slot.target, pcm.officerTarget) <= UNIT_DISTANCE_PIXELS + 0.5;
       const color = valid ? FACTION_COLOR[u.faction] : 0xff5555;
+      const end = this.resolveCommandMoveEndpoint(u, slot.target, slot.stance);
       this.aimGfx.lineStyle(1.5, color, slot.included ? 0.85 : 0.35);
       this.aimGfx.beginPath();
       this.aimGfx.moveTo(u.position.x, u.position.y);
-      this.aimGfx.lineTo(slot.target.x, slot.target.y);
+      this.aimGfx.lineTo(end.x, end.y);
       this.aimGfx.strokePath();
       this.aimGfx.fillStyle(color, slot.included ? 0.35 : 0.15);
-      this.aimGfx.fillCircle(slot.target.x, slot.target.y, u.radius);
+      this.aimGfx.fillCircle(end.x, end.y, u.radius);
     }
   }
 
@@ -3137,16 +3256,19 @@ export class BattleScene extends Phaser.Scene {
     if (!pcm.officerTarget || !this.cmdMoveAimUnitId) return;
     const u = this.gameState.units.find((x) => x.id === this.cmdMoveAimUnitId);
     if (!u) return;
+    const slot = pcm.participants.get(this.cmdMoveAimUnitId);
+    const stance = slot?.stance ?? 'STANDING';
     const valid =
       v2Dist(cursor, pcm.officerTarget) <= UNIT_DISTANCE_PIXELS + 0.5;
     const color = valid ? 0x9af09a : 0xff5555;
+    const end = this.resolveCommandMoveEndpoint(u, cursor, stance);
     this.aimGfx.lineStyle(2, color, 0.95);
     this.aimGfx.fillStyle(color, 0.25);
-    this.aimGfx.fillCircle(cursor.x, cursor.y, u.radius);
-    this.aimGfx.strokeCircle(cursor.x, cursor.y, u.radius);
+    this.aimGfx.fillCircle(end.x, end.y, u.radius);
+    this.aimGfx.strokeCircle(end.x, end.y, u.radius);
     this.aimGfx.beginPath();
     this.aimGfx.moveTo(u.position.x, u.position.y);
-    this.aimGfx.lineTo(cursor.x, cursor.y);
+    this.aimGfx.lineTo(end.x, end.y);
     this.aimGfx.strokePath();
   }
 
