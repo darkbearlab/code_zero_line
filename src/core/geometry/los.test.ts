@@ -203,7 +203,7 @@ describe('hasLOS', () => {
     expect(hasLOS(a, b, ts)).toBe(false);
   });
 
-  it('HIGH_GROUND does not block when an endpoint stands on top', () => {
+  it('HIGH_GROUND with on-platform endpoint near the facing edge: LOS exists', () => {
     const platform = (
       id: string,
       x1: number,
@@ -215,10 +215,80 @@ describe('hasLOS', () => {
       kind: 'HIGH_GROUND',
       polygon: { vertices: [v2(x1, y1), v2(x2, y1), v2(x2, y2), v2(x1, y2)] },
     });
-    const ts = [platform('hg', 40, -50, 60, 50)];
-    // A standing on the platform (centre inside polygon).
-    const a = { center: v2(50, 0), radius: 10 };
-    const b = { center: v2(100, 0), radius: 10 };
-    expect(hasLOS(a, b, ts, { aOnHighGround: true })).toBe(true);
+    // Platform x∈[40,140]. B sits at x=139 (center within ~1 base radius
+    // of the east edge x=140), looking west toward ground unit A.
+    const ts = [platform('hg', 40, -50, 140, 50)];
+    const a = { center: v2(200, 0), radius: 10 };
+    const b = { center: v2(139, 0), radius: 10 };
+    expect(hasLOS(a, b, ts, { bOnHighGround: true })).toBe(true);
+  });
+
+  it('HIGH_GROUND with on-platform endpoint deep inside (not at facing edge): blocked', () => {
+    const platform = (
+      id: string,
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+    ): Terrain => ({
+      id,
+      kind: 'HIGH_GROUND',
+      polygon: { vertices: [v2(x1, y1), v2(x2, y1), v2(x2, y2), v2(x1, y2)] },
+    });
+    // Platform x∈[40,140]. B sits at x=80 (deep inside, not near east
+    // edge facing A at x=200). Far edge x=140 occludes like a high wall.
+    const ts = [platform('hg', 40, -50, 140, 50)];
+    const a = { center: v2(200, 0), radius: 10 };
+    const b = { center: v2(80, 0), radius: 10 };
+    expect(hasLOS(a, b, ts, { bOnHighGround: true })).toBe(false);
+  });
+
+  it('both endpoints on HIGH_GROUND: high walls in between are bypassed', () => {
+    const platform = (
+      id: string,
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+    ): Terrain => ({
+      id,
+      kind: 'HIGH_GROUND',
+      polygon: { vertices: [v2(x1, y1), v2(x2, y1), v2(x2, y2), v2(x1, y2)] },
+    });
+    // A on platform_1, B on platform_2, a high wall between.
+    const ts = [
+      platform('hg1', 0, -20, 30, 20),
+      platform('hg2', 170, -20, 200, 20),
+      highWall('hw', 90, -50, 110, 50),
+    ];
+    const a = { center: v2(15, 0), radius: 10 };
+    const b = { center: v2(185, 0), radius: 10 };
+    expect(
+      hasLOS(a, b, ts, { aOnHighGround: true, bOnHighGround: true }),
+    ).toBe(true);
+  });
+
+  it('both endpoints on HIGH_GROUND: another HIGH_GROUND in between is bypassed', () => {
+    const platform = (
+      id: string,
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+    ): Terrain => ({
+      id,
+      kind: 'HIGH_GROUND',
+      polygon: { vertices: [v2(x1, y1), v2(x2, y1), v2(x2, y2), v2(x1, y2)] },
+    });
+    const ts = [
+      platform('hg1', 0, -20, 30, 20),
+      platform('hg_mid', 90, -50, 110, 50),
+      platform('hg2', 170, -20, 200, 20),
+    ];
+    const a = { center: v2(15, 0), radius: 10 };
+    const b = { center: v2(185, 0), radius: 10 };
+    expect(
+      hasLOS(a, b, ts, { aOnHighGround: true, bOnHighGround: true }),
+    ).toBe(true);
   });
 });
