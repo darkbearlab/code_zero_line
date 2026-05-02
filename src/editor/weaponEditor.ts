@@ -3,7 +3,9 @@ import {
   listWeapons,
 } from '../config/loader';
 import type { Weapon, WeaponMode, WeaponKind } from '../core/state/GameState';
-import { el, pillInput } from './dom';
+import { listDescriptors } from '../core/resolution/weapon_descriptors';
+import { parseIdParam } from '../core/util/idParam';
+import { el } from './dom';
 import { downloadJson, pickJsonFile, saveToBundleEndpoint, timestampForFilename } from './io';
 import {
   loadCustomWeapons,
@@ -224,11 +226,91 @@ export const mountWeaponEditor = (root: HTMLElement): void => {
       draft.threshold = Math.max(2, Math.min(7, Number(thresholdInput.value) || 5));
     });
 
-    const descriptorPills = pillInput(
-      draft.descriptors,
-      (next) => (draft.descriptors = next),
-      'e.g. FOCUSED, ARMOR_PIERCE:2, RELOAD',
-    );
+    // Descriptor picker — mirrors the trait checkbox UI in unitEditor.ts.
+    // Param-bearing descriptors (ARMOR_PIERCE) get an inline number input.
+    const descriptorState = new Map<string, number>();
+    for (const raw of draft.descriptors) {
+      const inst = parseIdParam(raw);
+      descriptorState.set(inst.id, inst.param);
+    }
+    const writeDescriptors = (): void => {
+      const next: string[] = [];
+      for (const [id, param] of descriptorState) {
+        const def = listDescriptors().find((d) => d.id === id);
+        next.push(def?.hasParam && param > 0 ? `${id}:${param}` : id);
+      }
+      draft.descriptors = next;
+    };
+    const descriptorBox = el('div', { className: 'checkbox-row' });
+    for (const dd of listDescriptors()) {
+      const isOn = descriptorState.has(dd.id);
+      const cb = el('input', { type: 'checkbox' }) as HTMLInputElement;
+      cb.checked = isOn;
+
+      const wrap = el('label', {
+        style: {
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '2px',
+          margin: '2px 10px 2px 0',
+        },
+      });
+      wrap.appendChild(cb);
+      wrap.appendChild(
+        document.createTextNode(` ${dd.id}${dd.tbd ? ' (TBD)' : ''}`),
+      );
+      const help = el('span', {
+        style: {
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '14px',
+          height: '14px',
+          marginLeft: '4px',
+          borderRadius: '50%',
+          border: '1px solid #5a7a5a',
+          color: '#9af09a',
+          fontSize: '10px',
+          fontFamily: 'ui-monospace, monospace',
+          cursor: 'help',
+          userSelect: 'none',
+        },
+      });
+      help.textContent = '?';
+      help.title = `${dd.displayName} (${dd.id})\n\n${dd.description}`;
+      help.addEventListener('click', (e) => e.preventDefault());
+      wrap.appendChild(help);
+
+      let paramInp: HTMLInputElement | null = null;
+      if (dd.hasParam) {
+        paramInp = el('input', {
+          type: 'number',
+          value: String(descriptorState.get(dd.id) ?? 1),
+          style: { width: '40px', marginLeft: '4px' },
+        }) as HTMLInputElement;
+        paramInp.min = '0';
+        paramInp.disabled = !isOn;
+        paramInp.addEventListener('change', () => {
+          const v = Math.max(0, Number(paramInp!.value) || 0);
+          descriptorState.set(dd.id, v);
+          writeDescriptors();
+        });
+        wrap.appendChild(paramInp);
+      }
+
+      cb.addEventListener('change', () => {
+        if (cb.checked) {
+          const param = paramInp ? Math.max(0, Number(paramInp.value) || 1) : 0;
+          descriptorState.set(dd.id, param);
+        } else {
+          descriptorState.delete(dd.id);
+        }
+        if (paramInp) paramInp.disabled = !cb.checked;
+        writeDescriptors();
+      });
+
+      descriptorBox.appendChild(wrap);
+    }
 
     const row = (label: string, input: HTMLElement, help?: string): HTMLElement =>
       el('div', {
@@ -269,8 +351,8 @@ export const mountWeaponEditor = (root: HTMLElement): void => {
     formPanel.appendChild(
       row(
         'descriptors',
-        descriptorPills,
-        'Type and press Enter or comma. Examples: FOCUSED, COMBINED, IGNORE_COVER, BLAST, ARMOR_PIERCE:2, RELOAD.',
+        descriptorBox,
+        '勾選即套用；hover ? 看規則。ARMOR_PIERCE 帶數字參數。',
       ),
     );
 
