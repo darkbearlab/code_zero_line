@@ -323,18 +323,9 @@ export class BattleScene extends Phaser.Scene {
         dy: number,
       ) => {
         const factor = dy > 0 ? 0.9 : 1.1;
-        // Use the pointer that fired the event (its x/y is freshest).
-        // Phaser exposes `event` for the underlying WheelEvent; fall back
-        // to pointer.x/y, which is canvas-relative and matches getWorldPoint.
-        const evt = (pointer as unknown as { event?: WheelEvent }).event;
-        let sx = pointer.x;
-        let sy = pointer.y;
-        if (evt) {
-          const rect = (this.game.canvas as HTMLCanvasElement).getBoundingClientRect();
-          sx = evt.clientX - rect.left;
-          sy = evt.clientY - rect.top;
-        }
-        this.zoomCameraAt(sx, sy, factor);
+        // pointer.x/y are canvas-space and Phaser updates them on the wheel
+        // event, so they already match the cursor — no clientX/rect math.
+        this.zoomCameraAt(pointer.x, pointer.y, factor);
       },
     );
     this.input.keyboard?.on('keydown-ESC', () => {
