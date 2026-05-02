@@ -23,18 +23,17 @@ export interface ObstacleSpec {
    * Difficult-terrain polygons (DIFFICULT/SOFT). Rule 4.2C: "移動路徑接觸
    * 困難地形邊緣 → 該次移動立即結束". Treated as a hard swept-circle
    * barrier from outside — the mover stops with its base just touching
-   * the polygon edge (centre held off by `moverRadius`). Crossing in then
-   * requires a fresh move ("grace": polygons whose boundary is already
-   * within the moverRadius of `from` are skipped for this move so the
-   * mover can step over the line).
+   * the polygon edge (centre held off by `moverRadius`). Crossing the
+   * boundary requires the dedicated TRAVERSE action; a regular MOVE
+   * starting tangent to the edge cannot continue through it.
    */
   readonly enterStopPolygons?: ReadonlyArray<Polygon>;
   /**
    * Symmetric to `enterStopPolygons` but for a mover starting INSIDE: stop
    * when the base touches the polygon edge from the inside (centre held
-   * `moverRadius` short of the boundary). Same grace rule for tangent
-   * starts. Used for DIFFICULT/SOFT exit; HIGH_GROUND walk-off is in
-   * `walkOffPolygons` because it uses centre-crossing semantics.
+   * `moverRadius` short of the boundary). Used for DIFFICULT/SOFT exit;
+   * HIGH_GROUND walk-off is in `walkOffPolygons` because it uses centre-
+   * crossing semantics. Crossing the boundary requires TRAVERSE.
    */
   readonly exitStopPolygons?: ReadonlyArray<Polygon>;
   /**
@@ -99,15 +98,14 @@ export const computeMovePath = (
   }
 
   // Difficult-terrain entry stop: base touches polygon edge from outside.
-  // Same swept-circle treatment as a HARD obstacle, EXCEPT we skip the
-  // polygon if the mover's base is already touching its edge at start
-  // (grace: a fresh move from a tangent stop is allowed to cross over).
-  // Polygons that already contain `from` are skipped here too — those are
-  // governed by exit-stop logic instead.
+  // Swept-circle treatment as a HARD obstacle. Polygons that already
+  // contain `from` are skipped — those are governed by exit-stop logic
+  // instead. There is no tangent grace: a mover whose base is already
+  // touching the edge cannot push through with a regular MOVE; it must
+  // use TRAVERSE to cross.
   if (obs.enterStopPolygons) {
     for (const poly of obs.enterStopPolygons) {
       if (pointInPolygon(from, poly)) continue;
-      if (baseTouchesPolygon(from, poly, obs.moverRadius)) continue;
       const t = sweptCircleVsPolygon(from, to, obs.moverRadius, poly);
       if (t !== null && t < bestT) {
         bestT = t;
@@ -117,12 +115,12 @@ export const computeMovePath = (
   }
 
   // Difficult-terrain exit stop: base touches polygon edge from inside.
-  // Mirror of the entry stop. Same grace for tangent starts so a fresh
-  // move from a stopped position can cross outward.
+  // Mirror of the entry stop. Like entry, no tangent grace — a mover at
+  // the inner edge must TRAVERSE to leave; a regular MOVE outward stops
+  // at t≈0.
   if (obs.exitStopPolygons) {
     for (const poly of obs.exitStopPolygons) {
       if (!pointInPolygon(from, poly)) continue;
-      if (baseTouchesPolygon(from, poly, obs.moverRadius)) continue;
       const t = sweptCircleVsPolygon(from, to, obs.moverRadius, poly);
       if (t !== null && t < bestT) {
         bestT = t;
@@ -272,27 +270,6 @@ const segmentVsPolygonFirstHit = (
     }
   }
   return bestT;
-};
-
-/**
- * True when a circle of radius `r` centred at `from` is tangent to or
- * overlaps any edge of `poly` (within a small tolerance). Used to grant
- * "grace" on enter/exit stops — when a previous move ended with the base
- * touching a polygon edge, the next move is allowed to cross instead of
- * immediately stopping again at t≈0.
- */
-const baseTouchesPolygon = (from: Vec2, poly: Polygon, r: number): boolean => {
-  const verts = poly.vertices;
-  const n = verts.length;
-  if (n < 2) return false;
-  const tol = 0.5;
-  const limit = (r + tol) * (r + tol);
-  for (let j = 0; j < n; j++) {
-    const a = verts[j]!;
-    const b = verts[(j + 1) % n]!;
-    if (distancePointToSegmentSq(from, a, b) < limit) return true;
-  }
-  return false;
 };
 
 const pointInPolygon = (p: Vec2, poly: Polygon): boolean => {

@@ -377,6 +377,44 @@ describe('TRAVERSE command', () => {
     expect(a1.position.y).toBeCloseTo(0, 1);
   });
 
+  it('plain MOVE cannot leave from base-touching the inner edge — must TRAVERSE', () => {
+    // Mover sits inside DIFFICULT, base flush against the east edge.
+    // A regular MOVE outward must NOT push through; only TRAVERSE can.
+    const startX = 150 - STANDARD_BASE_RADIUS_PIXELS;
+    const s0 = baseState(
+      [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(startX, 0), quality: 3 }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(1000, 0) }),
+      ],
+      [difficult('rubble', 50, -50, 150, 50)],
+    );
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'MOVE', unitId: 'a1', target: v2(300, 0) },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    // Effectively pinned at the edge; no measurable forward progress.
+    expect(a1.position.x).toBeLessThan(startX + 0.5);
+  });
+
+  it('plain MOVE cannot enter from base-touching the outer edge — must TRAVERSE', () => {
+    const startX = 50 - STANDARD_BASE_RADIUS_PIXELS;
+    const s0 = baseState(
+      [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(startX, 0), quality: 3 }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(1000, 0) }),
+      ],
+      [difficult('rubble', 50, -50, 150, 50)],
+    );
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'MOVE', unitId: 'a1', target: v2(300, 0) },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    // Effectively pinned at the outer edge; no forward progress.
+    expect(a1.position.x).toBeLessThan(startX + 0.5);
+  });
+
   it('refuses if landing zone is occupied by another unit', () => {
     const startX = 50 - STANDARD_BASE_RADIUS_PIXELS;
     const blockerX = 50 + STANDARD_BASE_RADIUS_PIXELS;
