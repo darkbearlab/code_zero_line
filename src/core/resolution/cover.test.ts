@@ -112,4 +112,22 @@ describe('targetHasCover — HIGH_GROUND', () => {
     });
     expect(targetHasCover(shooter, target, [platform, highWall])).toBe(true);
   });
+
+  it('both shooter and target on HG: high wall between is NOT cover', () => {
+    // Mirrors LOS highObstacleBypass — high walls share the elevated tier
+    // with HG, so when both units are elevated, a high wall on the line
+    // between them shouldn't shield the target.
+    const platformA = rect('hgA', 'HIGH_GROUND', 0, 80, 60, 140);
+    const platformB = rect('hgB', 'HIGH_GROUND', 340, 80, 400, 140);
+    const highWall = rect('hw', 'HARD', 180, 95, 220, 125, 200);
+    const shooter = baseUnit({ id: 'a', position: v2(30, 110) });
+    const target = baseUnit({
+      id: 'b',
+      faction: 'B',
+      position: v2(370, 110),
+    });
+    expect(
+      targetHasCover(shooter, target, [platformA, platformB, highWall]),
+    ).toBe(false);
+  });
 });

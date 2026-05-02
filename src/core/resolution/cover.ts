@@ -59,8 +59,13 @@ export const targetHasCover = (
     }
   }
 
-  // Cross-cover from physical walls. Shooter-on-high-ground negates cover
-  // from low walls only — high walls + BLOCKERs still mask their target.
+  // Cross-cover from physical walls. Two modifiers:
+  //  - shooter-on-HG negates LOW wall cover (overhead shot)
+  //  - both-on-HG negates HIGH wall cover (high walls and HG share the
+  //    elevated tier — see los.ts highObstacleBypass; cover must agree
+  //    or the LOS bypass becomes meaningless).
+  // BLOCKERs always count regardless of stance/elevation.
+  const bothOnHigh = shooterOnHigh && targetOnHigh;
   const hardPolys: import('../geometry/types').Polygon[] = [];
   for (const t of terrains) {
     if (t.kind === 'BLOCKER') {
@@ -68,14 +73,10 @@ export const targetHasCover = (
       continue;
     }
     if (t.kind !== 'HARD') continue;
-    if (
-      shooterOnHigh &&
-      isLowWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS) &&
-      !isHighWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS)
-    ) {
-      // Overhead shot — low wall doesn't shield the target.
-      continue;
-    }
+    const high = isHighWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS);
+    const low = isLowWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS);
+    if (bothOnHigh && high) continue;
+    if (shooterOnHigh && low && !high) continue;
     hardPolys.push(t.polygon);
   }
   return segmentBlockedByPolygons(shooter.position, target.position, hardPolys);
