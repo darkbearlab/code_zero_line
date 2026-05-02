@@ -7,6 +7,7 @@ import type {
 import type { GameState, Unit } from '../../core/state/GameState';
 import { getFaction, getUnitTemplate } from '../../config/loader';
 import { getTraitDef } from '../../core/traits/registry';
+import { parseTrait } from '../../core/traits/types';
 
 export type DispatchFn = (cmd: Command) => void;
 
@@ -1230,34 +1231,79 @@ const buildUnitDetailsBody = (unit: Unit): HTMLElement[] => {
     out.push(wsec);
   }
 
-  // Traits
-  if (unit.traits.length > 0) {
-    const tsec = document.createElement('div');
-    tsec.className = 'ud-section';
-    const tTitle = document.createElement('div');
-    tTitle.className = 'ud-section-title';
-    tTitle.textContent = '技能';
-    tsec.appendChild(tTitle);
-    const tList = document.createElement('ul');
-    tList.className = 'ud-list';
-    for (const id of unit.traits) {
+  // Split traits into pure category tags (步兵/重裝/指揮類…) — rendered as
+  // compact pills without their boilerplate "no inherent effect" text — and
+  // abilities (rule traits like 軍官/裝甲/狂熱) which keep the full
+  // displayName + description list.
+  const categories: Array<{ name: string; desc: string | null }> = [];
+  const abilities: Array<{ raw: string; name: string; desc: string | null }> =
+    [];
+  for (const raw of unit.traits) {
+    const inst = parseTrait(raw);
+    const def = getTraitDef(inst.id);
+    if (def?.kind === 'category') {
+      categories.push({
+        name: def.displayName,
+        desc: def.description ?? null,
+      });
+    } else {
+      // Append the param suffix back so e.g. ARMOR:2 renders as "裝甲 (2)".
+      const display = def?.displayName ?? inst.id;
+      const labelled = inst.param > 0 ? `${display} (${inst.param})` : display;
+      abilities.push({
+        raw,
+        name: labelled,
+        desc: def?.description ?? null,
+      });
+    }
+  }
+
+  if (categories.length > 0) {
+    const sec = document.createElement('div');
+    sec.className = 'ud-section';
+    const title = document.createElement('div');
+    title.className = 'ud-section-title';
+    title.textContent = '分類';
+    sec.appendChild(title);
+    const tags = document.createElement('div');
+    tags.className = 'ud-tags';
+    for (const c of categories) {
+      const pill = document.createElement('span');
+      pill.className = 'ud-tag';
+      pill.textContent = c.name;
+      if (c.desc) pill.title = c.desc;
+      tags.appendChild(pill);
+    }
+    sec.appendChild(tags);
+    out.push(sec);
+  }
+
+  if (abilities.length > 0) {
+    const sec = document.createElement('div');
+    sec.className = 'ud-section';
+    const title = document.createElement('div');
+    title.className = 'ud-section-title';
+    title.textContent = '技能';
+    sec.appendChild(title);
+    const list = document.createElement('ul');
+    list.className = 'ud-list';
+    for (const a of abilities) {
       const li = document.createElement('li');
       li.className = 'ud-trait';
-      const def = getTraitDef(id);
       const nameEl = document.createElement('span');
       nameEl.className = 'name';
-      nameEl.textContent = def?.displayName ?? id;
+      nameEl.textContent = a.name;
       li.appendChild(nameEl);
-      if (def?.description) {
+      if (a.desc) {
         const desc = document.createElement('span');
         desc.className = 'desc';
-        desc.textContent = def.description;
+        desc.textContent = a.desc;
         li.appendChild(desc);
       }
-      tList.appendChild(li);
+      list.appendChild(li);
     }
-    tsec.appendChild(tList);
-    out.push(tsec);
+    sec.appendChild(list);
+    out.push(sec);
   }
 
   return out;
