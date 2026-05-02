@@ -87,6 +87,16 @@ const FACTION_COLOR: Readonly<Record<'A' | 'B', number>> = {
 // shading/detail visible (avoiding the crushing effect of multiplicative tint).
 const TINT_OVERLAY_ALPHA = 0.4;
 
+// Movement tween pacing — tweak these to adjust how snappy unit motion
+// feels. Total duration = max(MOVEMENT_TWEEN_MIN_MS, distInUD * MS_PER_UD).
+// Lower MS_PER_UD = faster slide; lower MIN_MS = shorter floor for tiny
+// nudges. Used by animateMove for every MOVE_RESOLVED event.
+const MOVEMENT_MS_PER_UD = 220;
+const MOVEMENT_TWEEN_MIN_MS = 160;
+// Crawl flip cadence (ms between left/right mirror toggles on the prone
+// sprite during a tween). Lower = faster limb activity.
+const CRAWL_FLIP_INTERVAL_MS = 200;
+
 interface CommandMover {
   unitId: string;
   start: Vec2;
@@ -1392,8 +1402,10 @@ export class BattleScene extends Phaser.Scene {
       );
     }
 
-    // Snappier: ~110 ms per UD instead of 220, with 80 ms floor.
-    const duration = Math.max(80, (dist / UNIT_DISTANCE_PIXELS) * 110);
+    const duration = Math.max(
+      MOVEMENT_TWEEN_MIN_MS,
+      (dist / UNIT_DISTANCE_PIXELS) * MOVEMENT_MS_PER_UD,
+    );
     // Crawl flip: while a prone unit is sliding to a new position, toggle
     // the prone sprite's horizontal flip on a fixed cadence so the limbs
     // visibly alternate. Stops + resets on tween complete.
@@ -1429,7 +1441,7 @@ export class BattleScene extends Phaser.Scene {
       | null;
     let flipped = false;
     const ev = this.time.addEvent({
-      delay: 140,
+      delay: CRAWL_FLIP_INTERVAL_MS,
       loop: true,
       callback: () => {
         flipped = !flipped;
