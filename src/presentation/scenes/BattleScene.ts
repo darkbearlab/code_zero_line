@@ -6,6 +6,7 @@ import { isPointInPolygon } from '../../core/geometry/polygon';
 import {
   climbDestination,
   findContactedSoftTerrain,
+  findContactedWall,
   traverseDestination,
   vaultDestination,
 } from '../../core/geometry/wallTraversal';
@@ -50,7 +51,6 @@ import {
   movementBlockingPolygons,
   movementEnterStopPolygons,
   movementExitStopPolygons,
-  movementWalkOffPolygons,
 } from '../../core/state/GameState';
 import timersConfig from '../../config/timers.json';
 import {
@@ -1911,6 +1911,12 @@ export class BattleScene extends Phaser.Scene {
     const softTerrain = findContactedSoftTerrain(this.gameState.terrain, u);
     const canTraverse = softTerrain !== null;
     if (!wall) return { canVault: false, canClimb: false, canTraverse };
+    if (wall.kind === 'BLOCKER') {
+      return { canVault: false, canClimb: false, canTraverse };
+    }
+    if (wall.kind === 'HIGH_GROUND') {
+      return { canVault: false, canClimb: true, canTraverse };
+    }
     const isLow =
       wall.height !== undefined && wall.height <= UNIT_DISTANCE_PIXELS;
     return { canVault: isLow, canClimb: !isLow, canTraverse };
@@ -1919,31 +1925,7 @@ export class BattleScene extends Phaser.Scene {
   private findContactedHardWallForUnit(
     u: Unit,
   ): import('../../core/state/GameState').Terrain | null {
-    const epsilon = 4;
-    for (const t of this.gameState.terrain) {
-      if (t.kind !== 'HARD') continue;
-      const verts = t.polygon.vertices;
-      for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
-        const a = verts[j]!;
-        const b = verts[i]!;
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const lenSq = dx * dx + dy * dy;
-        if (lenSq === 0) continue;
-        const tt = Math.max(
-          0,
-          Math.min(
-            1,
-            ((u.position.x - a.x) * dx + (u.position.y - a.y) * dy) / lenSq,
-          ),
-        );
-        const px = a.x + dx * tt;
-        const py = a.y + dy * tt;
-        const dist = Math.hypot(u.position.x - px, u.position.y - py);
-        if (dist <= u.radius + epsilon) return t;
-      }
-    }
-    return null;
+    return findContactedWall(this.gameState.terrain, u);
   }
 
   private buildReactionContext(): ReactionContext | undefined {
@@ -2617,7 +2599,6 @@ export class BattleScene extends Phaser.Scene {
     const stoppingPolygons = movementBlockingPolygons(this.gameState.terrain, u.position);
     const enterStopPolygons = movementEnterStopPolygons(this.gameState.terrain);
     const exitStopPolygons = movementExitStopPolygons(this.gameState.terrain, u.position);
-    const walkOffPolygons = movementWalkOffPolygons(this.gameState.terrain, u.position);
     const enemyCircles = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
@@ -2630,7 +2611,6 @@ export class BattleScene extends Phaser.Scene {
       polygons: stoppingPolygons,
       enterStopPolygons,
       exitStopPolygons,
-      walkOffPolygons,
       enemyCircles,
       friendlyCircles,
       moverRadius: u.radius,
@@ -2751,7 +2731,9 @@ export class BattleScene extends Phaser.Scene {
     const dest =
       commandType === 'VAULT'
         ? vaultDestination(u, wall.polygon.vertices)
-        : climbDestination(u, wall.polygon.vertices);
+        : wall.kind === 'HIGH_GROUND'
+          ? traverseDestination(u, wall.polygon)
+          : climbDestination(u, wall.polygon.vertices);
 
     const enemies = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
@@ -2860,12 +2842,10 @@ export class BattleScene extends Phaser.Scene {
         .map(getUnitCircle);
       const stoppingPolygons = movementBlockingPolygons(this.gameState.terrain, from);
       const exitStopPolygons = movementExitStopPolygons(this.gameState.terrain, from);
-      const walkOffPolygons = movementWalkOffPolygons(this.gameState.terrain, from);
       const path = computeMovePath(from, effective, {
         polygons: stoppingPolygons,
         enterStopPolygons,
         exitStopPolygons,
-        walkOffPolygons,
         enemyCircles,
         friendlyCircles,
         moverRadius,
@@ -3352,10 +3332,6 @@ export class BattleScene extends Phaser.Scene {
       this.gameState.terrain,
       mover.position,
     );
-    const walkOffPolygons = movementWalkOffPolygons(
-      this.gameState.terrain,
-      mover.position,
-    );
     const enemyCircles = this.gameState.units
       .filter((o) => o.faction !== mover.faction && isUnitAlive(o))
       .map(getUnitCircle);
@@ -3374,7 +3350,6 @@ export class BattleScene extends Phaser.Scene {
       polygons: stoppingPolygons,
       enterStopPolygons,
       exitStopPolygons,
-      walkOffPolygons,
       enemyCircles,
       friendlyCircles,
       moverRadius: mover.radius,

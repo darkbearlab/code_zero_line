@@ -31,17 +31,11 @@ export interface ObstacleSpec {
   /**
    * Symmetric to `enterStopPolygons` but for a mover starting INSIDE: stop
    * when the base touches the polygon edge from the inside (centre held
-   * `moverRadius` short of the boundary). Used for DIFFICULT/SOFT exit;
-   * HIGH_GROUND walk-off is in `walkOffPolygons` because it uses centre-
-   * crossing semantics. Crossing the boundary requires TRAVERSE.
+   * `moverRadius` short of the boundary). Used for DIFFICULT/SOFT exit and
+   * HIGH_GROUND climb-down — both require a dedicated edge-crossing action
+   * (TRAVERSE for soft terrain, CLIMB for high ground) to actually leave.
    */
   readonly exitStopPolygons?: ReadonlyArray<Polygon>;
-  /**
-   * HIGH_GROUND polygons the mover starts on top of. The move ends the
-   * moment the *centre* first leaves the polygon (stepping off the edge,
-   * not a base-touching stop). Movement entirely on top is unblocked.
-   */
-  readonly walkOffPolygons?: ReadonlyArray<Polygon>;
   readonly enemyCircles: ReadonlyArray<Circle>;
   /**
    * Friendly units. Pass-through during movement, but the *final* position
@@ -124,21 +118,6 @@ export const computeMovePath = (
       const t = sweptCircleVsPolygon(from, to, obs.moverRadius, poly);
       if (t !== null && t < bestT) {
         bestT = t;
-        bestReason = 'OBSTACLE';
-      }
-    }
-  }
-
-  // High-ground walk-off: starting inside a HIGH_GROUND polygon, the move
-  // ends the moment the centre line first leaves the polygon. Different
-  // from enter/exit stop because walking off the edge is a discrete
-  // step-down, not a base-touching stop.
-  if (obs.walkOffPolygons) {
-    for (const poly of obs.walkOffPolygons) {
-      if (!pointInPolygon(from, poly)) continue;
-      const tHit = segmentVsPolygonFirstHit(from, to, poly);
-      if (tHit !== null && tHit < bestT) {
-        bestT = tHit;
         bestReason = 'OBSTACLE';
       }
     }
@@ -237,39 +216,6 @@ const sweptCircleVsPolygon = (
     lastSafe = t;
   }
   return null;
-};
-
-/**
- * Smallest t in (ε, 1] where segment from→to first crosses any edge of
- * the polygon. Used for difficult-terrain entry stop where the *centre
- * line* (not the swept circle) determines the end point. Returns null
- * if the segment never crosses an edge within (ε, 1].
- */
-const segmentVsPolygonFirstHit = (
-  from: Vec2,
-  to: Vec2,
-  poly: Polygon,
-): number | null => {
-  const verts = poly.vertices;
-  const n = verts.length;
-  if (n < 2) return null;
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  let bestT: number | null = null;
-  for (let i = 0; i < n; i++) {
-    const a = verts[i]!;
-    const b = verts[(i + 1) % n]!;
-    const ex = b.x - a.x;
-    const ey = b.y - a.y;
-    const denom = dx * ey - dy * ex;
-    if (Math.abs(denom) < 1e-9) continue;
-    const t = ((a.x - from.x) * ey - (a.y - from.y) * ex) / denom;
-    const u = ((a.x - from.x) * dy - (a.y - from.y) * dx) / denom;
-    if (t > 1e-6 && t <= 1 && u >= -1e-6 && u <= 1 + 1e-6) {
-      if (bestT === null || t < bestT) bestT = t;
-    }
-  }
-  return bestT;
 };
 
 const pointInPolygon = (p: Vec2, poly: Polygon): boolean => {

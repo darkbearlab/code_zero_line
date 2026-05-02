@@ -43,7 +43,6 @@ import {
   movementBlockingPolygons,
   movementEnterStopPolygons,
   movementExitStopPolygons,
-  movementWalkOffPolygons,
   updateUnit,
 } from '../state/GameState';
 import type {
@@ -751,7 +750,6 @@ const moveAction = (
   const stoppingPolygons = movementBlockingPolygons(s.terrain, u.position);
   const enterStopPolygons = movementEnterStopPolygons(s.terrain);
   const exitStopPolygons = movementExitStopPolygons(s.terrain, u.position);
-  const walkOffPolygons = movementWalkOffPolygons(s.terrain, u.position);
   // LOS during movement only blocked by terrain that actually breaks vision —
   // computed inside the LOS helpers from terrains; for now we forward all.
   const losTerrains = s.terrain;
@@ -760,7 +758,6 @@ const moveAction = (
     polygons: stoppingPolygons,
     enterStopPolygons,
     exitStopPolygons,
-    walkOffPolygons,
     enemyCircles,
     friendlyCircles,
     moverRadius: u.radius,
@@ -908,13 +905,11 @@ const crawlAction = (
   const stoppingPolygons = movementBlockingPolygons(s.terrain, u.position);
   const enterStopPolygons = movementEnterStopPolygons(s.terrain);
   const exitStopPolygons = movementExitStopPolygons(s.terrain, u.position);
-  const walkOffPolygons = movementWalkOffPolygons(s.terrain, u.position);
 
   const path = computeMovePath(u.position, cappedTarget, {
     polygons: stoppingPolygons,
     enterStopPolygons,
     exitStopPolygons,
-    walkOffPolygons,
     enemyCircles,
     friendlyCircles,
     moverRadius: u.radius,
@@ -1134,7 +1129,7 @@ const climbAction = (
     );
   }
   // HARD walls must be tall to require climbing (low ones use VAULT).
-  // HIGH_GROUND has no height — climbing onto a platform is its own thing.
+  // HIGH_GROUND has no height — climbing on/off a platform is its own thing.
   if (
     wall.kind === 'HARD' &&
     (wall.height === undefined ||
@@ -1146,7 +1141,14 @@ const climbAction = (
     );
   }
 
-  const dest = climbDestination(u, wall.polygon.vertices);
+  // HIGH_GROUND uses mirror-across-edge geometry — the climber crosses one
+  // base diameter past the edge contacted (onto the platform if approaching
+  // from outside, off the platform if leaving). HARD walls use the
+  // top-of-spine landing geometry.
+  const dest =
+    wall.kind === 'HIGH_GROUND'
+      ? traverseDestination(u, wall.polygon)
+      : climbDestination(u, wall.polygon.vertices);
   ensureLandingClear(s, u, dest);
 
   const reactionResult = resolveReactionPlan(
@@ -1420,7 +1422,6 @@ const commandMoveAction = (
     const target = capForStance(u.position, m.target, m.stance);
     const stoppingPolygons = movementBlockingPolygons(working.terrain, u.position);
     const exitStopPolygons = movementExitStopPolygons(working.terrain, u.position);
-    const walkOffPolygons = movementWalkOffPolygons(working.terrain, u.position);
     const enemyCircles = working.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
@@ -1450,7 +1451,6 @@ const commandMoveAction = (
       polygons: stoppingPolygons,
       enterStopPolygons,
       exitStopPolygons,
-      walkOffPolygons,
       enemyCircles,
       friendlyCircles,
       moverRadius: u.radius,
@@ -1521,10 +1521,6 @@ const commandMoveAction = (
         working.terrain,
         u.position,
       );
-      const walkOffPolygons = movementWalkOffPolygons(
-        working.terrain,
-        u.position,
-      );
       const enemyCircles = working.units
         .filter((o) => o.faction !== u.faction && isUnitAlive(o))
         .map(getUnitCircle);
@@ -1555,7 +1551,6 @@ const commandMoveAction = (
         polygons: stoppingPolygons,
         enterStopPolygons,
         exitStopPolygons,
-        walkOffPolygons,
         enemyCircles,
         friendlyCircles,
         moverRadius: u.radius,

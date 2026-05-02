@@ -64,25 +64,26 @@ describe('computeMovePath', () => {
     expect(r.endpoint.x).toBeLessThan(40);
   });
 
-  it('walkOffPolygons: walking off high ground ends the move at the edge', () => {
+  it('exitStopPolygons: leaving high ground stops with base flush against inner edge', () => {
     // Platform spans x ∈ [0, 100], y ∈ [-50, 50]. Mover starts inside at
-    // (50, 0), targets (200, 0). Should stop at x=100 (exit edge).
+    // (50, 0), targets (200, 0). Should stop with centre at x=90 (base
+    // flush against the inner edge at x=100). Crossing requires CLIMB.
     const platform = {
       vertices: [v2(0, -50), v2(100, -50), v2(100, 50), v2(0, 50)],
     };
     const r = computeMovePath(v2(50, 0), v2(200, 0), {
       polygons: [],
-      walkOffPolygons: [platform],
+      exitStopPolygons: [platform],
       enemyCircles: [],
       moverRadius: 10,
     });
     expect(r.stopReason).toBe('OBSTACLE');
-    expect(r.endpoint.x).toBeCloseTo(100, 1);
-    // Travel inside the polygon doesn't trigger the stop on its own — the
-    // edge crossing is what ends the move.
+    expect(r.endpoint.x).toBeCloseTo(90, 1);
+    // Travel inside the polygon doesn't trigger the stop on its own — only
+    // base-touching the inner edge does.
     const inside = computeMovePath(v2(20, 0), v2(80, 0), {
       polygons: [],
-      walkOffPolygons: [platform],
+      exitStopPolygons: [platform],
       enemyCircles: [],
       moverRadius: 10,
     });
@@ -90,13 +91,13 @@ describe('computeMovePath', () => {
     expect(inside.endpoint.x).toBeCloseTo(80);
   });
 
-  it('walkOffPolygons: a mover starting outside is not affected', () => {
+  it('exitStopPolygons: a mover starting outside is not affected', () => {
     const platform = {
       vertices: [v2(0, -50), v2(100, -50), v2(100, 50), v2(0, 50)],
     };
     const r = computeMovePath(v2(-50, 0), v2(50, 0), {
       polygons: [],
-      walkOffPolygons: [platform],
+      exitStopPolygons: [platform],
       enemyCircles: [],
       moverRadius: 10,
     });
