@@ -183,4 +183,42 @@ describe('hasLOS', () => {
     expect(hasLOS(a, b, ts, { bProne: true })).toBe(false);
     expect(hasLOS(a, b, ts, { bProne: true, aOnHighGround: true })).toBe(true);
   });
+
+  it('HIGH_GROUND blocks LOS like a high wall when both endpoints are at ground level', () => {
+    const platform = (
+      id: string,
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+    ): Terrain => ({
+      id,
+      kind: 'HIGH_GROUND',
+      polygon: { vertices: [v2(x1, y1), v2(x2, y1), v2(x2, y2), v2(x1, y2)] },
+    });
+    const ts = [platform('hg', 40, -50, 60, 50)];
+    const a = { center: v2(0, 0), radius: 10 };
+    const b = { center: v2(100, 0), radius: 10 };
+    // Neither endpoint on top → platform occludes like a high wall.
+    expect(hasLOS(a, b, ts)).toBe(false);
+  });
+
+  it('HIGH_GROUND does not block when an endpoint stands on top', () => {
+    const platform = (
+      id: string,
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+    ): Terrain => ({
+      id,
+      kind: 'HIGH_GROUND',
+      polygon: { vertices: [v2(x1, y1), v2(x2, y1), v2(x2, y2), v2(x1, y2)] },
+    });
+    const ts = [platform('hg', 40, -50, 60, 50)];
+    // A standing on the platform (centre inside polygon).
+    const a = { center: v2(50, 0), radius: 10 };
+    const b = { center: v2(100, 0), radius: 10 };
+    expect(hasLOS(a, b, ts, { aOnHighGround: true })).toBe(true);
+  });
 });

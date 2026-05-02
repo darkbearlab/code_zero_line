@@ -36,6 +36,10 @@ export interface LOSOptions {
  *  - SOFT cover (smoke / fog) blocks only when *both* endpoints are outside
  *    the polygon. If either endpoint is inside, LOS passes through that
  *    soft cover (and the cover bonus applies separately).
+ *  - HIGH_GROUND occludes like a high wall when neither endpoint is on
+ *    top of it (both at ground level on opposite sides → blocked). If
+ *    either endpoint stands on the platform, that platform doesn't block
+ *    (the elevated unit looks over it).
  *  - DIFFICULT terrain never blocks LOS (only provides cover when target
  *    inside).
  */
@@ -66,10 +70,15 @@ export const buildLosBlockers = (
       const aIn = isPointInPolygon(a, t.polygon);
       const bIn = isPointInPolygon(b, t.polygon);
       if (!aIn && !bIn) blockers.push(t.polygon);
+    } else if (t.kind === 'HIGH_GROUND') {
+      // Acts as a high wall whenever neither endpoint is on top of the
+      // platform. An endpoint on the platform is "above the obstacle"
+      // and looks over its own footprint — no block from that polygon.
+      const aIn = isPointInPolygon(a, t.polygon);
+      const bIn = isPointInPolygon(b, t.polygon);
+      if (!aIn && !bIn) blockers.push(t.polygon);
     }
-    // DIFFICULT, HIGH_GROUND — no LOS effect (high ground only modifies
-    // *low-wall* visibility via the bypass above; the platform itself
-    // doesn't occlude shots).
+    // DIFFICULT — no LOS effect (only grants cover when target inside).
   }
   return blockers;
 };
