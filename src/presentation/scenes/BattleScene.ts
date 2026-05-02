@@ -195,6 +195,8 @@ export class BattleScene extends Phaser.Scene {
   private cameraManualOverride = false;
   /** Middle-mouse pan state. */
   private panDrag: { x: number; y: number; scrollX: number; scrollY: number } | null = null;
+  /** Hold-V tactical overview saved camera state for restore on key release. */
+  private overviewSavedView: { zoom: number; scrollX: number; scrollY: number } | null = null;
   /** Roguelite run context — when present, victory routes through Hub / RunResult. */
   private runState: import('../../runs/state').RunState | null = null;
   /** Active mission's win condition. Falls back to elimination for sandbox runs. */
@@ -278,6 +280,7 @@ export class BattleScene extends Phaser.Scene {
     this.timerEvent = null;
     this.cameraManualOverride = false;
     this.panDrag = null;
+    this.overviewSavedView = null;
     this.losPreviewUnitId = null;
   }
 
@@ -341,6 +344,12 @@ export class BattleScene extends Phaser.Scene {
         this.cancelAim();
     });
     this.input.keyboard?.on('keydown-R', () => this.resetCamera());
+    // Hold V for tactical overview (fit-to-map); release to restore close-up.
+    this.input.keyboard?.on('keydown-V', (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      this.startOverview();
+    });
+    this.input.keyboard?.on('keyup-V', () => this.endOverview());
 
     this.hud = new Hud(
       (cmd) => this.dispatch(cmd),
@@ -370,17 +379,17 @@ export class BattleScene extends Phaser.Scene {
   private static readonly HUD_RIGHT_PX = 260;
   private static readonly HUD_TOP_PX = 48;
   private static readonly HUD_BOTTOM_PX = 100;
+  /**
+   * Default close-up zoom: sprites are authored at 64×64 native and rendered at
+   * ~30 world px diameter, so zoom 2.0 displays them near 1:1 with the source
+   * art. Players hold V for a fit-to-map tactical overview.
+   */
+  private static readonly DEFAULT_CAMERA_ZOOM = 2.0;
 
-  private fitCamera(): void {
-    if (this.cameraManualOverride) {
-      this.drawBoardEdge();
-      return;
-    }
+  /** Computes the fit-to-map zoom + center used for tactical overview. */
+  private computeOverviewView(): { zoom: number; cx: number; cy: number } {
     const cam = this.cameras.main;
-    const availW = Math.max(
-      200,
-      cam.width - BattleScene.HUD_RIGHT_PX,
-    );
+    const availW = Math.max(200, cam.width - BattleScene.HUD_RIGHT_PX);
     const availH = Math.max(
       200,
       cam.height - BattleScene.HUD_TOP_PX - BattleScene.HUD_BOTTOM_PX,
@@ -389,28 +398,83 @@ export class BattleScene extends Phaser.Scene {
     const zoom =
       Math.min(availW / BATTLEFIELD_SIZE_PIXELS, availH / BATTLEFIELD_SIZE_PIXELS) *
       margin;
-    cam.setZoom(zoom);
-    // Centre the playfield within the visible (non-HUD) rectangle by shifting
-    // the camera target up-left to compensate for the right/bottom HUD strips.
     const offsetX = -BattleScene.HUD_RIGHT_PX / 2;
-    const offsetY =
-      (BattleScene.HUD_TOP_PX - BattleScene.HUD_BOTTOM_PX) / 2;
-    cam.centerOn(
-      BATTLEFIELD_SIZE_PIXELS / 2 + offsetX / zoom,
-      BATTLEFIELD_SIZE_PIXELS / 2 + offsetY / zoom,
+    const offsetY = (BattleScene.HUD_TOP_PX - BattleScene.HUD_BOTTOM_PX) / 2;
+    return {
+      zoom,
+      cx: BATTLEFIELD_SIZE_PIXELS / 2 + offsetX / zoom,
+      cy: BATTLEFIELD_SIZE_PIXELS / 2 + offsetY / zoom,
+    };
+  }
+
+  /** Centroid of own-faction (A) survivors, falling back to map center. */
+  private ownFactionCentroid(): { x: number; y: number } {
+    const own = this.gameState.units.filter(
+      (u) => u.faction === 'A' && isUnitAlive(u),
     );
+    if (own.length === 0) {
+      return {
+        x: BATTLEFIELD_SIZE_PIXELS / 2,
+        y: BATTLEFIELD_SIZE_PIXELS / 2,
+      };
+    }
+    const sum = own.reduce(
+      (acc, u) => ({ x: acc.x + u.position.x, y: acc.y + u.position.y }),
+      { x: 0, y: 0 },
+    );
+    return { x: sum.x / own.length, y: sum.y / own.length };
+  }
+
+  private fitCamera(): void {
+    if (this.cameraManualOverride) {
+      this.drawBoardEdge();
+      return;
+    }
+    const cam = this.cameras.main;
+    const zoom = BattleScene.DEFAULT_CAMERA_ZOOM;
+    cam.setZoom(zoom);
+    const c = this.ownFactionCentroid();
+    const offsetX = -BattleScene.HUD_RIGHT_PX / 2;
+    const offsetY = (BattleScene.HUD_TOP_PX - BattleScene.HUD_BOTTOM_PX) / 2;
+    cam.centerOn(c.x + offsetX / zoom, c.y + offsetY / zoom);
     this.drawBoardEdge();
   }
 
   private resetCamera(): void {
     this.cameraManualOverride = false;
+    this.overviewSavedView = null;
     this.fitCamera();
+  }
+
+  private startOverview(): void {
+    if (this.overviewSavedView) return;
+    const cam = this.cameras.main;
+    this.overviewSavedView = {
+      zoom: cam.zoom,
+      scrollX: cam.scrollX,
+      scrollY: cam.scrollY,
+    };
+    const { zoom, cx, cy } = this.computeOverviewView();
+    cam.zoomTo(zoom, 150);
+    cam.pan(cx, cy, 150);
+  }
+
+  private endOverview(): void {
+    const saved = this.overviewSavedView;
+    if (!saved) return;
+    this.overviewSavedView = null;
+    const cam = this.cameras.main;
+    cam.zoomTo(saved.zoom, 150);
+    // pan() targets the center; convert scroll back to a center point.
+    const cx = saved.scrollX + cam.width / (2 * saved.zoom);
+    const cy = saved.scrollY + cam.height / (2 * saved.zoom);
+    cam.pan(cx, cy, 150);
   }
 
   private zoomCameraAt(screenX: number, screenY: number, factor: number): void {
     const cam = this.cameras.main;
     const before = cam.getWorldPoint(screenX, screenY);
-    const next = Phaser.Math.Clamp(cam.zoom * factor, 0.25, 4);
+    const next = Phaser.Math.Clamp(cam.zoom * factor, 0.4, 6);
     cam.setZoom(next);
     const after = cam.getWorldPoint(screenX, screenY);
     cam.scrollX += before.x - after.x;
