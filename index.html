@@ -41,6 +41,102 @@
         align-items: center;
         font-size: 13px;
       }
+      #hud-unit-details {
+        position: absolute;
+        top: 48px;
+        left: 12px;
+        width: 280px;
+        max-height: calc(100vh - 160px);
+        overflow-y: auto;
+        padding: 10px 12px;
+        background: rgba(10, 14, 10, 0.92);
+        border: 1px solid #3a5a3a;
+        font-size: 12px;
+        line-height: 1.45;
+        color: #cfe8cf;
+        pointer-events: none;
+      }
+      #hud-unit-details .ud-name {
+        font-size: 14px;
+        font-weight: bold;
+        color: #cfe8cf;
+        margin-bottom: 2px;
+      }
+      #hud-unit-details .ud-sub {
+        font-size: 11px;
+        color: #9aa89a;
+        margin-bottom: 8px;
+      }
+      #hud-unit-details .ud-faction-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 4px;
+        vertical-align: middle;
+        border: 1px solid #2a3a2a;
+      }
+      #hud-unit-details .ud-section {
+        margin-top: 8px;
+        padding-top: 6px;
+        border-top: 1px solid #2a3a2a;
+      }
+      #hud-unit-details .ud-section-title {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #7a9a7a;
+        margin-bottom: 4px;
+      }
+      #hud-unit-details .ud-stat {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      #hud-unit-details .ud-stat .k {
+        color: #9aa89a;
+      }
+      #hud-unit-details .ud-stat .v {
+        color: #cfe8cf;
+      }
+      #hud-unit-details .ud-stat .v.danger {
+        color: #ff8a6a;
+      }
+      #hud-unit-details .ud-stat .v.warn {
+        color: #ffd166;
+      }
+      #hud-unit-details .ud-list {
+        margin: 0;
+        padding-left: 0;
+        list-style: none;
+      }
+      #hud-unit-details .ud-list li {
+        padding: 2px 0;
+      }
+      #hud-unit-details .ud-trait .name {
+        color: #9af09a;
+        font-weight: bold;
+      }
+      #hud-unit-details .ud-trait .desc {
+        display: block;
+        color: #9aa89a;
+        font-size: 11px;
+        margin-left: 6px;
+      }
+      #hud-unit-details .ud-weapon .name {
+        color: #cfe8cf;
+      }
+      #hud-unit-details .ud-weapon .meta {
+        color: #7a9a7a;
+        font-size: 11px;
+        margin-left: 6px;
+      }
+      #hud-unit-details .ud-weapon .descs {
+        display: block;
+        color: #9aa89a;
+        font-size: 11px;
+        margin-left: 6px;
+      }
       #hud-top .holder-A {
         color: #6ab0ff;
       }
@@ -368,6 +464,7 @@
         </span>
         <span id="hud-timer" hidden></span>
       </div>
+      <div id="hud-unit-details" hidden></div>
       <div id="hud-actions"></div>
       <div id="hud-scrubber" hidden>
         <div id="hud-scrubber-row">

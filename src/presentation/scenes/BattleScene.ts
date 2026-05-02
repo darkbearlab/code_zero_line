@@ -304,7 +304,10 @@ export class BattleScene extends Phaser.Scene {
     this.fitCamera();
     const resizeHandler = () => this.fitCamera();
     this.scale.on('resize', resizeHandler);
-    this.events.once('shutdown', () => this.scale.off('resize', resizeHandler));
+    this.events.once('shutdown', () => {
+      this.scale.off('resize', resizeHandler);
+      this.hud?.hideUnitDetails();
+    });
 
     this.renderTerrain();
     this.renderObjectives();
@@ -626,6 +629,16 @@ export class BattleScene extends Phaser.Scene {
         // Full LOS — leave the cell uncovered.
       }
     }
+  }
+
+  /** Push the hovered unit (or null) to the Hud's top-left detail card. */
+  private refreshHoveredUnitDetails(unitId: string | null): void {
+    if (unitId === null) {
+      this.hud.showUnitDetails(null);
+      return;
+    }
+    const u = this.gameState.units.find((x) => x.id === unitId);
+    this.hud.showUnitDetails(u ?? null);
   }
 
   /** Hit-test pointer against any alive unit; returns its id or null. */
@@ -2307,10 +2320,12 @@ export class BattleScene extends Phaser.Scene {
       if (hovered !== this.losPreviewUnitId) {
         this.losPreviewUnitId = hovered;
         this.renderLosOverlay(hovered);
+        this.refreshHoveredUnitDetails(hovered);
       }
     } else if (this.losPreviewUnitId !== null) {
       this.losPreviewUnitId = null;
       this.renderLosOverlay(null);
+      this.refreshHoveredUnitDetails(null);
     }
     if (this.aimMode === 'aim-command-move-officer') {
       const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);

@@ -2,7 +2,16 @@
   "templateId": "elite",
   "displayName": "Elite",
   "quality": 2,
-  "weaponIds": ["rifle", "blade"],
-  "traits": ["INFANTRY"],
-  "recruitRole": "specialist"
+  "weaponIds": [
+    "rifle",
+    "blade"
+  ],
+  "traits": [
+    "INFANTRY"
+  ],
+  "recruitRole": "specialist",
+  "factionTags": [
+    "neutral",
+    "Red"
+  ]
 }

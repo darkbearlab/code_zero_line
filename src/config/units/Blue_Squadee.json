@@ -1,0 +1,17 @@
+{
+  "templateId": "Blue_Squadee",
+  "displayName": "Blue_Squadee",
+  "quality": 2,
+  "weaponIds": [
+    "rifle",
+    "blade"
+  ],
+  "traits": [
+    "INFANTRY",
+    "TOUGH"
+  ],
+  "spriteKey": "man_with_rifle",
+  "factionTags": [
+    "Blue"
+  ]
+}

@@ -4,7 +4,9 @@ import type {
   ReactionMarker,
   ShootMode,
 } from '../../core/commands/types';
-import type { GameState } from '../../core/state/GameState';
+import type { GameState, Unit } from '../../core/state/GameState';
+import { getFaction, getUnitTemplate } from '../../config/loader';
+import { getTraitDef } from '../../core/traits/registry';
 
 export type DispatchFn = (cmd: Command) => void;
 
@@ -205,6 +207,8 @@ export class Hud {
   private logWrapEl: HTMLElement;
   private logToggleEl: HTMLButtonElement;
   private missionEl: HTMLElement;
+  private unitDetailsEl: HTMLElement;
+  private unitDetailsCurrentId: string | null = null;
 
   constructor(
     private dispatch: DispatchFn,
@@ -253,6 +257,8 @@ export class Hud {
     this.missionEl = mustElement('hud-mission');
     this.missionEl.textContent = '';
     this.missionEl.hidden = true;
+    this.unitDetailsEl = mustElement('hud-unit-details');
+    this.unitDetailsEl.hidden = true;
     this.logToggleEl.onclick = () => this.toggleLogCollapsed();
     // Restore last collapsed preference (Phaser keeps the DOM across scenes).
     try {
@@ -296,6 +302,30 @@ export class Hud {
     }
     this.missionEl.textContent = label;
     this.missionEl.hidden = false;
+  }
+
+  /**
+   * Top-left unit-detail card shown while the player hovers a unit on the
+   * battlefield. Pass `null` to hide. Caller (BattleScene) is responsible
+   * for invoking on hover-enter / hover-leave so we don't re-render on
+   * every pointermove tick.
+   */
+  showUnitDetails(unit: Unit | null): void {
+    if (unit === null) {
+      this.hideUnitDetails();
+      return;
+    }
+    if (this.unitDetailsCurrentId === unit.id) return;
+    this.unitDetailsCurrentId = unit.id;
+    this.unitDetailsEl.replaceChildren(...buildUnitDetailsBody(unit));
+    this.unitDetailsEl.hidden = false;
+  }
+
+  hideUnitDetails(): void {
+    if (this.unitDetailsCurrentId === null) return;
+    this.unitDetailsCurrentId = null;
+    this.unitDetailsEl.hidden = true;
+    this.unitDetailsEl.replaceChildren();
   }
 
   update(
@@ -1070,6 +1100,167 @@ const mustElement = (id: string): HTMLElement => {
   const el = document.getElementById(id);
   if (!el) throw new Error(`#${id} missing from DOM`);
   return el;
+};
+
+const DAMAGE_LABEL: Readonly<Record<Unit['damage'], string>> = {
+  NONE: '健康',
+  IMPEDED: '受傷',
+  SUPPRESSED: '壓制',
+  KILLED: '陣亡',
+};
+
+const DAMAGE_TONE: Readonly<Record<Unit['damage'], '' | 'warn' | 'danger'>> = {
+  NONE: '',
+  IMPEDED: 'warn',
+  SUPPRESSED: 'warn',
+  KILLED: 'danger',
+};
+
+const buildUnitDetailsBody = (unit: Unit): HTMLElement[] => {
+  const out: HTMLElement[] = [];
+
+  // Resolve template + faction info defensively — legacy fixture units may
+  // omit templateId, and custom factions can be deleted while a unit is
+  // already on the field.
+  let templateName = unit.templateId ?? unit.id;
+  let factionDisplay = unit.faction === 'A' ? '玩家方' : '敵方';
+  let factionColor: string | null = null;
+  let factionDescription: string | null = null;
+  if (unit.templateId) {
+    try {
+      const tpl = getUnitTemplate(unit.templateId);
+      templateName = tpl.displayName;
+      const tags = tpl.factionTags && tpl.factionTags.length > 0
+        ? tpl.factionTags
+        : ['neutral'];
+      const factionDefs = tags
+        .map((id) => getFaction(id))
+        .filter((f): f is NonNullable<typeof f> => f !== undefined);
+      if (factionDefs.length > 0) {
+        factionDisplay = factionDefs.map((f) => f.name).join(' / ');
+        factionColor = factionDefs.find((f) => f.color)?.color ?? null;
+        factionDescription = factionDefs[0].description ?? null;
+      }
+    } catch {
+      /* template missing — fall back to raw id */
+    }
+  }
+
+  // Header: name + faction badge
+  const header = document.createElement('div');
+  const name = document.createElement('div');
+  name.className = 'ud-name';
+  name.textContent = templateName;
+  header.appendChild(name);
+  const sub = document.createElement('div');
+  sub.className = 'ud-sub';
+  if (factionColor) {
+    const dot = document.createElement('span');
+    dot.className = 'ud-faction-dot';
+    dot.style.backgroundColor = factionColor;
+    sub.appendChild(dot);
+  }
+  sub.appendChild(document.createTextNode(`${factionDisplay} · ${unit.id}`));
+  if (factionDescription) sub.title = factionDescription;
+  header.appendChild(sub);
+  out.push(header);
+
+  // Stats
+  const stats = document.createElement('div');
+  stats.className = 'ud-section';
+  const sTitle = document.createElement('div');
+  sTitle.className = 'ud-section-title';
+  sTitle.textContent = '數值';
+  stats.appendChild(sTitle);
+  const addStat = (
+    label: string,
+    value: string,
+    tone: '' | 'warn' | 'danger' = '',
+  ): void => {
+    const row = document.createElement('div');
+    row.className = 'ud-stat';
+    const k = document.createElement('span');
+    k.className = 'k';
+    k.textContent = label;
+    const v = document.createElement('span');
+    v.className = tone ? `v ${tone}` : 'v';
+    v.textContent = value;
+    row.appendChild(k);
+    row.appendChild(v);
+    stats.appendChild(row);
+  };
+  addStat('品質', `${unit.quality}+`);
+  addStat('狀態', DAMAGE_LABEL[unit.damage], DAMAGE_TONE[unit.damage]);
+  addStat('姿勢', unit.stance === 'PRONE' ? '臥倒' : '站立');
+  if (unit.activatedThisRound) addStat('本輪', '已行動', 'warn');
+  if (unit.lockedThisInitiative) addStat('鎖定', '本主動權', 'warn');
+  if (unit.cannotReactThisRound) addStat('反應', '本輪不可', 'warn');
+  out.push(stats);
+
+  // Weapons
+  if (unit.weapons.length > 0) {
+    const wsec = document.createElement('div');
+    wsec.className = 'ud-section';
+    const wTitle = document.createElement('div');
+    wTitle.className = 'ud-section-title';
+    wTitle.textContent = '武器';
+    wsec.appendChild(wTitle);
+    const wList = document.createElement('ul');
+    wList.className = 'ud-list';
+    for (const w of unit.weapons) {
+      const li = document.createElement('li');
+      li.className = 'ud-weapon';
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = w.id;
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      meta.textContent = `${w.kind} · ${w.diceCount}d ${w.threshold}+ · ${w.modes.join('/')}`;
+      li.appendChild(name);
+      li.appendChild(meta);
+      if (w.descriptors.length > 0) {
+        const d = document.createElement('span');
+        d.className = 'descs';
+        d.textContent = w.descriptors.join(', ');
+        li.appendChild(d);
+      }
+      wList.appendChild(li);
+    }
+    wsec.appendChild(wList);
+    out.push(wsec);
+  }
+
+  // Traits
+  if (unit.traits.length > 0) {
+    const tsec = document.createElement('div');
+    tsec.className = 'ud-section';
+    const tTitle = document.createElement('div');
+    tTitle.className = 'ud-section-title';
+    tTitle.textContent = '技能';
+    tsec.appendChild(tTitle);
+    const tList = document.createElement('ul');
+    tList.className = 'ud-list';
+    for (const id of unit.traits) {
+      const li = document.createElement('li');
+      li.className = 'ud-trait';
+      const def = getTraitDef(id);
+      const nameEl = document.createElement('span');
+      nameEl.className = 'name';
+      nameEl.textContent = def?.displayName ?? id;
+      li.appendChild(nameEl);
+      if (def?.description) {
+        const desc = document.createElement('span');
+        desc.className = 'desc';
+        desc.textContent = def.description;
+        li.appendChild(desc);
+      }
+      tList.appendChild(li);
+    }
+    tsec.appendChild(tList);
+    out.push(tsec);
+  }
+
+  return out;
 };
 
 const formatEvent = (e: GameEvent): string => {

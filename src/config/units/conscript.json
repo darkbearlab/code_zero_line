@@ -2,6 +2,16 @@
   "templateId": "conscript",
   "displayName": "Conscript",
   "quality": 4,
-  "weaponIds": ["smg", "blade"],
-  "traits": ["FRAGILE", "INFANTRY"]
+  "weaponIds": [
+    "smg",
+    "blade"
+  ],
+  "traits": [
+    "FRAGILE",
+    "INFANTRY"
+  ],
+  "factionTags": [
+    "Red",
+    "neutral"
+  ]
 }

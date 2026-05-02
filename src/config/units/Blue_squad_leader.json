@@ -1,0 +1,21 @@
+{
+  "templateId": "Blue_squad_leader",
+  "displayName": "Blue_squad_leader",
+  "quality": 2,
+  "weaponIds": [
+    "rifle",
+    "blade"
+  ],
+  "traits": [
+    "OFFICER",
+    "STALWART",
+    "INFANTRY",
+    "COMMAND",
+    "TOUGH"
+  ],
+  "recruitRole": "officer",
+  "spriteKey": "man_with_rifle",
+  "factionTags": [
+    "Blue"
+  ]
+}

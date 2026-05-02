@@ -1,0 +1,8 @@
+{
+  "id": "Red",
+  "name": "Red",
+  "description": "",
+  "playable": true,
+  "hostile": true,
+  "color": "#ff2e2e"
+}

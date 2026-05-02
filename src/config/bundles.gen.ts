@@ -12,6 +12,8 @@ import weapons_heavy_rifle from './weapons/heavy_rifle.json';
 import weapons_rifle from './weapons/rifle.json';
 import weapons_rpg from './weapons/rpg.json';
 import weapons_smg from './weapons/smg.json';
+import units_Blue_Squadee from './units/Blue_Squadee.json';
+import units_Blue_squad_leader from './units/Blue_squad_leader.json';
 import units_conscript from './units/conscript.json';
 import units_elite from './units/elite.json';
 import units_heavy_gunner from './units/heavy_gunner.json';
@@ -27,6 +29,8 @@ import missions_holdout from './missions/holdout.json';
 import missions_last_stand from './missions/last-stand.json';
 import missions_night_extraction from './missions/night-extraction.json';
 import missions_reconnaissance from './missions/reconnaissance.json';
+import factions_Blue from './factions/Blue.json';
+import factions_Red from './factions/Red.json';
 import factions_neutral from './factions/neutral.json';
 
 export const BUNDLED_WEAPONS: ReadonlyArray<Weapon> = [
@@ -37,6 +41,8 @@ export const BUNDLED_WEAPONS: ReadonlyArray<Weapon> = [
   weapons_smg as unknown as Weapon,
 ];
 export const BUNDLED_TEMPLATES: ReadonlyArray<UnitTemplate> = [
+  units_Blue_Squadee as unknown as UnitTemplate,
+  units_Blue_squad_leader as unknown as UnitTemplate,
   units_conscript as unknown as UnitTemplate,
   units_elite as unknown as UnitTemplate,
   units_heavy_gunner as unknown as UnitTemplate,
@@ -58,5 +64,7 @@ export const BUNDLED_MISSIONS: ReadonlyArray<MissionDef> = [
   missions_reconnaissance as unknown as MissionDef,
 ];
 export const BUNDLED_FACTIONS: ReadonlyArray<Faction> = [
+  factions_Blue as unknown as Faction,
+  factions_Red as unknown as Faction,
   factions_neutral as unknown as Faction,
 ];
