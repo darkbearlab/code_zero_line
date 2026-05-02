@@ -800,22 +800,33 @@ export class BattleScene extends Phaser.Scene {
       const tmpl = listUnitTemplates().find(
         (t) => t.templateId === u.templateId,
       );
-      const texKey = tmpl?.spriteKey ?? null;
-      if (texKey && this.textures.exists(texKey)) {
-        const size = u.radius * 2.4;
+      const tint = tmpl ? resolveFactionColorForTags(tagsOf(tmpl)) : null;
+      const size = u.radius * 2.4;
+      const addSprite = (
+        texKey: string,
+        baseName: 'sprite' | 'spriteProne',
+      ): void => {
         const spr = this.add.sprite(0, 0, texKey);
         spr.setDisplaySize(size, size);
-        spr.setName('sprite');
+        spr.setName(baseName);
         container.add(spr);
-        const tint = tmpl ? resolveFactionColorForTags(tagsOf(tmpl)) : null;
         if (tint !== null) {
           const overlay = this.add.sprite(0, 0, texKey);
           overlay.setDisplaySize(size, size);
-          overlay.setName('spriteTint');
+          overlay.setName(`${baseName}Tint`);
           overlay.setTintFill(tint);
           overlay.setAlpha(TINT_OVERLAY_ALPHA);
           container.add(overlay);
         }
+      };
+      const texKey = tmpl?.spriteKey ?? null;
+      if (texKey && this.textures.exists(texKey)) {
+        addSprite(texKey, 'sprite');
+        arc.setFillStyle(FACTION_COLOR[u.faction], 0);
+      }
+      const proneKey = tmpl?.spriteKeyProne ?? null;
+      if (proneKey && this.textures.exists(proneKey)) {
+        addSprite(proneKey, 'spriteProne');
         arc.setFillStyle(FACTION_COLOR[u.faction], 0);
       }
     }
@@ -838,10 +849,10 @@ export class BattleScene extends Phaser.Scene {
       (u.faction === 'A' ? -Math.PI / 2 : Math.PI / 2);
     this.unitFacings.set(u.id, initial);
     chev.rotation = initial;
-    const initSpr = container.getByName('sprite') as Phaser.GameObjects.Sprite | null;
-    if (initSpr) initSpr.rotation = initial;
-    const initTint = container.getByName('spriteTint') as Phaser.GameObjects.Sprite | null;
-    if (initTint) initTint.rotation = initial;
+    for (const name of ['sprite', 'spriteTint', 'spriteProne', 'spriteProneTint']) {
+      const spr = container.getByName(name) as Phaser.GameObjects.Sprite | null;
+      if (spr) spr.rotation = initial;
+    }
 
     return container;
   }
@@ -852,10 +863,10 @@ export class BattleScene extends Phaser.Scene {
     if (!c) return;
     const chev = c.getByName('facing') as Phaser.GameObjects.Graphics | null;
     if (chev) chev.rotation = angle;
-    const sprite = c.getByName('sprite') as Phaser.GameObjects.Sprite | null;
-    if (sprite) sprite.rotation = angle;
-    const tintSpr = c.getByName('spriteTint') as Phaser.GameObjects.Sprite | null;
-    if (tintSpr) tintSpr.rotation = angle;
+    for (const name of ['sprite', 'spriteTint', 'spriteProne', 'spriteProneTint']) {
+      const spr = c.getByName(name) as Phaser.GameObjects.Sprite | null;
+      if (spr) spr.rotation = angle;
+    }
   }
 
   private faceUnitTowardPoint(unitId: string, target: Vec2): void {
@@ -930,22 +941,42 @@ export class BattleScene extends Phaser.Scene {
     arc.setStrokeStyle(strokeWidth, strokeColor);
 
     // Prone visual: dim fill + show "PRONE" stance tag. Chevron also dims so
-    // the unit reads as low-profile from above. When a sprite is layered on
-    // top of the ring, the ring's fill stays hidden (alpha 0) and the
-    // sprite carries the prone dim instead.
-    const proneAlpha = u.stance === 'PRONE' ? 0.55 : 1;
+    // the unit reads as low-profile from above. When a dedicated prone
+    // sprite exists, swap to it (no dim — the sprite itself signals prone);
+    // otherwise dim the standing sprite as the only prone indicator.
     const sprite = container.getByName('sprite') as
       | Phaser.GameObjects.Sprite
       | null;
-    if (sprite) {
+    const spriteTint = container.getByName('spriteTint') as
+      | Phaser.GameObjects.Sprite
+      | null;
+    const spriteProne = container.getByName('spriteProne') as
+      | Phaser.GameObjects.Sprite
+      | null;
+    const spriteProneTint = container.getByName('spriteProneTint') as
+      | Phaser.GameObjects.Sprite
+      | null;
+    const isProne = u.stance === 'PRONE';
+    if (sprite || spriteProne) {
       arc.setFillStyle(FACTION_COLOR[u.faction], 0);
-      sprite.setAlpha(proneAlpha);
-      const tintSpr = container.getByName('spriteTint') as
-        | Phaser.GameObjects.Sprite
-        | null;
-      if (tintSpr) tintSpr.setAlpha(proneAlpha * TINT_OVERLAY_ALPHA);
+      if (spriteProne) {
+        const showProne = isProne;
+        spriteProne.setVisible(showProne);
+        if (spriteProneTint) spriteProneTint.setVisible(showProne);
+        if (sprite) sprite.setVisible(!showProne);
+        if (spriteTint) spriteTint.setVisible(!showProne);
+        // Dedicated prone art carries the state — no extra dim.
+        if (spriteProne) spriteProne.setAlpha(1);
+        if (spriteProneTint) spriteProneTint.setAlpha(TINT_OVERLAY_ALPHA);
+        if (sprite) sprite.setAlpha(1);
+        if (spriteTint) spriteTint.setAlpha(TINT_OVERLAY_ALPHA);
+      } else if (sprite) {
+        const proneAlpha = isProne ? 0.55 : 1;
+        sprite.setAlpha(proneAlpha);
+        if (spriteTint) spriteTint.setAlpha(proneAlpha * TINT_OVERLAY_ALPHA);
+      }
     } else {
-      arc.setFillStyle(FACTION_COLOR[u.faction], proneAlpha);
+      arc.setFillStyle(FACTION_COLOR[u.faction], isProne ? 0.55 : 1);
     }
     const facingChev = container.getByName('facing') as
       | Phaser.GameObjects.Graphics
@@ -1363,6 +1394,11 @@ export class BattleScene extends Phaser.Scene {
 
     // Snappier: ~110 ms per UD instead of 220, with 80 ms floor.
     const duration = Math.max(80, (dist / UNIT_DISTANCE_PIXELS) * 110);
+    // Crawl flip: while a prone unit is sliding to a new position, toggle
+    // the prone sprite's horizontal flip on a fixed cadence so the limbs
+    // visibly alternate. Stops + resets on tween complete.
+    const u = this.gameState.units.find((x) => x.id === unitId);
+    const flip = u?.stance === 'PRONE' ? this.startCrawlFlip(unitId) : null;
     this.movementTweens++;
     const tween = this.tweens.add({
       targets: container,
@@ -1371,6 +1407,7 @@ export class BattleScene extends Phaser.Scene {
       duration,
       ease: 'Sine.InOut',
       onComplete: () => {
+        flip?.stop();
         this.movementTweens = Math.max(0, this.movementTweens - 1);
         this.activeMovesMeta.delete(unitId);
         if (endFacing !== null) this.setUnitFacing(unitId, endFacing);
@@ -1378,6 +1415,35 @@ export class BattleScene extends Phaser.Scene {
       },
     });
     this.activeMovesMeta.set(unitId, { from, to, windows, tween });
+  }
+
+  private startCrawlFlip(unitId: string): { stop: () => void } | null {
+    const c = this.unitContainers.get(unitId);
+    if (!c) return null;
+    const prone = c.getByName('spriteProne') as
+      | Phaser.GameObjects.Sprite
+      | null;
+    if (!prone) return null;
+    const proneTint = c.getByName('spriteProneTint') as
+      | Phaser.GameObjects.Sprite
+      | null;
+    let flipped = false;
+    const ev = this.time.addEvent({
+      delay: 140,
+      loop: true,
+      callback: () => {
+        flipped = !flipped;
+        prone.setFlipX(flipped);
+        if (proneTint) proneTint.setFlipX(flipped);
+      },
+    });
+    return {
+      stop: () => {
+        ev.remove();
+        prone.setFlipX(false);
+        if (proneTint) proneTint.setFlipX(false);
+      },
+    };
   }
 
   private isRollEvent(ev: GameEvent): boolean {

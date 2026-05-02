@@ -24,6 +24,7 @@ interface TemplateDraft {
   traits: string[];
   recruitRole: RecruitRole;
   spriteKey: string;
+  spriteKeyProne: string;
   /**
    * Carried through so saving from this editor does not blow away the
    * factionTags maintained in the Factions tab.
@@ -50,6 +51,7 @@ const toDraft = (t: UnitTemplate): TemplateDraft => ({
   traits: [...t.traits],
   recruitRole: t.recruitRole ?? 'regular',
   spriteKey: t.spriteKey ?? '',
+  spriteKeyProne: t.spriteKeyProne ?? '',
   factionTags: t.factionTags ? [...t.factionTags] : [],
 });
 
@@ -63,6 +65,9 @@ const fromDraft = (d: TemplateDraft): UnitTemplate => {
     // Only include recruitRole when non-default, so JSON files stay tidy.
     ...(d.recruitRole !== 'regular' ? { recruitRole: d.recruitRole } : {}),
     ...(d.spriteKey.trim() !== '' ? { spriteKey: d.spriteKey.trim() } : {}),
+    ...(d.spriteKeyProne.trim() !== ''
+      ? { spriteKeyProne: d.spriteKeyProne.trim() }
+      : {}),
     ...(d.factionTags.length > 0 ? { factionTags: [...d.factionTags] } : {}),
   };
   return out;
@@ -263,6 +268,15 @@ export const mountUnitEditor = (root: HTMLElement): void => {
       draft.spriteKey = spriteInput.value;
     });
 
+    const spriteProneInput = el('input', {
+      type: 'text',
+      value: draft.spriteKeyProne,
+      style: { width: '200px' },
+    }) as HTMLInputElement;
+    spriteProneInput.addEventListener('input', () => {
+      draft.spriteKeyProne = spriteProneInput.value;
+    });
+
     // Weapon multi-pick: render as checkboxes for each available weapon.
     const weaponBoxes = el('div', { className: 'checkbox-row' });
     for (const w of listWeapons()) {
@@ -421,6 +435,13 @@ export const mountUnitEditor = (root: HTMLElement): void => {
         'spriteKey',
         spriteInput,
         '對應 spriteManifest.ts 的 key。空白 = 用程式繪製圓形。',
+      ),
+    );
+    formPanel.appendChild(
+      row(
+        'spriteKey (prone)',
+        spriteProneInput,
+        '趴下時改用此 sprite。空白 = 用 spriteKey 沿用站姿圖（只變透明度）。',
       ),
     );
     const factionDisplay = el('div', {

@@ -64,6 +64,12 @@ export interface UnitTemplate {
    * registered in `src/presentation/assets/spriteManifest.ts`.
    */
   readonly spriteKey?: string;
+  /**
+   * Optional sprite shown when the unit's stance is PRONE. Same lookup
+   * rules as `spriteKey`. When unset, the standing sprite is used for
+   * both stances (with a dim alpha as the only prone indicator).
+   */
+  readonly spriteKeyProne?: string;
 }
 
 const EDITOR_WEAPON_KEY = 'czl.editor.weapons.v1';

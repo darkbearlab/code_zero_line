@@ -23,4 +23,5 @@ export interface UnitSpriteEntry {
 
 export const UNIT_SPRITES: ReadonlyArray<UnitSpriteEntry> = [
   { key: 'man_with_rifle', path: 'assets/units/man_with_rifle_00.png' },
+  { key: 'men_prone', path: 'assets/units/men_prone.png' },
 ];
