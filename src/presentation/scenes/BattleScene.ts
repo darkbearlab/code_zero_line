@@ -464,12 +464,25 @@ export class BattleScene extends Phaser.Scene {
 
   private zoomCameraAt(screenX: number, screenY: number, factor: number): void {
     const cam = this.cameras.main;
-    const before = cam.getWorldPoint(screenX, screenY);
-    const next = Phaser.Math.Clamp(cam.zoom * factor, 0.4, 6);
-    cam.setZoom(next);
-    const after = cam.getWorldPoint(screenX, screenY);
-    cam.scrollX += before.x - after.x;
-    cam.scrollY += before.y - after.y;
+    const oldZoom = cam.zoom;
+    const newZoom = Phaser.Math.Clamp(oldZoom * factor, 0.4, 6);
+    if (newZoom === oldZoom) {
+      this.cameraManualOverride = true;
+      this.drawBoardEdge();
+      return;
+    }
+    // Closed-form anchor-on-cursor: Phaser's camera matrix only refreshes in
+    // preRender, so calling getWorldPoint twice (before+after setZoom) reads
+    // the stale matrix the second time and the delta collapses to zero —
+    // which made zoom drift toward the camera center every wheel tick.
+    // For default origin (0.5,0.5) and viewport (0,0,W,H), screen↔world is:
+    //   screenX = (worldX - scrollX) * zoom + W/2
+    // Keeping worldX fixed under the cursor through a zoom change yields:
+    //   newScrollX = oldScrollX + (screenX - W/2) * (1/oldZoom - 1/newZoom)
+    const dxFactor = 1 / oldZoom - 1 / newZoom;
+    cam.setZoom(newZoom);
+    cam.scrollX += (screenX - cam.width / 2) * dxFactor;
+    cam.scrollY += (screenY - cam.height / 2) * dxFactor;
     this.cameraManualOverride = true;
   }
 
