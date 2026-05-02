@@ -3154,11 +3154,16 @@ export class BattleScene extends Phaser.Scene {
         ? this.gameState.units.find((x) => x.id === act.unitId)
         : null;
       if (officer && officer.id !== mover.id && pcm.officerTarget) {
-        const cap =
-          (pcm.officerStance ?? 'STANDING') === 'CRAWL'
-            ? this.capCrawlTarget(officer.position, pcm.officerTarget)
-            : pcm.officerTarget;
-        peerEndCircles.push({ center: cap, radius: officer.radius });
+        // Use officer's *resolved* endpoint (collision-aware) so participants
+        // dodge around the actual stopping point — matches reducer's
+        // sequential resolution. Officer comes first, so resolving here
+        // doesn't recurse into participant logic.
+        const officerEnd = this.resolveCommandMoveEndpoint(
+          officer,
+          pcm.officerTarget,
+          pcm.officerStance ?? 'STANDING',
+        );
+        peerEndCircles.push({ center: officerEnd, radius: officer.radius });
       }
       for (const [pid, slot] of pcm.participants) {
         if (pid === mover.id) continue;

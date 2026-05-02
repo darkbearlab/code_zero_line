@@ -1330,6 +1330,13 @@ const commandMoveAction = (
   // (units already on top can walk freely, including stepping off).
   const enterStopPolygons = movementEnterStopPolygons(working.terrain);
   const moverIds = new Set(allMovers.map((m) => m.unitId));
+  // Sequential resolution: each mover's path is computed in allMovers
+  // order (officer first, then participants). Earlier movers contribute
+  // their *resolved* endpoint as a peer obstacle so later movers dodge
+  // around the actual stopping point — using only desired targets here
+  // would let participants walk through the officer when the officer
+  // stops short of the click.
+  const resolvedEnds = new Map<string, Vec2>();
   const specs: CommandMoveSpec[] = allMovers.map((m) => {
     const u = findUnit(working, m.unitId)!;
     const target = capForStance(u.position, m.target, m.stance);
@@ -1338,17 +1345,14 @@ const commandMoveAction = (
     const enemyCircles = working.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
-    // End-overlap blockers = non-participating friendlies + every OTHER
-    // mover's intended endpoint. Including peer movers' desired ends means
-    // the path backs off if two participants would land on each other —
-    // base-stacking is forbidden at rest (rule 4.2A) and the reducer must
-    // enforce it independent of any UI picker.
     const otherMoverEndCircles = allMovers
       .filter((other) => other.unitId !== m.unitId)
       .map((other) => {
         const ou = findUnit(working, other.unitId)!;
+        const resolved = resolvedEnds.get(other.unitId);
         return {
-          center: capForStance(ou.position, other.target, other.stance),
+          center:
+            resolved ?? capForStance(ou.position, other.target, other.stance),
           radius: ou.radius,
         };
       });
@@ -1371,6 +1375,7 @@ const commandMoveAction = (
       friendlyCircles,
       moverRadius: u.radius,
     });
+    resolvedEnds.set(m.unitId, path.endpoint);
     return {
       unitId: m.unitId,
       pathStart: u.position,
