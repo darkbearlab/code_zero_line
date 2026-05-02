@@ -306,17 +306,19 @@ export class Hud {
   }
 
   /**
-   * Top-left unit-detail card shown while the player hovers a unit on the
-   * battlefield. Pass `null` to hide. Caller (BattleScene) is responsible
-   * for invoking on hover-enter / hover-leave so we don't re-render on
-   * every pointermove tick.
+   * Top-left unit-detail card. Pass `null` to hide. BattleScene calls this
+   * for hover changes, click-to-pin selection changes, AND every state
+   * refresh — so the panel must rebuild whenever the unit's data could
+   * have shifted (damage taken, stance changed, activation consumed…),
+   * not just when the id changes. The DOM cost is one replaceChildren per
+   * dispatched command, which is in the same order as the action panel
+   * already does.
    */
   showUnitDetails(unit: Unit | null): void {
     if (unit === null) {
       this.hideUnitDetails();
       return;
     }
-    if (this.unitDetailsCurrentId === unit.id) return;
     this.unitDetailsCurrentId = unit.id;
     this.unitDetailsEl.replaceChildren(...buildUnitDetailsBody(unit));
     this.unitDetailsEl.hidden = false;

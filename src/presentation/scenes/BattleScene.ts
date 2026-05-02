@@ -631,13 +631,20 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
-  /** Push the hovered unit (or null) to the Hud's top-left detail card. */
-  private refreshHoveredUnitDetails(unitId: string | null): void {
-    if (unitId === null) {
+  /**
+   * Resolve which unit's data the top-left detail card should show. Hovered
+   * unit wins while the cursor sits on it (transient inspection), otherwise
+   * we fall back to the clicked / pinned `selectedUnitId` so the panel
+   * stays visible after the player moves the mouse away. Called from hover,
+   * click, AND every refreshHud() so combat state updates flow through.
+   */
+  private updateUnitDetailPanel(): void {
+    const id = this.losPreviewUnitId ?? this.selectedUnitId;
+    if (id === null) {
       this.hud.showUnitDetails(null);
       return;
     }
-    const u = this.gameState.units.find((x) => x.id === unitId);
+    const u = this.gameState.units.find((x) => x.id === id);
     this.hud.showUnitDetails(u ?? null);
   }
 
@@ -1086,6 +1093,7 @@ export class BattleScene extends Phaser.Scene {
     this.selectedUnitId = id;
     this.renderUnits();
     this.refreshHud();
+    this.updateUnitDetailPanel();
   }
 
   private dispatch(cmd: Command): void {
@@ -1576,6 +1584,9 @@ export class BattleScene extends Phaser.Scene {
     };
     this.hud.update(this.gameState, this.selectedUnitId, this.aimMode, ctx);
     this.hud.setMissionInfo(this.formatMissionLabel());
+    // Refresh detail card so a pinned unit's panel reflects damage / stance
+    // / activation flags as combat unfolds.
+    this.updateUnitDetailPanel();
   }
 
   /**
@@ -2320,12 +2331,12 @@ export class BattleScene extends Phaser.Scene {
       if (hovered !== this.losPreviewUnitId) {
         this.losPreviewUnitId = hovered;
         this.renderLosOverlay(hovered);
-        this.refreshHoveredUnitDetails(hovered);
+        this.updateUnitDetailPanel();
       }
     } else if (this.losPreviewUnitId !== null) {
       this.losPreviewUnitId = null;
       this.renderLosOverlay(null);
-      this.refreshHoveredUnitDetails(null);
+      this.updateUnitDetailPanel();
     }
     if (this.aimMode === 'aim-command-move-officer') {
       const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
