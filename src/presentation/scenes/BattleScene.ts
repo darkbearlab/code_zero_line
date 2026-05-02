@@ -1721,14 +1721,22 @@ export class BattleScene extends Phaser.Scene {
     const pcm = this.pendingCommandMove;
     const officerTarget = pcm?.officerTarget ?? undefined;
     const officerStance = pcm?.officerStance;
+    const officerEnd =
+      officerTarget && pcm
+        ? this.resolveCommandMoveEndpoint(
+            officer,
+            officerTarget,
+            pcm.officerStance ?? 'STANDING',
+          )
+        : undefined;
     const participants: import('../ui/Hud').CommandMoveParticipant[] = nearby.map(
       (u) => {
         const slot = pcm?.participants.get(u.id);
         const target = slot?.target ?? null;
         const targetValid =
           !!target &&
-          !!officerTarget &&
-          v2Dist(target, officerTarget) <= UNIT_DISTANCE_PIXELS + 0.5;
+          !!officerEnd &&
+          v2Dist(target, officerEnd) <= UNIT_DISTANCE_PIXELS + 0.5;
         return {
           unitId: u.id,
           note: `(q${u.quality}+)`,
@@ -2401,12 +2409,25 @@ export class BattleScene extends Phaser.Scene {
         return;
       }
       if (!this.pendingCommandMove || !this.cmdMoveAimUnitId) return;
-      if (!this.pendingCommandMove.officerTarget) return;
+      const pcm = this.pendingCommandMove;
+      const officerTarget = pcm.officerTarget;
+      if (!officerTarget) return;
       const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
-      const officerTarget = this.pendingCommandMove.officerTarget;
-      // Reject clicks > 1 UD from officer target.
+      const act = this.gameState.initiative.activeActivation;
+      const officer = act
+        ? this.gameState.units.find((u) => u.id === act.unitId)
+        : undefined;
+      const officerEnd = officer
+        ? this.resolveCommandMoveEndpoint(
+            officer,
+            officerTarget,
+            pcm.officerStance ?? 'STANDING',
+          )
+        : officerTarget;
+      // Reject clicks > 1 UD from officer's resolved endpoint (matches
+      // reducer validation in commandMoveAction).
       if (
-        v2Dist({ x: wp.x, y: wp.y }, officerTarget) >
+        v2Dist({ x: wp.x, y: wp.y }, officerEnd) >
         UNIT_DISTANCE_PIXELS + 0.5
       ) {
         this.hud.pushError('Outside the 1 unit-distance ring');
@@ -3207,9 +3228,9 @@ export class BattleScene extends Phaser.Scene {
     const officer = this.gameState.units.find((u) => u.id === act.unitId);
     if (!officer) return;
 
-    // Officer's resolved endpoint (collision-aware) for the visual circle;
-    // line + validity ring still anchor on the desired target so the player
-    // sees their original click intent next to the actual stop position.
+    // Officer's resolved endpoint (collision-aware). Validity ring centers
+    // here too — reducer validates participant targets against this point,
+    // so the visual reach must match.
     const officerEnd = this.resolveCommandMoveEndpoint(
       officer,
       pcm.officerTarget,
@@ -3223,21 +3244,15 @@ export class BattleScene extends Phaser.Scene {
     this.aimGfx.fillStyle(FACTION_COLOR[officer.faction], 0.35);
     this.aimGfx.fillCircle(officerEnd.x, officerEnd.y, officer.radius);
 
-    // Validity ring around officer's TARGET (not endpoint) — that's the
-    // 1-UD reach the player picks participant clicks against.
     this.aimGfx.lineStyle(1.5, 0x9af09a, 0.85);
-    this.aimGfx.strokeCircle(
-      pcm.officerTarget.x,
-      pcm.officerTarget.y,
-      UNIT_DISTANCE_PIXELS,
-    );
+    this.aimGfx.strokeCircle(officerEnd.x, officerEnd.y, UNIT_DISTANCE_PIXELS);
 
     // Each participant's planned target → resolved to a collision-aware
     // endpoint for the rendered circle.
     for (const [id, slot] of pcm.participants) {
       const u = this.gameState.units.find((x) => x.id === id);
       if (!u || !slot.target) continue;
-      const valid = v2Dist(slot.target, pcm.officerTarget) <= UNIT_DISTANCE_PIXELS + 0.5;
+      const valid = v2Dist(slot.target, officerEnd) <= UNIT_DISTANCE_PIXELS + 0.5;
       const color = valid ? FACTION_COLOR[u.faction] : 0xff5555;
       const end = this.resolveCommandMoveEndpoint(u, slot.target, slot.stance);
       this.aimGfx.lineStyle(1.5, color, slot.included ? 0.85 : 0.35);
@@ -3258,8 +3273,18 @@ export class BattleScene extends Phaser.Scene {
     if (!u) return;
     const slot = pcm.participants.get(this.cmdMoveAimUnitId);
     const stance = slot?.stance ?? 'STANDING';
-    const valid =
-      v2Dist(cursor, pcm.officerTarget) <= UNIT_DISTANCE_PIXELS + 0.5;
+    const act = this.gameState.initiative.activeActivation;
+    const officer = act
+      ? this.gameState.units.find((x) => x.id === act.unitId)
+      : undefined;
+    const officerEnd = officer
+      ? this.resolveCommandMoveEndpoint(
+          officer,
+          pcm.officerTarget,
+          pcm.officerStance ?? 'STANDING',
+        )
+      : pcm.officerTarget;
+    const valid = v2Dist(cursor, officerEnd) <= UNIT_DISTANCE_PIXELS + 0.5;
     const color = valid ? 0x9af09a : 0xff5555;
     const end = this.resolveCommandMoveEndpoint(u, cursor, stance);
     this.aimGfx.lineStyle(2, color, 0.95);

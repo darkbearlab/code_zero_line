@@ -1254,8 +1254,10 @@ const commandMoveAction = (
   }
 
   // Validate participants are within 1 UD of officer at start, alive,
-  // not suppressed, same faction. And their targets within 1 UD of officer
-  // target.
+  // not suppressed, same faction. The target-distance check (1 UD of
+  // officer's *resolved* endpoint) runs after spec building below — we
+  // need the path resolution before we know where the officer actually
+  // ends up.
   for (const p of cmd.participants) {
     const pu = findUnit(s, p.unitId);
     if (!pu) {
@@ -1288,14 +1290,6 @@ const commandMoveAction = (
       throw new CommandError(
         'PARTICIPANT_TOO_FAR',
         `${p.unitId} not within 1 unit-distance of officer at start`,
-      );
-    }
-    if (
-      v2Dist(p.target, cmd.officerTarget) > UNIT_DISTANCE_PIXELS + 0.5
-    ) {
-      throw new CommandError(
-        'TARGET_TOO_FAR',
-        `${p.unitId}'s target not within 1 unit-distance of officer's target`,
       );
     }
   }
@@ -1387,6 +1381,19 @@ const commandMoveAction = (
       endProne: m.endProne,
     };
   });
+
+  // Now that the officer's path is resolved, validate each participant's
+  // target sits within 1 UD of the officer's *resolved endpoint* (not the
+  // raw cursor target). Officer is allMovers[0] so specs[0] is the officer.
+  const officerEnd = specs[0].pathEnd;
+  for (const p of cmd.participants) {
+    if (v2Dist(p.target, officerEnd) > UNIT_DISTANCE_PIXELS + 0.5) {
+      throw new CommandError(
+        'TARGET_TOO_FAR',
+        `${p.unitId}'s target not within 1 unit-distance of officer's resolved endpoint`,
+      );
+    }
+  }
 
   // Run group reaction plan.
   const moverPaths: MoverPath[] = specs.map((s) => ({
