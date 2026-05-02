@@ -8,6 +8,8 @@ import { getUnitTraits, unitHasTrait } from '../traits/types';
 import {
   climbDestination,
   findContactedHardWall,
+  findContactedSoftTerrain,
+  traverseDestination,
   vaultDestination,
 } from '../geometry/wallTraversal';
 import type { Vec2 } from '../geometry/types';
@@ -1185,6 +1187,77 @@ const climbAction = (
 };
 
 /**
+ * TRAVERSE — single-action edge crossing for DIFFICULT / SOFT terrains.
+ * Mover starts with its base flush against the polygon edge (touched on
+ * either side) and ends flush against the same edge from the opposite
+ * side. Consumes one full action like VAULT; no extra distance.
+ */
+const traverseAction = (
+  s: GameState,
+  unitId: string,
+  reactionPlan: ReactionPlan | undefined,
+  cmdIndex: number,
+): CommandResult => {
+  const act = s.initiative.activeActivation;
+  if (!act || act.unitId !== unitId) {
+    throw new CommandError(
+      'NO_ACTIVE_UNIT',
+      `Unit ${unitId} is not the active unit`,
+    );
+  }
+  const u = findUnit(s, unitId);
+  if (!u) throw new CommandError('UNIT_NOT_FOUND', `Unit ${unitId} not found`);
+  if (!isUnitAlive(u)) throw new CommandError('UNIT_DEAD', `${unitId} is dead`);
+  if (u.damage === 'IMPEDED' || u.damage === 'SUPPRESSED') {
+    throw new CommandError('CANNOT_MOVE', `${unitId} cannot traverse while ${u.damage}`);
+  }
+
+  const terrain = findContactedSoftTerrain(s.terrain, u);
+  if (!terrain) {
+    throw new CommandError(
+      'NOT_TOUCHING_TERRAIN_EDGE',
+      `${unitId} not in contact with a DIFFICULT/SOFT terrain edge`,
+    );
+  }
+
+  const dest = traverseDestination(u, terrain.polygon);
+  ensureLandingClear(s, u, dest);
+
+  const reactionResult = resolveReactionPlan(
+    s,
+    unitId,
+    u.position,
+    dest,
+    reactionPlan,
+    cmdIndex,
+  );
+
+  const finalEndpoint =
+    reactionResult.interruptT !== null
+      ? v2Lerp(u.position, dest, reactionResult.interruptT)
+      : dest;
+  const moved = updateUnit(reactionResult.state, unitId, { position: finalEndpoint });
+
+  const moveEvent: GameEvent = {
+    type: 'MOVE_RESOLVED',
+    unitId,
+    from: u.position,
+    to: finalEndpoint,
+    stopReason: 'TARGET',
+    distance: v2Dist(u.position, finalEndpoint),
+    reactionWindows: [],
+    interruptedByMarker: reactionResult.interruptedByMarker,
+  };
+
+  const outcome: ActionOutcome = reactionOutcomeAfterFodder(u, reactionResult);
+  const post = processPostAction(moved, outcome);
+  return {
+    state: post.state,
+    events: [moveEvent, ...reactionResult.events, ...post.events],
+  };
+};
+
+/**
  * Compute one mover's effective target accounting for stance choices:
  *  - Crawl: cap to 1 unit-distance (rule 4.5).
  */
@@ -1979,6 +2052,8 @@ export const applyCommand = (state: GameState, cmd: Command): CommandResult => {
       return vaultAction(s, cmd.unitId, cmd.reactionPlan, cmdIndex);
     case 'CLIMB':
       return climbAction(s, cmd.unitId, cmd.reactionPlan, cmdIndex);
+    case 'TRAVERSE':
+      return traverseAction(s, cmd.unitId, cmd.reactionPlan, cmdIndex);
     case 'COMMAND_MOVE':
       return commandMoveAction(s, cmd, cmdIndex);
     case 'COMMAND_RALLY':

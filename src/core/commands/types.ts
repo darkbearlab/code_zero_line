@@ -51,6 +51,7 @@ export type Command =
   | { type: 'CRAWL'; unitId: string; target: Vec2; reactionPlan?: ReactionPlan }
   | { type: 'VAULT'; unitId: string; reactionPlan?: ReactionPlan }
   | { type: 'CLIMB'; unitId: string; reactionPlan?: ReactionPlan }
+  | { type: 'TRAVERSE'; unitId: string; reactionPlan?: ReactionPlan }
   | {
       /**
        * Command Activation — Move (rule 3.1). Officer + selected allies all

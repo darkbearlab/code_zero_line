@@ -5,6 +5,8 @@ import { applyCommand } from '../../core/commands/reducer';
 import { isPointInPolygon } from '../../core/geometry/polygon';
 import {
   climbDestination,
+  findContactedSoftTerrain,
+  traverseDestination,
   vaultDestination,
 } from '../../core/geometry/wallTraversal';
 import { drawTerrain, polygonCentroid } from '../rendering/terrain';
@@ -108,7 +110,15 @@ interface CommandMover {
 interface ReactionPhaseState {
   intent: 'MOVE' | 'RALLY';
   /** Which command will be dispatched when the reaction phase confirms. */
-  commandType: 'MOVE' | 'CRAWL' | 'VAULT' | 'CLIMB' | 'RALLY' | 'COMMAND_MOVE' | 'COMMAND_RALLY';
+  commandType:
+    | 'MOVE'
+    | 'CRAWL'
+    | 'VAULT'
+    | 'CLIMB'
+    | 'TRAVERSE'
+    | 'RALLY'
+    | 'COMMAND_MOVE'
+    | 'COMMAND_RALLY';
   moverId: string;
   moverStart: Vec2;
   moverRadius: number;
@@ -1898,10 +1908,12 @@ export class BattleScene extends Phaser.Scene {
     if (!u || !isUnitAlive(u)) return undefined;
     if (u.damage !== 'NONE') return undefined;
     const wall = this.findContactedHardWallForUnit(u);
-    if (!wall) return { canVault: false, canClimb: false };
+    const softTerrain = findContactedSoftTerrain(this.gameState.terrain, u);
+    const canTraverse = softTerrain !== null;
+    if (!wall) return { canVault: false, canClimb: false, canTraverse };
     const isLow =
       wall.height !== undefined && wall.height <= UNIT_DISTANCE_PIXELS;
-    return { canVault: isLow, canClimb: !isLow };
+    return { canVault: isLow, canClimb: !isLow, canTraverse };
   }
 
   private findContactedHardWallForUnit(
@@ -2127,6 +2139,12 @@ export class BattleScene extends Phaser.Scene {
         const act = this.gameState.initiative.activeActivation;
         if (!act) return;
         this.enterVaultClimbReactionPhase('CLIMB');
+        return;
+      }
+      case 'REQUEST_TRAVERSE': {
+        const act = this.gameState.initiative.activeActivation;
+        if (!act) return;
+        this.enterTraverseReactionPhase();
         return;
       }
       case 'REQUEST_COMMAND_RALLY': {
@@ -2365,6 +2383,13 @@ export class BattleScene extends Phaser.Scene {
       case 'CLIMB':
         this.dispatch({
           type: 'CLIMB',
+          unitId: r.moverId,
+          reactionPlan: plan,
+        });
+        break;
+      case 'TRAVERSE':
+        this.dispatch({
+          type: 'TRAVERSE',
           unitId: r.moverId,
           reactionPlan: plan,
         });
@@ -2638,6 +2663,63 @@ export class BattleScene extends Phaser.Scene {
       moverFaction: u.faction,
       pathTarget: effectiveTarget,
       pathEndpoint: path.endpoint,
+      windows,
+      markers: [],
+      scrubberT: 0,
+      selectedTargetUnitId: u.id,
+    };
+    this.aimMode = 'reaction-phase';
+    this.hud.setScrubberValue(0);
+    this.drawReactionPreview();
+    this.renderUnits();
+    this.refreshHud();
+    this.startTimer(
+      'Reaction',
+      timersConfig.reactionPhaseSeconds,
+      () => this.confirmReaction(),
+    );
+    this.maybeScheduleAiTick();
+  }
+
+  private enterTraverseReactionPhase(): void {
+    const act = this.gameState.initiative.activeActivation;
+    if (!act) return;
+    const u = this.gameState.units.find((x) => x.id === act.unitId);
+    if (!u) return;
+    const terrain = findContactedSoftTerrain(this.gameState.terrain, u);
+    if (!terrain) {
+      this.hud.pushError(`${u.id} not touching a terrain edge`);
+      return;
+    }
+    const dest = traverseDestination(u, terrain.polygon);
+
+    const enemies = this.gameState.units
+      .filter((o) => o.faction !== u.faction && isUnitAlive(o))
+      .map((o) => ({
+        id: o.id,
+        circle: getUnitCircle(o),
+        prone: o.stance === 'PRONE',
+      }));
+    const windows = [
+      ...computeReactionWindows(
+        u.position,
+        dest,
+        u.radius,
+        enemies,
+        this.gameState.terrain,
+        { moverProne: u.stance === 'PRONE' },
+      ),
+    ];
+
+    this.reaction = {
+      intent: 'MOVE',
+      commandType: 'TRAVERSE',
+      moverId: u.id,
+      moverStart: { ...u.position },
+      moverRadius: u.radius,
+      moverFaction: u.faction,
+      pathTarget: dest,
+      pathEndpoint: dest,
       windows,
       markers: [],
       scrubberT: 0,

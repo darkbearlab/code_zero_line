@@ -311,6 +311,92 @@ describe('Difficult-terrain start-in (rule 4.2C)', () => {
   });
 });
 
+describe('TRAVERSE command', () => {
+  const difficult = (
+    id: string,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+  ): Terrain => ({
+    id,
+    kind: 'DIFFICULT',
+    polygon: { vertices: [v2(x1, y1), v2(x2, y1), v2(x2, y2), v2(x1, y2)] },
+  });
+
+  it('refuses when not touching a DIFFICULT/SOFT terrain edge', () => {
+    const s0 = baseState([
+      makeUnit({ id: 'a1', faction: 'A', position: v2(0, 0), quality: 3 }),
+      makeUnit({ id: 'b1', faction: 'B', position: v2(1000, 0) }),
+    ]);
+    expect(() =>
+      applyCommands(s0, [
+        { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+        { type: 'TRAVERSE', unitId: 'a1' },
+      ]),
+    ).toThrow(/NOT_TOUCHING_TERRAIN_EDGE/);
+  });
+
+  it('crosses from outside to inside, base flush against same edge', () => {
+    // Rubble x∈[50,150]. Mover base touching from outside at x = 50 - r.
+    const startX = 50 - STANDARD_BASE_RADIUS_PIXELS;
+    const s0 = baseState(
+      [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(startX, 0), quality: 3 }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(1000, 0) }),
+      ],
+      [difficult('rubble', 50, -50, 150, 50)],
+    );
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'TRAVERSE', unitId: 'a1' },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    // Lands flush against the same edge from inside.
+    expect(a1.position.x).toBeCloseTo(50 + STANDARD_BASE_RADIUS_PIXELS, 1);
+    expect(a1.position.y).toBeCloseTo(0, 1);
+  });
+
+  it('crosses from inside to outside, base flush against same edge', () => {
+    // Mover starts inside, base flush against the east edge (x=150).
+    const startX = 150 - STANDARD_BASE_RADIUS_PIXELS;
+    const s0 = baseState(
+      [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(startX, 0), quality: 3 }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(1000, 0) }),
+      ],
+      [difficult('rubble', 50, -50, 150, 50)],
+    );
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'TRAVERSE', unitId: 'a1' },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    // Lands flush against the east edge from outside.
+    expect(a1.position.x).toBeCloseTo(150 + STANDARD_BASE_RADIUS_PIXELS, 1);
+    expect(a1.position.y).toBeCloseTo(0, 1);
+  });
+
+  it('refuses if landing zone is occupied by another unit', () => {
+    const startX = 50 - STANDARD_BASE_RADIUS_PIXELS;
+    const blockerX = 50 + STANDARD_BASE_RADIUS_PIXELS;
+    const s0 = baseState(
+      [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(startX, 0), quality: 3 }),
+        makeUnit({ id: 'a2', faction: 'A', position: v2(blockerX, 0) }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(1000, 0) }),
+      ],
+      [difficult('rubble', 50, -50, 150, 50)],
+    );
+    expect(() =>
+      applyCommands(s0, [
+        { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+        { type: 'TRAVERSE', unitId: 'a1' },
+      ]),
+    ).toThrow();
+  });
+});
+
 // Sanity: VAULT_HEIGHT_THRESHOLD_PIXELS is exported correctly.
 describe('constants', () => {
   it('VAULT_HEIGHT_THRESHOLD_PIXELS equals 1 unit distance', () => {

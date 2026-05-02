@@ -31,6 +31,7 @@ export type ActionRequest =
   | 'REQUEST_MELEE'
   | 'REQUEST_VAULT'
   | 'REQUEST_CLIMB'
+  | 'REQUEST_TRAVERSE'
   | 'REQUEST_COMMAND_RALLY'
   | 'REQUEST_COMMAND_MOVE'
   | 'CHOOSE_MOVE_STANDING'
@@ -129,6 +130,7 @@ export interface MeleeContext {
 export interface TraversalContext {
   readonly canVault: boolean;
   readonly canClimb: boolean;
+  readonly canTraverse: boolean;
 }
 
 export interface MovePreviewContext {
@@ -688,6 +690,9 @@ export class Hud {
       }
       if (canMove && ctx?.traversal?.canClimb) {
         this.addReqBtn('Climb (high wall, ends activation)', 'REQUEST_CLIMB');
+      }
+      if (canMove && ctx?.traversal?.canTraverse) {
+        this.addReqBtn('Traverse (across terrain edge)', 'REQUEST_TRAVERSE');
       }
       if (ctx?.commandRally?.canStart) {
         this.addReqBtn(
