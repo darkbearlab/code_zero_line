@@ -11,6 +11,7 @@
     "TOUGH"
   ],
   "spriteKey": "man_with_rifle",
+  "spriteKeyProne": "men_prone",
   "factionTags": [
     "Blue"
   ]
