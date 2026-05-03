@@ -107,6 +107,74 @@ export const mountMapEditor = (root: HTMLElement): void => {
   let activeTool: Tool = 'low';
   let drag: Drag = null;
   let snap = true;
+  // Live-mirror mode: when set, every add / edit / delete on a shape gets
+  // applied to a paired twin reflected across the chosen axis. Pair links
+  // live in editor session only — saved JSON just sees two real shapes.
+  let mirrorAxis: 'h' | 'v' | null = null;
+  const mirrorPairs = new Map<string, string>();
+
+  const mirroredShape = (
+    s: EditorMapShape,
+    newId: string,
+    axis: 'h' | 'v',
+  ): EditorMapShape =>
+    axis === 'h'
+      ? { ...s, id: newId, cx: doc.size - s.cx, angle: -s.angle }
+      : { ...s, id: newId, cy: doc.size - s.cy, angle: -s.angle };
+
+  const mirrorPatch = (
+    patch: Partial<EditorMapShape>,
+    axis: 'h' | 'v',
+  ): Partial<EditorMapShape> => {
+    const out: { -readonly [K in keyof EditorMapShape]?: EditorMapShape[K] } = {
+      ...patch,
+    };
+    if (axis === 'h' && patch.cx !== undefined) out.cx = doc.size - patch.cx;
+    if (axis === 'v' && patch.cy !== undefined) out.cy = doc.size - patch.cy;
+    if (patch.angle !== undefined) out.angle = -patch.angle;
+    return out;
+  };
+
+  const pairTwinId = (id: string): string | null =>
+    mirrorPairs.get(id) ?? null;
+
+  const linkPair = (a: string, b: string): void => {
+    mirrorPairs.set(a, b);
+    mirrorPairs.set(b, a);
+  };
+
+  const unlinkPair = (id: string): void => {
+    const twin = mirrorPairs.get(id);
+    if (twin !== undefined) {
+      mirrorPairs.delete(twin);
+      mirrorPairs.delete(id);
+    }
+  };
+
+  /** Add a mirrored twin for a freshly-created shape. No-op when mirror off. */
+  const addMirrorTwin = (src: EditorMapShape): void => {
+    if (!mirrorAxis) return;
+    const twinId = nextShapeId(doc, src.tool);
+    const twin = mirroredShape(src, twinId, mirrorAxis);
+    doc = { ...doc, shapes: [...doc.shapes, twin] };
+    linkPair(src.id, twinId);
+  };
+
+  /** Apply a patch to the mirrored twin (if any). No-op when mirror off. */
+  const propagatePatchToTwin = (
+    sourceId: string,
+    patch: Partial<EditorMapShape>,
+  ): void => {
+    if (!mirrorAxis) return;
+    const twinId = pairTwinId(sourceId);
+    if (twinId === null) return;
+    const idx = doc.shapes.findIndex((x) => x.id === twinId);
+    if (idx < 0) return;
+    const twin = doc.shapes[idx]!;
+    const next = [...doc.shapes];
+    next[idx] = { ...twin, ...mirrorPatch(patch, mirrorAxis) };
+    doc = { ...doc, shapes: next };
+  };
 
   const grid = el('div', { className: 'editor-grid' });
   const listPanel = el('div', { className: 'item-list' });
@@ -282,6 +350,32 @@ export const mountMapEditor = (root: HTMLElement): void => {
       }),
     );
 
+    // Live mirror toggles — mutually exclusive. While on, every add/edit/
+    // delete is mirrored across the chosen axis.
+    const mirrorH = el('button', {
+      text: mirrorAxis === 'h' ? '✓ 鏡像 ↔' : '鏡像 ↔',
+      onclick: () => {
+        mirrorAxis = mirrorAxis === 'h' ? null : 'h';
+        renderForm();
+      },
+    }) as HTMLButtonElement;
+    mirrorH.title =
+      '開啟後，新增/編輯/刪除任一邊的形狀會自動同步到水平鏡像的另一邊';
+    if (mirrorAxis === 'h') mirrorH.style.background = '#2a4a2a';
+    toolbar.appendChild(mirrorH);
+
+    const mirrorV = el('button', {
+      text: mirrorAxis === 'v' ? '✓ 鏡像 ↕' : '鏡像 ↕',
+      onclick: () => {
+        mirrorAxis = mirrorAxis === 'v' ? null : 'v';
+        renderForm();
+      },
+    }) as HTMLButtonElement;
+    mirrorV.title =
+      '開啟後，新增/編輯/刪除任一邊的形狀會自動同步到垂直鏡像的另一邊';
+    if (mirrorAxis === 'v') mirrorV.style.background = '#2a4a2a';
+    toolbar.appendChild(mirrorV);
+
     const snapBtn = el('label', {
       style: {
         display: 'inline-flex',
@@ -424,6 +518,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
           angle: 0,
         };
         doc = { ...doc, shapes: [...doc.shapes, s] };
+        addMirrorTwin(s);
         selectedShapeId = id;
         drag = null;
         renderForm();
@@ -467,6 +562,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
         const next = [...doc.shapes];
         next[idx] = { ...s, cx, cy };
         doc = { ...doc, shapes: next };
+        propagatePatchToTwin(s.id, { cx, cy });
         redraw();
         renderInfo();
         return;
@@ -481,6 +577,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
         const next = [...doc.shapes];
         next[idx] = { ...s, angle: snappedAng };
         doc = { ...doc, shapes: next };
+        propagatePatchToTwin(s.id, { angle: snappedAng });
         redraw();
         renderInfo();
         return;
@@ -506,6 +603,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
             angle: 0,
           };
           doc = { ...doc, shapes: [...doc.shapes, s] };
+          addMirrorTwin(s);
           selectedShapeId = id;
         }
       }
@@ -598,6 +696,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
         const next = [...doc.shapes];
         next[idx] = { ...s, ...patch };
         doc = { ...doc, shapes: next };
+        propagatePatchToTwin(s.id, patch);
         renderForm();
       };
 
@@ -792,18 +891,25 @@ export const mountMapEditor = (root: HTMLElement): void => {
     const idx = doc.shapes.findIndex((s) => s.id === selectedShapeId);
     if (idx < 0) return;
     const s = doc.shapes[idx]!;
+    const newAngle = s.angle + delta;
     const next = [...doc.shapes];
-    next[idx] = { ...s, angle: s.angle + delta };
+    next[idx] = { ...s, angle: newAngle };
     doc = { ...doc, shapes: next };
+    propagatePatchToTwin(s.id, { angle: newAngle });
     renderForm();
   };
 
   const deleteSelected = (): void => {
     if (!selectedShapeId) return;
+    const id = selectedShapeId;
+    const twinId = mirrorAxis ? pairTwinId(id) : null;
+    const removeIds = new Set<string>([id]);
+    if (twinId !== null) removeIds.add(twinId);
     doc = {
       ...doc,
-      shapes: doc.shapes.filter((s) => s.id !== selectedShapeId),
+      shapes: doc.shapes.filter((s) => !removeIds.has(s.id)),
     };
+    unlinkPair(id);
     selectedShapeId = null;
     renderForm();
   };
