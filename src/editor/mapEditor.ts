@@ -136,6 +136,68 @@ export const mountMapEditor = (root: HTMLElement): void => {
   // if A→B has flags F, then B→A has the same F (mirroring is involutive).
   const mirrorGroups = new Map<string, Map<string, number>>();
 
+  // ─── Clipboard + undo/redo history ──────────────────────────────
+  // Clipboard stores the source shape verbatim; paste creates a fresh id,
+  // offsets position so it doesn't overlap, and re-runs mirror twin-spawn.
+  let clipboard: EditorMapShape | null = null;
+  // Successive pastes step the offset so a stream of Ctrl+V doesn't pile
+  // shapes at the same point.
+  let pasteCounter = 0;
+
+  interface HistorySnapshot {
+    readonly doc: EditorMapDoc;
+    readonly mirrorGroups: ReadonlyArray<readonly [string, ReadonlyArray<readonly [string, number]>]>;
+    readonly selectedShapeId: string | null;
+  }
+  const undoStack: HistorySnapshot[] = [];
+  const redoStack: HistorySnapshot[] = [];
+  const HISTORY_LIMIT = 100;
+
+  const snapshotState = (): HistorySnapshot => ({
+    // doc is replaced wholesale on every mutation, so the reference itself
+    // is a frozen-in-time value — no deep clone needed.
+    doc,
+    mirrorGroups: [...mirrorGroups.entries()].map(
+      ([k, v]) => [k, [...v.entries()]] as const,
+    ),
+    selectedShapeId,
+  });
+
+  const restoreState = (snap: HistorySnapshot): void => {
+    doc = snap.doc;
+    mirrorGroups.clear();
+    for (const [k, entries] of snap.mirrorGroups) {
+      mirrorGroups.set(k, new Map(entries));
+    }
+    selectedShapeId = snap.selectedShapeId;
+  };
+
+  /** Capture the current state for undo. Call BEFORE applying a mutation. */
+  const pushHistory = (): void => {
+    undoStack.push(snapshotState());
+    if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+    // Any new user action invalidates the redo stack — branching history
+    // would surprise users (Ctrl+Z then act, then Ctrl+Y replays old work).
+    redoStack.length = 0;
+    pasteCounter = 0;
+  };
+
+  const undo = (): void => {
+    if (undoStack.length === 0) return;
+    redoStack.push(snapshotState());
+    const snap = undoStack.pop()!;
+    restoreState(snap);
+    renderForm();
+  };
+
+  const redo = (): void => {
+    if (redoStack.length === 0) return;
+    undoStack.push(snapshotState());
+    const snap = redoStack.pop()!;
+    restoreState(snap);
+    renderForm();
+  };
+
   // View transform: zoom multiplier on top of base fit-to-canvas scale, plus
   // pan offset in screen pixels. Persists across renderForm() rebuilds.
   let viewScale = 1;
@@ -490,6 +552,8 @@ export const mountMapEditor = (root: HTMLElement): void => {
             const dy = wp.y - h.y;
             const eff = effScale();
             if (dx * dx + dy * dy <= (12 / eff) * (12 / eff)) {
+              // Snapshot at gesture start, not on every pointermove tick.
+              pushHistory();
               drag = { kind: 'rotate', shapeId: s.id };
               return;
             }
@@ -497,6 +561,8 @@ export const mountMapEditor = (root: HTMLElement): void => {
         }
         const hit = findShapeAt(wp.x, wp.y);
         if (hit) {
+          // Snapshot once for the whole drag-move gesture.
+          pushHistory();
           selectedShapeId = hit.id;
           drag = {
             kind: 'move',
@@ -518,6 +584,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
       // (1 unit-distance). Editing the radius after placement happens via the
       // Select tool's drag handles — keeps the drawing flow trivial.
       if (isCircleTool(activeTool)) {
+        pushHistory();
         const id = nextShapeId(doc, activeTool);
         const radius = OBJECTIVE_DEFAULT_DIAMETER;
         const s: DraftShape = {
@@ -536,6 +603,10 @@ export const mountMapEditor = (root: HTMLElement): void => {
         renderForm();
         return;
       }
+      // Drag-create: snapshot at start. If the user drags below MIN_RECT and
+      // the shape is discarded in pointerup, we'll have a no-op snapshot —
+      // an empty undo step. Acceptable: the cost is one Ctrl+Z press.
+      pushHistory();
       drag = { kind: 'create', tool: activeTool, x0: x, y0: y, x1: x, y1: y };
       redraw();
     };
@@ -745,6 +816,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
       const updateShape = (patch: Partial<EditorMapShape>): void => {
         const idx = doc.shapes.findIndex((x) => x.id === s.id);
         if (idx < 0) return;
+        pushHistory();
         const next = [...doc.shapes];
         next[idx] = { ...s, ...patch };
         doc = { ...doc, shapes: next };
@@ -826,6 +898,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
         );
         const newPx = clamped * PX_PER_INCH;
         if (newPx === doc.size) return;
+        pushHistory();
         doc = { ...doc, size: newPx };
         renderForm();
       },
@@ -1111,6 +1184,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
     if (!selectedShapeId) return;
     const idx = doc.shapes.findIndex((s) => s.id === selectedShapeId);
     if (idx < 0) return;
+    pushHistory();
     const s = doc.shapes[idx]!;
     const newAngle = s.angle + delta;
     const next = [...doc.shapes];
@@ -1122,6 +1196,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
 
   const deleteSelected = (): void => {
     if (!selectedShapeId) return;
+    pushHistory();
     const id = selectedShapeId;
     // Whole mirror group goes together — including any twins-of-twins linked
     // when both axes are active (group size up to 4).
@@ -1141,6 +1216,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
     if (!selectedShapeId) return;
     const src = doc.shapes.find((s) => s.id === selectedShapeId);
     if (!src) return;
+    pushHistory();
     const newId = nextShapeId(doc, src.tool);
     const copy: EditorMapShape = {
       ...src,
@@ -1149,6 +1225,49 @@ export const mountMapEditor = (root: HTMLElement): void => {
       cy: src.cy + DUPLICATE_OFFSET_PX,
     };
     doc = { ...doc, shapes: [...doc.shapes, copy] };
+    addMirrorTwins(copy);
+    selectedShapeId = newId;
+    renderForm();
+  };
+
+  /** Copy selected shape to the in-editor clipboard (no OS clipboard touch). */
+  const copySelected = (): void => {
+    if (!selectedShapeId) return;
+    const src = doc.shapes.find((s) => s.id === selectedShapeId);
+    if (!src) return;
+    clipboard = { ...src };
+    pasteCounter = 0;
+  };
+
+  const cutSelected = (): void => {
+    if (!selectedShapeId) return;
+    const src = doc.shapes.find((s) => s.id === selectedShapeId);
+    if (!src) return;
+    clipboard = { ...src };
+    pasteCounter = 0;
+    // deleteSelected pushes its own history step.
+    deleteSelected();
+  };
+
+  /**
+   * Paste clipboard at an offset so successive pastes don't pile up. The
+   * paste participates in the active mirror configuration just like a
+   * fresh draw — pasting with both mirror axes on creates the full quad.
+   */
+  const pasteClipboard = (): void => {
+    if (!clipboard) return;
+    pushHistory();
+    pasteCounter += 1;
+    const off = DUPLICATE_OFFSET_PX * pasteCounter;
+    const newId = nextShapeId(doc, clipboard.tool);
+    const copy: EditorMapShape = {
+      ...clipboard,
+      id: newId,
+      cx: clipboard.cx + off,
+      cy: clipboard.cy + off,
+    };
+    doc = { ...doc, shapes: [...doc.shapes, copy] };
+    addMirrorTwins(copy);
     selectedShapeId = newId;
     renderForm();
   };
@@ -1159,6 +1278,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
    * rectangle stays rectangular, just mirrored).
    */
   const mirrorMap = (axis: 'h' | 'v'): void => {
+    pushHistory();
     const next = doc.shapes.map((s) => {
       if (axis === 'h') {
         return { ...s, cx: doc.size - s.cx, angle: -s.angle };
@@ -1184,16 +1304,43 @@ export const mountMapEditor = (root: HTMLElement): void => {
       if (c) c.style.cursor = 'grab';
       return;
     }
+    const mod = e.ctrlKey || e.metaKey;
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (selectedShapeId) {
         e.preventDefault();
         deleteSelected();
       }
-    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+    } else if (mod && (e.key === 'd' || e.key === 'D')) {
       if (selectedShapeId) {
         e.preventDefault();
         duplicateSelected();
       }
+    } else if (mod && (e.key === 'c' || e.key === 'C')) {
+      if (selectedShapeId) {
+        e.preventDefault();
+        copySelected();
+      }
+    } else if (mod && (e.key === 'x' || e.key === 'X')) {
+      if (selectedShapeId) {
+        e.preventDefault();
+        cutSelected();
+      }
+    } else if (mod && (e.key === 'v' || e.key === 'V')) {
+      if (clipboard) {
+        e.preventDefault();
+        pasteClipboard();
+      }
+    } else if (mod && e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+      // Ctrl+Shift+Z is the Mac/web idiom for redo. Handle before plain
+      // Ctrl+Z so the shift modifier doesn't accidentally trigger undo.
+      e.preventDefault();
+      redo();
+    } else if (mod && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault();
+      undo();
+    } else if (mod && (e.key === 'y' || e.key === 'Y')) {
+      e.preventDefault();
+      redo();
     } else if (e.key === 'Escape') {
       selectedShapeId = null;
       renderForm();
