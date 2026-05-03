@@ -114,7 +114,7 @@ describe('bundled missions', () => {
       expect(m.description, `${m.id} description`).toBeTruthy();
       expect(m.mapId, `${m.id} mapId`).toBeTruthy();
       expect(
-        ['engage-reach', 'elimination', 'defend', 'extract', 'assassinate'],
+        ['engage-reach', 'elimination', 'defend', 'extract', 'assassinate', 'control-points'],
         `${m.id} scenario`,
       ).toContain(m.scenario);
       expect(Array.isArray(m.enemies), `${m.id} enemies`).toBe(true);
