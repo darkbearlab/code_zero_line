@@ -106,6 +106,28 @@ export const TRAITS: Readonly<Record<string, TraitDef>> = {
     displayName: '隱身',
     description: '在同一個提供掩護的地形特徵內移動不會被反應射擊。',
   },
+  // ✓ NO_PRONE — wired in reducer (CRAWL refusal, endProne stripping, post-command safeguard).
+  NO_PRONE: {
+    id: 'NO_PRONE',
+    displayName: '無法趴下',
+    description:
+      '無法進入趴下姿態：不能匍匐、移動結束時不能改為趴下；任何原因進入趴下會在行動結束後立刻起立。',
+    cannotProne: true,
+  },
+  // ✓ NO_CLIMB — wired in reducer (CLIMB refusal) + UI traversal context.
+  NO_CLIMB: {
+    id: 'NO_CLIMB',
+    displayName: '無法攀爬',
+    description: '無法進行攀爬行動。',
+    cannotClimb: true,
+  },
+  // ✓ NO_VAULT — wired in reducer (VAULT refusal) + UI traversal context.
+  NO_VAULT: {
+    id: 'NO_VAULT',
+    displayName: '無法翻越',
+    description: '無法進行翻越行動。',
+    cannotVault: true,
+  },
 
   // ──────────────────────────────────────────────────────────────────
   // Category tags — pure classification, no inherent effect. Used by

@@ -530,3 +530,105 @@ describe('constants', () => {
     expect(VAULT_HEIGHT_THRESHOLD_PIXELS).toBeGreaterThan(0);
   });
 });
+
+describe('NO_PRONE / NO_CLIMB / NO_VAULT traits', () => {
+  it('NO_PRONE refuses CRAWL outright', () => {
+    const s0 = baseState([
+      makeUnit({
+        id: 'mech',
+        faction: 'A',
+        position: v2(0, 0),
+        traits: ['NO_PRONE'],
+      }),
+      makeUnit({ id: 'b1', faction: 'B', position: v2(1000, 0) }),
+    ]);
+    expect(() =>
+      applyCommands(s0, [
+        { type: 'ACTIVATE_SPEND', unitId: 'mech' },
+        { type: 'CRAWL', unitId: 'mech', target: v2(50, 0) },
+      ]),
+    ).toThrow(/NO_PRONE/);
+  });
+
+  it('NO_PRONE silently drops endProne flag from MOVE — unit ends standing', () => {
+    const s0 = baseState([
+      makeUnit({
+        id: 'mech',
+        faction: 'A',
+        position: v2(0, 0),
+        traits: ['NO_PRONE'],
+      }),
+      makeUnit({ id: 'b1', faction: 'B', position: v2(1000, 0) }),
+    ]);
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'mech' },
+      { type: 'MOVE', unitId: 'mech', target: v2(60, 0), endProne: true },
+    ]);
+    const mech = r.state.units.find((u) => u.id === 'mech')!;
+    expect(mech.stance).toBe('STANDING');
+  });
+
+  it('post-command safeguard auto-stands a NO_PRONE unit observed PRONE', () => {
+    // Construct an artificially-prone NO_PRONE unit (e.g. scripted spawn).
+    // Any command, even ACTIVATE_SPEND on a different unit, runs the
+    // enforceNoProne pass and stands them up.
+    const s0 = baseState([
+      makeUnit({
+        id: 'mech',
+        faction: 'A',
+        position: v2(0, 0),
+        stance: 'PRONE',
+        traits: ['NO_PRONE'],
+      }),
+      makeUnit({ id: 'a2', faction: 'A', position: v2(100, 0) }),
+      makeUnit({ id: 'b1', faction: 'B', position: v2(1000, 0) }),
+    ]);
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a2' },
+    ]);
+    const mech = r.state.units.find((u) => u.id === 'mech')!;
+    expect(mech.stance).toBe('STANDING');
+  });
+
+  it('NO_CLIMB refuses CLIMB even against a high wall', () => {
+    const s0 = baseState(
+      [
+        makeUnit({
+          id: 'mech',
+          faction: 'A',
+          position: v2(40, 0),
+          traits: ['NO_CLIMB'],
+        }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(1000, 0) }),
+      ],
+      [highWall('hw', 50, -50, 60, 50)],
+    );
+    expect(() =>
+      applyCommands(s0, [
+        { type: 'ACTIVATE_SPEND', unitId: 'mech' },
+        { type: 'CLIMB', unitId: 'mech' },
+      ]),
+    ).toThrow(/NO_CLIMB/);
+  });
+
+  it('NO_VAULT refuses VAULT even against a low wall', () => {
+    const s0 = baseState(
+      [
+        makeUnit({
+          id: 'mech',
+          faction: 'A',
+          position: v2(40, 0),
+          traits: ['NO_VAULT'],
+        }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(1000, 0) }),
+      ],
+      [lowWall('lw', 50, -50, 60, 50)],
+    );
+    expect(() =>
+      applyCommands(s0, [
+        { type: 'ACTIVATE_SPEND', unitId: 'mech' },
+        { type: 'VAULT', unitId: 'mech' },
+      ]),
+    ).toThrow(/NO_VAULT/);
+  });
+});

@@ -1961,7 +1961,7 @@ export class BattleScene extends Phaser.Scene {
     );
     return {
       endProne: this.pendingEndProne,
-      canEndProne: !inDifficult,
+      canEndProne: !inDifficult && !unitHasTrait(u, 'NO_PRONE'),
     };
   }
 
@@ -1973,6 +1973,8 @@ export class BattleScene extends Phaser.Scene {
     const u = this.gameState.units.find((x) => x.id === act.unitId);
     if (!u || !isUnitAlive(u)) return undefined;
     if (u.damage !== 'NONE') return undefined;
+    const noVault = unitHasTrait(u, 'NO_VAULT');
+    const noClimb = unitHasTrait(u, 'NO_CLIMB');
     const wall = this.findContactedHardWallForUnit(u);
     const softTerrain = findContactedSoftTerrain(this.gameState.terrain, u);
     const canTraverse = softTerrain !== null;
@@ -1985,11 +1987,15 @@ export class BattleScene extends Phaser.Scene {
       return { canVault: false, canClimb: false, canTraverse };
     }
     if (wall.kind === 'HIGH_GROUND') {
-      return { canVault: false, canClimb: true, canTraverse };
+      return { canVault: false, canClimb: !noClimb, canTraverse };
     }
     const isLow =
       wall.height !== undefined && wall.height <= UNIT_DISTANCE_PIXELS;
-    return { canVault: isLow, canClimb: !isLow, canTraverse };
+    return {
+      canVault: isLow && !noVault,
+      canClimb: !isLow && !noClimb,
+      canTraverse,
+    };
   }
 
   private findContactedHardWallForUnit(
@@ -2151,6 +2157,19 @@ export class BattleScene extends Phaser.Scene {
       case 'REQUEST_MOVE': {
         const act = this.gameState.initiative.activeActivation;
         if (!act) return;
+        // NO_PRONE units can't crawl → skip the stance picker, go straight
+        // to the standing-move aim. Saves a meaningless click.
+        const u = this.gameState.units.find((x) => x.id === act.unitId);
+        if (u && unitHasTrait(u, 'NO_PRONE')) {
+          this.pendingMoveStance = 'STANDING';
+          this.pendingEndProne = false;
+          this.aimMode = 'aim-move';
+          this.refreshHud();
+          this.startTimer('Move target', timersConfig.moveTargetSeconds, () =>
+            this.cancelAim(),
+          );
+          return;
+        }
         this.aimMode = 'aim-move-stance';
         this.pendingMoveStance = null;
         this.pendingEndProne = false;
@@ -2235,7 +2254,12 @@ export class BattleScene extends Phaser.Scene {
           officerTarget: null,
           participants: new Map(),
         };
-        this.aimMode = 'aim-command-move-officer-stance';
+        // NO_PRONE officer skips the stance picker (CRAWL unavailable).
+        if (unitHasTrait(officer, 'NO_PRONE')) {
+          this.aimMode = 'aim-command-move-officer';
+        } else {
+          this.aimMode = 'aim-command-move-officer-stance';
+        }
         this.refreshHud();
         return;
       }

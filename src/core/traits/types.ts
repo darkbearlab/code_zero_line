@@ -59,6 +59,16 @@ export interface TraitDef {
    * pass — declared so JSON can already carry the trait.)
    */
   readonly fanaticIgnoresImpededInterrupt?: boolean;
+  /**
+   * Unit cannot adopt PRONE stance: CRAWL refused, MOVE/COMMAND_MOVE endProne
+   * silently dropped, post-command safeguard auto-stands any unit found prone.
+   * For mechs, large beasts, or biology where prone has no defensive meaning.
+   */
+  readonly cannotProne?: boolean;
+  /** Unit cannot CLIMB. For non-climbing chassis (treads, hover, large mechs). */
+  readonly cannotClimb?: boolean;
+  /** Unit cannot VAULT. Same chassis-shape rationale as cannotClimb. */
+  readonly cannotVault?: boolean;
   /** Marker that more complex behavior is required and not yet implemented. */
   readonly tbd?: boolean;
 }

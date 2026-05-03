@@ -71,6 +71,9 @@ Source: `src/core/traits/registry.ts`. **Status legend:**
 | **CYBORG** | category | ○ | same |
 | **MECH** | category | ○ | same |
 | **COMMAND** | category | ○ | same — flag for officer-class units |
+| NO_PRONE | ability | ✓ | reducer (CRAWL refusal, MOVE/COMMAND_MOVE endProne stripping, post-command `enforceNoProne` safeguard auto-stands), BattleScene (skip stance picker, `canEndProne` false) |
+| NO_CLIMB | ability | ✓ | reducer (CLIMB refusal), BattleScene (`buildTraversalContext` masks canClimb) |
+| NO_VAULT | ability | ✓ | reducer (VAULT refusal), BattleScene (`buildTraversalContext` masks canVault) |
 
 ---
 
@@ -84,6 +87,11 @@ Mapped per file. Paths use `unitHasTrait` after the 2026-04-29 audit.
 - `commandMoveAction` → OFFICER required on cmd.officerId
 - `commandRallyAction` → OFFICER required on cmd.officerId
 - `rallyAction` → looks for nearby OFFICER ally to borrow quality
+- `crawlAction` → throws if NO_PRONE
+- `vaultAction` → throws if NO_VAULT
+- `climbAction` → throws if NO_CLIMB
+- `moveAction` / `commandMoveAction` → strip endProne / CRAWL stance for NO_PRONE participants
+- `enforceNoProne` (post-command) → auto-stands any NO_PRONE unit observed PRONE
 
 ### `src/core/resolution/shooting.ts`
 - `resolveShot` → COMBINED mode requires shooter is OFFICER

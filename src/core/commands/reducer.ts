@@ -789,8 +789,10 @@ const moveAction = (
   // End-of-move stance: explicit endProne flag → drop prone (rule 4.5).
   // Forbidden when starting in difficult terrain (rule 4.2C). Suppression
   // during reaction already sets PRONE via the shooting resolver, so we only
-  // need to apply the flag in the no-suppress path.
-  const wantEndProne = endProne && !startedInDifficult;
+  // need to apply the flag in the no-suppress path. NO_PRONE units silently
+  // drop the flag — UI gates the toggle, but defensive here for AI/scripted
+  // callers.
+  const wantEndProne = endProne && !startedInDifficult && !unitHasTrait(u, 'NO_PRONE');
   const moved = updateUnit(reactionResult.state, unitId, {
     position: finalEndpoint,
     ...(wantEndProne ? { stance: 'PRONE' as const } : {}),
@@ -852,6 +854,12 @@ const crawlAction = (
     throw new CommandError(
       'CANNOT_MOVE',
       `Unit ${unitId} cannot crawl while ${u.damage}`,
+    );
+  }
+  if (unitHasTrait(u, 'NO_PRONE')) {
+    throw new CommandError(
+      'NO_PRONE',
+      `Unit ${unitId} has NO_PRONE — cannot crawl`,
     );
   }
   // Rule 4.2C — when starting inside difficult terrain, crawling is forbidden.
@@ -1015,6 +1023,9 @@ const vaultAction = (
   if (u.damage === 'IMPEDED' || u.damage === 'SUPPRESSED') {
     throw new CommandError('CANNOT_MOVE', `${unitId} cannot vault while ${u.damage}`);
   }
+  if (unitHasTrait(u, 'NO_VAULT')) {
+    throw new CommandError('NO_VAULT', `${unitId} has NO_VAULT — cannot vault`);
+  }
 
   const wall = findContactedHardWall(s.terrain, u);
   if (!wall) {
@@ -1104,6 +1115,9 @@ const climbAction = (
   if (!isUnitAlive(u)) throw new CommandError('UNIT_DEAD', `${unitId} is dead`);
   if (u.damage === 'IMPEDED' || u.damage === 'SUPPRESSED') {
     throw new CommandError('CANNOT_MOVE', `${unitId} cannot climb while ${u.damage}`);
+  }
+  if (unitHasTrait(u, 'NO_CLIMB')) {
+    throw new CommandError('NO_CLIMB', `${unitId} has NO_CLIMB — cannot climb`);
   }
 
   const wall = findContactedHardWall(s.terrain, u);
@@ -1392,6 +1406,13 @@ const commandMoveAction = (
 
   for (const m of allMovers) {
     const u = findUnit(working, m.unitId)!;
+    if (unitHasTrait(u, 'NO_PRONE')) {
+      // NO_PRONE participants ignore CRAWL stance and drop endProne; force standing.
+      if (u.stance === 'PRONE') {
+        working = updateUnit(working, m.unitId, { stance: 'STANDING' });
+      }
+      continue;
+    }
     if (m.stance === 'CRAWL' && u.stance !== 'PRONE') {
       working = updateUnit(working, m.unitId, { stance: 'PRONE' });
     } else if (m.stance !== 'CRAWL' && u.stance === 'PRONE') {
@@ -1561,7 +1582,7 @@ const commandMoveAction = (
     });
     if (spec.endProne || spec.isCrawl) {
       const u = findUnit(finalState, spec.unitId);
-      if (u && u.damage !== 'KILLED') {
+      if (u && u.damage !== 'KILLED' && !unitHasTrait(u, 'NO_PRONE')) {
         finalState = updateUnit(finalState, spec.unitId, { stance: 'PRONE' });
       }
     }
@@ -2012,9 +2033,36 @@ const shootAction = (
   return { state: post.state, events: [...shot.events, ...post.events] };
 };
 
+/**
+ * Post-command safeguard: NO_PRONE units that ended up PRONE for any reason
+ * (suppression-from-reaction during a MOVE, future status effects, scripted
+ * setup) snap back to STANDING. The dedicated reducer handlers already gate
+ * crawl/endProne, so in normal play this loop is a no-op — it exists so the
+ * invariant "NO_PRONE unit is never observed prone after a command" holds
+ * regardless of which path produced the prone state.
+ */
+const enforceNoProne = (state: GameState): GameState => {
+  let next = state;
+  for (const u of state.units) {
+    if (u.stance === 'PRONE' && unitHasTrait(u, 'NO_PRONE') && u.damage !== 'KILLED') {
+      next = updateUnit(next, u.id, { stance: 'STANDING' });
+    }
+  }
+  return next;
+};
+
 export const applyCommand = (state: GameState, cmd: Command): CommandResult => {
   const s = bumpCommandCount(state);
   const cmdIndex = s.commandCount;
+  const result = applyCommandInner(s, cmd, cmdIndex);
+  return { state: enforceNoProne(result.state), events: result.events };
+};
+
+const applyCommandInner = (
+  s: GameState,
+  cmd: Command,
+  cmdIndex: number,
+): CommandResult => {
   switch (cmd.type) {
     case 'ACTIVATE_SPEND':
       return activateSpend(s, cmd.unitId);
