@@ -122,11 +122,19 @@ export const mountMapEditor = (root: HTMLElement): void => {
   let activeTool: Tool = 'low';
   let drag: Drag = null;
   let snap = true;
-  // Live-mirror mode: when set, every add / edit / delete on a shape gets
-  // applied to a paired twin reflected across the chosen axis. Pair links
-  // live in editor session only — saved JSON just sees two real shapes.
-  let mirrorAxis: 'h' | 'v' | null = null;
-  const mirrorPairs = new Map<string, string>();
+  // Live-mirror mode: when an axis is enabled, every add / edit / delete on a
+  // shape gets applied to twin shape(s) reflected across that axis. Both
+  // axes can be active simultaneously — a single source then spawns 3 twins
+  // (h-mirror, v-mirror, h+v-mirror) so all four quadrants stay in sync.
+  // Group links live in editor session only — saved JSON sees independent
+  // real shapes.
+  const mirrorAxes = new Set<'h' | 'v'>();
+  const MIRROR_H = 1;
+  const MIRROR_V = 2;
+  // For each shape that's part of a mirror group, map (other shape id →
+  // axis-flag bitmask describing the reflection between them). Symmetric:
+  // if A→B has flags F, then B→A has the same F (mirroring is involutive).
+  const mirrorGroups = new Map<string, Map<string, number>>();
 
   // View transform: zoom multiplier on top of base fit-to-canvas scale, plus
   // pan offset in screen pixels. Persists across renderForm() rebuilds.
@@ -145,64 +153,122 @@ export const mountMapEditor = (root: HTMLElement): void => {
   const mirroredShape = (
     s: EditorMapShape,
     newId: string,
-    axis: 'h' | 'v',
-  ): EditorMapShape =>
-    axis === 'h'
-      ? { ...s, id: newId, cx: doc.size - s.cx, angle: -s.angle }
-      : { ...s, id: newId, cy: doc.size - s.cy, angle: -s.angle };
+    flags: number,
+  ): EditorMapShape => {
+    const cx = (flags & MIRROR_H) !== 0 ? doc.size - s.cx : s.cx;
+    const cy = (flags & MIRROR_V) !== 0 ? doc.size - s.cy : s.cy;
+    // Each axis flip negates the rotation; both axes compose to identity
+    // (a 180° rotation preserves a rectangle's orientation).
+    const angleSign =
+      ((flags & MIRROR_H) !== 0 ? -1 : 1) *
+      ((flags & MIRROR_V) !== 0 ? -1 : 1);
+    return { ...s, id: newId, cx, cy, angle: angleSign * s.angle };
+  };
 
   const mirrorPatch = (
     patch: Partial<EditorMapShape>,
-    axis: 'h' | 'v',
+    flags: number,
   ): Partial<EditorMapShape> => {
     const out: { -readonly [K in keyof EditorMapShape]?: EditorMapShape[K] } = {
       ...patch,
     };
-    if (axis === 'h' && patch.cx !== undefined) out.cx = doc.size - patch.cx;
-    if (axis === 'v' && patch.cy !== undefined) out.cy = doc.size - patch.cy;
-    if (patch.angle !== undefined) out.angle = -patch.angle;
+    if ((flags & MIRROR_H) !== 0 && patch.cx !== undefined) {
+      out.cx = doc.size - patch.cx;
+    }
+    if ((flags & MIRROR_V) !== 0 && patch.cy !== undefined) {
+      out.cy = doc.size - patch.cy;
+    }
+    if (patch.angle !== undefined) {
+      const sign =
+        ((flags & MIRROR_H) !== 0 ? -1 : 1) *
+        ((flags & MIRROR_V) !== 0 ? -1 : 1);
+      out.angle = sign * patch.angle;
+    }
     return out;
   };
 
-  const pairTwinId = (id: string): string | null =>
-    mirrorPairs.get(id) ?? null;
-
-  const linkPair = (a: string, b: string): void => {
-    mirrorPairs.set(a, b);
-    mirrorPairs.set(b, a);
+  const linkPair = (a: string, b: string, flags: number): void => {
+    let aMap = mirrorGroups.get(a);
+    if (!aMap) {
+      aMap = new Map();
+      mirrorGroups.set(a, aMap);
+    }
+    let bMap = mirrorGroups.get(b);
+    if (!bMap) {
+      bMap = new Map();
+      mirrorGroups.set(b, bMap);
+    }
+    aMap.set(b, flags);
+    bMap.set(a, flags);
   };
 
-  const unlinkPair = (id: string): void => {
-    const twin = mirrorPairs.get(id);
-    if (twin !== undefined) {
-      mirrorPairs.delete(twin);
-      mirrorPairs.delete(id);
+  /** Drop every link involving `id`. Returns the ids that were linked. */
+  const unlinkAll = (id: string): string[] => {
+    const others = mirrorGroups.get(id);
+    if (!others) return [];
+    const linked = [...others.keys()];
+    for (const o of linked) mirrorGroups.get(o)?.delete(id);
+    mirrorGroups.delete(id);
+    return linked;
+  };
+
+  /**
+   * Add mirrored twin(s) for a freshly-created source shape, one per active
+   * axis combination. Both axes active → 3 twins (H, V, H+V) so all four
+   * quadrants of the map stay synchronised.
+   */
+  const addMirrorTwins = (src: EditorMapShape): void => {
+    if (mirrorAxes.size === 0) return;
+    const flagSets: number[] = [];
+    if (mirrorAxes.has('h')) flagSets.push(MIRROR_H);
+    if (mirrorAxes.has('v')) flagSets.push(MIRROR_V);
+    if (mirrorAxes.has('h') && mirrorAxes.has('v')) {
+      flagSets.push(MIRROR_H | MIRROR_V);
+    }
+    const created: { id: string; flags: number }[] = [];
+    const newShapes: EditorMapShape[] = [];
+    for (const flags of flagSets) {
+      // Pass a virtual doc that includes shapes generated so far in this
+      // batch — otherwise nextShapeId would hand out duplicate ids.
+      const virtualDoc: EditorMapDoc = {
+        ...doc,
+        shapes: [...doc.shapes, ...newShapes],
+      };
+      const id = nextShapeId(virtualDoc, src.tool);
+      newShapes.push(mirroredShape(src, id, flags));
+      created.push({ id, flags });
+    }
+    doc = { ...doc, shapes: [...doc.shapes, ...newShapes] };
+    for (const c of created) linkPair(src.id, c.id, c.flags);
+    // Pairwise links between twins: relative flags = XOR of their flags
+    // measured from the source.
+    for (let i = 0; i < created.length; i++) {
+      for (let j = i + 1; j < created.length; j++) {
+        const a = created[i]!;
+        const b = created[j]!;
+        linkPair(a.id, b.id, a.flags ^ b.flags);
+      }
     }
   };
 
-  /** Add a mirrored twin for a freshly-created shape. No-op when mirror off. */
-  const addMirrorTwin = (src: EditorMapShape): void => {
-    if (!mirrorAxis) return;
-    const twinId = nextShapeId(doc, src.tool);
-    const twin = mirroredShape(src, twinId, mirrorAxis);
-    doc = { ...doc, shapes: [...doc.shapes, twin] };
-    linkPair(src.id, twinId);
-  };
-
-  /** Apply a patch to the mirrored twin (if any). No-op when mirror off. */
+  /** Apply a patch to every twin of the source, mirrored per pair flags. */
   const propagatePatchToTwin = (
     sourceId: string,
     patch: Partial<EditorMapShape>,
   ): void => {
-    if (!mirrorAxis) return;
-    const twinId = pairTwinId(sourceId);
-    if (twinId === null) return;
-    const idx = doc.shapes.findIndex((x) => x.id === twinId);
-    if (idx < 0) return;
-    const twin = doc.shapes[idx]!;
-    const next = [...doc.shapes];
-    next[idx] = { ...twin, ...mirrorPatch(patch, mirrorAxis) };
-    doc = { ...doc, shapes: next };
+    const others = mirrorGroups.get(sourceId);
+    if (!others || others.size === 0) return;
+    let nextShapes = doc.shapes;
+    let mutated = false;
+    for (const [twinId, flags] of others) {
+      const idx = nextShapes.findIndex((x) => x.id === twinId);
+      if (idx < 0) continue;
+      const updated = [...nextShapes];
+      updated[idx] = { ...nextShapes[idx]!, ...mirrorPatch(patch, flags) };
+      nextShapes = updated;
+      mutated = true;
+    }
+    if (mutated) doc = { ...doc, shapes: nextShapes };
   };
 
   const grid = el('div', { className: 'editor-grid' });
@@ -464,7 +530,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
           angle: 0,
         };
         doc = { ...doc, shapes: [...doc.shapes, s] };
-        addMirrorTwin(s);
+        addMirrorTwins(s);
         selectedShapeId = id;
         drag = null;
         renderForm();
@@ -556,7 +622,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
             angle: 0,
           };
           doc = { ...doc, shapes: [...doc.shapes, s] };
-          addMirrorTwin(s);
+          addMirrorTwins(s);
           selectedShapeId = id;
         }
       }
@@ -925,27 +991,29 @@ export const mountMapEditor = (root: HTMLElement): void => {
     );
 
     const mirrorH = el('button', {
-      text: mirrorAxis === 'h' ? '✓ 鏡像 ↔' : '鏡像 ↔',
+      text: mirrorAxes.has('h') ? '✓ 鏡像 ↔' : '鏡像 ↔',
       onclick: () => {
-        mirrorAxis = mirrorAxis === 'h' ? null : 'h';
+        if (mirrorAxes.has('h')) mirrorAxes.delete('h');
+        else mirrorAxes.add('h');
         renderForm();
       },
     }) as HTMLButtonElement;
     mirrorH.title =
-      '開啟後，新增/編輯/刪除任一邊的形狀會自動同步到水平鏡像的另一邊';
-    if (mirrorAxis === 'h') mirrorH.style.background = '#2a4a2a';
+      '開啟後，新增/編輯/刪除形狀會自動同步到水平鏡像的另一邊。可與垂直鏡像同時啟用，新增形狀時會一次產生四象限的對稱複本。';
+    if (mirrorAxes.has('h')) mirrorH.style.background = '#2a4a2a';
     tools.appendChild(mirrorH);
 
     const mirrorV = el('button', {
-      text: mirrorAxis === 'v' ? '✓ 鏡像 ↕' : '鏡像 ↕',
+      text: mirrorAxes.has('v') ? '✓ 鏡像 ↕' : '鏡像 ↕',
       onclick: () => {
-        mirrorAxis = mirrorAxis === 'v' ? null : 'v';
+        if (mirrorAxes.has('v')) mirrorAxes.delete('v');
+        else mirrorAxes.add('v');
         renderForm();
       },
     }) as HTMLButtonElement;
     mirrorV.title =
-      '開啟後，新增/編輯/刪除任一邊的形狀會自動同步到垂直鏡像的另一邊';
-    if (mirrorAxis === 'v') mirrorV.style.background = '#2a4a2a';
+      '開啟後，新增/編輯/刪除形狀會自動同步到垂直鏡像的另一邊。可與水平鏡像同時啟用，新增形狀時會一次產生四象限的對稱複本。';
+    if (mirrorAxes.has('v')) mirrorV.style.background = '#2a4a2a';
     tools.appendChild(mirrorV);
 
     tools.appendChild(sep());
@@ -1055,14 +1123,16 @@ export const mountMapEditor = (root: HTMLElement): void => {
   const deleteSelected = (): void => {
     if (!selectedShapeId) return;
     const id = selectedShapeId;
-    const twinId = mirrorAxis ? pairTwinId(id) : null;
+    // Whole mirror group goes together — including any twins-of-twins linked
+    // when both axes are active (group size up to 4).
     const removeIds = new Set<string>([id]);
-    if (twinId !== null) removeIds.add(twinId);
+    const linked = mirrorGroups.get(id);
+    if (linked) for (const o of linked.keys()) removeIds.add(o);
     doc = {
       ...doc,
       shapes: doc.shapes.filter((s) => !removeIds.has(s.id)),
     };
-    unlinkPair(id);
+    for (const rid of removeIds) unlinkAll(rid);
     selectedShapeId = null;
     renderForm();
   };
