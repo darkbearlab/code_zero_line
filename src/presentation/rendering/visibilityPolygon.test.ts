@@ -1,0 +1,93 @@
+import { describe, it, expect } from 'vitest';
+import type { Polygon, Vec2 } from '../../core/geometry/types';
+import {
+  computeVisibilityPolygon,
+  type VisibilityBounds,
+} from './visibilityPolygon';
+
+const bounds: VisibilityBounds = { width: 1000, height: 1000 };
+
+const rect = (x: number, y: number, w: number, h: number): Polygon => ({
+  vertices: [
+    { x, y },
+    { x: x + w, y },
+    { x: x + w, y: y + h },
+    { x, y: y + h },
+  ],
+});
+
+const polyArea = (verts: ReadonlyArray<Vec2>): number => {
+  let s = 0;
+  const n = verts.length;
+  for (let i = 0; i < n; i++) {
+    const a = verts[i]!;
+    const b = verts[(i + 1) % n]!;
+    s += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(s) / 2;
+};
+
+const pointInPoly = (p: Vec2, verts: ReadonlyArray<Vec2>): boolean => {
+  let inside = false;
+  const n = verts.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const a = verts[i]!;
+    const b = verts[j]!;
+    const intersect =
+      a.y > p.y !== b.y > p.y &&
+      p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+};
+
+describe('computeVisibilityPolygon', () => {
+  it('with no blockers, sees the full bounds rectangle', () => {
+    const v = computeVisibilityPolygon({ x: 500, y: 500 }, [], bounds);
+    expect(v.length).toBeGreaterThanOrEqual(4);
+    // Area should be the full bounds area (within numerical tolerance).
+    expect(polyArea(v)).toBeCloseTo(bounds.width * bounds.height, -1);
+  });
+
+  it('a wall in front of origin casts a shadow behind it', () => {
+    // Origin sits south of a horizontal wall. Points directly north of the
+    // wall (i.e. behind it) should NOT be inside the visibility polygon.
+    const wall = rect(400, 400, 200, 20);
+    const origin = { x: 500, y: 600 };
+    const v = computeVisibilityPolygon(origin, [wall], bounds);
+    // A point well behind the wall (further north) is NOT visible.
+    expect(pointInPoly({ x: 500, y: 200 }, v)).toBe(false);
+    // A point south of origin (away from wall) IS visible.
+    expect(pointInPoly({ x: 500, y: 800 }, v)).toBe(true);
+  });
+
+  it('a wall directly between origin and target removes target from polygon', () => {
+    const wall = rect(450, 450, 100, 100);
+    const origin = { x: 100, y: 500 };
+    const v = computeVisibilityPolygon(origin, [wall], bounds);
+    // Point on far side of wall from origin should be hidden.
+    expect(pointInPoly({ x: 900, y: 500 }, v)).toBe(false);
+    // Point near origin (no occlusion) should be visible.
+    expect(pointInPoly({ x: 200, y: 500 }, v)).toBe(true);
+  });
+
+  it('removing the wall restores visibility of the previously-hidden point', () => {
+    const wall = rect(450, 450, 100, 100);
+    const origin = { x: 100, y: 500 };
+    const target = { x: 900, y: 500 };
+    const blocked = computeVisibilityPolygon(origin, [wall], bounds);
+    const clear = computeVisibilityPolygon(origin, [], bounds);
+    expect(pointInPoly(target, blocked)).toBe(false);
+    expect(pointInPoly(target, clear)).toBe(true);
+  });
+
+  it('shadow area shrinks the visible polygon (less than full bounds)', () => {
+    const wall = rect(300, 300, 400, 400);
+    const v = computeVisibilityPolygon({ x: 50, y: 50 }, [wall], bounds);
+    const visibleArea = polyArea(v);
+    const fullArea = bounds.width * bounds.height;
+    // Wall occludes at least its own area's worth of background.
+    expect(visibleArea).toBeLessThan(fullArea);
+    expect(visibleArea).toBeGreaterThan(0);
+  });
+});

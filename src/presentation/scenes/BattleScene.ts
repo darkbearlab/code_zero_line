@@ -13,6 +13,7 @@ import {
 import { drawTerrain, polygonCentroid } from '../rendering/terrain';
 import { paintBoardFloorPhaser } from '../rendering/boardFloor';
 import { CombatEffects } from '../rendering/combatEffects';
+import { computeVisibilityPolygon } from '../rendering/visibilityPolygon';
 import { detectScenarioVictory } from '../../core/scenario/victory';
 import {
   appendCommand,
@@ -28,8 +29,7 @@ import type {
   ShootMode,
 } from '../../core/commands/types';
 import { CommandError } from '../../core/commands/types';
-import { buildLosBlockers, hasLOS } from '../../core/geometry/los';
-import { segmentBlockedByPolygon, segmentBlockedByPolygons } from '../../core/geometry/segment';
+import { hasLOS } from '../../core/geometry/los';
 import { VAULT_HEIGHT_THRESHOLD_PIXELS } from '../../core/rules/constants';
 import { isLowWall } from '../../core/state/GameState';
 import { unitHasTrait } from '../../core/traits/types';
@@ -83,6 +83,43 @@ import {
 const FACTION_COLOR: Readonly<Record<'A' | 'B', number>> = {
   A: 0x4a8acf,
   B: 0xcf5a4a,
+};
+
+/**
+ * Triangulate `outer` (with optional `hole` cut out) via Earcut and stroke
+ * the triangles into `g`. Used by the LOS overlay to fill `bounds-minus-
+ * visibility-polygon` as a single solid colour without overlap artifacts.
+ */
+const fillRingWithHole = (
+  g: Phaser.GameObjects.Graphics,
+  outer: ReadonlyArray<Vec2>,
+  hole: ReadonlyArray<Vec2> | null,
+  color: number,
+  alpha: number,
+): void => {
+  if (outer.length < 3) return;
+  const data: number[] = [];
+  for (const v of outer) data.push(v.x, v.y);
+  let holeIndices: number[] | undefined;
+  if (hole && hole.length >= 3) {
+    holeIndices = [outer.length];
+    for (const v of hole) data.push(v.x, v.y);
+  }
+  const tris = Phaser.Geom.Polygon.Earcut(data, holeIndices, 2);
+  g.fillStyle(color, alpha);
+  for (let i = 0; i < tris.length; i += 3) {
+    const ai = tris[i]! * 2;
+    const bi = tris[i + 1]! * 2;
+    const ci = tris[i + 2]! * 2;
+    g.fillTriangle(
+      data[ai]!,
+      data[ai + 1]!,
+      data[bi]!,
+      data[bi + 1]!,
+      data[ci]!,
+      data[ci + 1]!,
+    );
+  }
 };
 
 // Translucent overlay alpha for faction tint on sprites. ~0.4 reads clearly
@@ -564,12 +601,24 @@ export class BattleScene extends Phaser.Scene {
     const unit = this.gameState.units.find((u) => u.id === unitId);
     if (!unit || !isUnitAlive(unit)) return;
 
-    const cellSize = 24;
-    const cols = Math.ceil(BATTLEFIELD_SIZE_PIXELS / cellSize);
-    const rows = Math.ceil(BATTLEFIELD_SIZE_PIXELS / cellSize);
-
-    const hardPolys = this.gameState.terrain
-      .filter((t) => t.kind === 'HARD')
+    // Two visibility polygons — vector geometry, no grid quantization:
+    //   V_block: only fully-blocking walls are occluders. Bounds-minus
+    //            this is the "fully shadowed" region (alpha 0.55).
+    //   V_clear: also treats partial-cover sources (soft, low walls
+    //            against standing) as occluders. V_block-minus-V_clear
+    //            is the "visible-but-with-cover" region (alpha 0.25).
+    // Soft polygon containing the shooter doesn't occlude (matches
+    // buildLosBlockers' "if either endpoint inside" rule); when it
+    // happens, every visible cell is partial and we just shade V_block.
+    const prone = unit.stance === 'PRONE';
+    const hardHighPolys = this.gameState.terrain
+      .filter(
+        (t) =>
+          (t.kind === 'HARD' &&
+            !isLowWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS)) ||
+          t.kind === 'BLOCKER' ||
+          t.kind === 'OUT_OF_BOUNDS',
+      )
       .map((t) => t.polygon);
     const lowWallPolys = this.gameState.terrain
       .filter(
@@ -580,74 +629,48 @@ export class BattleScene extends Phaser.Scene {
       .filter((t) => t.kind === 'SOFT')
       .map((t) => t.polygon);
 
-    const losOpts = {
-      aProne: unit.stance === 'PRONE',
-      bProne: false,
+    const blockingPolys = prone
+      ? [...hardHighPolys, ...lowWallPolys]
+      : hardHighPolys;
+    const originInsideSoft = softPolys.some((p) =>
+      isPointInPolygon(unit.position, p),
+    );
+    const partialOnlyLowWalls = prone ? [] : lowWallPolys;
+    const partialBlockers = [
+      ...blockingPolys,
+      ...partialOnlyLowWalls,
+      ...(originInsideSoft ? [] : softPolys),
+    ];
+
+    const bounds = {
+      width: BATTLEFIELD_SIZE_PIXELS,
+      height: BATTLEFIELD_SIZE_PIXELS,
     };
+    const vBlock = computeVisibilityPolygon(
+      unit.position,
+      blockingPolys,
+      bounds,
+    );
+    const vClear =
+      partialBlockers.length === blockingPolys.length
+        ? vBlock
+        : computeVisibilityPolygon(unit.position, partialBlockers, bounds);
 
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const cx = (c + 0.5) * cellSize;
-        const cy = (r + 0.5) * cellSize;
-        const target: Vec2 = { x: cx, y: cy };
+    // Shadow: bounds rect minus V_block.
+    const boundsRing: Vec2[] = [
+      { x: 0, y: 0 },
+      { x: bounds.width, y: 0 },
+      { x: bounds.width, y: bounds.height },
+      { x: 0, y: bounds.height },
+    ];
+    fillRingWithHole(this.losOverlayGfx, boundsRing, vBlock, 0x000000, 0.55);
 
-        // Skip cells whose centre falls inside a HARD wall — they're
-        // unreachable and the wall already paints that area.
-        let inHard = false;
-        for (const poly of hardPolys) {
-          if (isPointInPolygon(target, poly)) {
-            inHard = true;
-            break;
-          }
-        }
-        if (inHard) continue;
-
-        const blockers = buildLosBlockers(
-          unit.position,
-          target,
-          this.gameState.terrain,
-          losOpts,
-        );
-        const blocked = segmentBlockedByPolygons(
-          unit.position,
-          target,
-          blockers,
-        );
-
-        if (blocked) {
-          this.losOverlayGfx.fillStyle(0x000000, 0.55);
-          this.losOverlayGfx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
-          continue;
-        }
-
-        // Partial: line clips a cover-providing polygon (soft, or a low
-        // wall at standing-vs-standing) OR either endpoint is inside a
-        // soft polygon. Cover doesn't block but is informational.
-        let partial = false;
-        for (const lp of lowWallPolys) {
-          if (segmentBlockedByPolygon(unit.position, target, lp)) {
-            partial = true;
-            break;
-          }
-        }
-        if (!partial) {
-          for (const sp of softPolys) {
-            if (
-              isPointInPolygon(target, sp) ||
-              isPointInPolygon(unit.position, sp) ||
-              segmentBlockedByPolygon(unit.position, target, sp)
-            ) {
-              partial = true;
-              break;
-            }
-          }
-        }
-
-        if (partial) {
-          this.losOverlayGfx.fillStyle(0x000000, 0.25);
-          this.losOverlayGfx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
-        }
-        // Full LOS — leave the cell uncovered.
+    // Partial: visible-but-covered region.
+    if (vBlock.length >= 3) {
+      if (originInsideSoft || vClear.length < 3) {
+        fillRingWithHole(this.losOverlayGfx, vBlock, null, 0x000000, 0.25);
+      } else if (vClear !== vBlock) {
+        fillRingWithHole(this.losOverlayGfx, vBlock, vClear, 0x000000, 0.25);
       }
     }
   }
