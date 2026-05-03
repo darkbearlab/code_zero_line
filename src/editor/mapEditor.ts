@@ -504,6 +504,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
       }
 
       ctx.restore();
+      positionInfoPanel();
     };
 
     // Cursor-anchored zoom (used by toolbar + wheel). Defined here so the
@@ -742,10 +743,71 @@ export const mountMapEditor = (root: HTMLElement): void => {
     canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('pointercancel', onPointerUp);
 
-    // Info / shape inspector — appended into mainCol below.
+    // Info / shape inspector — floats inside canvasWrap so it can dock
+    // next to the selected shape (or sit at the bottom-left of the canvas
+    // when nothing is selected).
     const info = el('div', {
-      style: { marginTop: '10px', fontSize: '12px', color: '#9aa89a' },
+      style: {
+        position: 'absolute',
+        fontSize: '12px',
+        color: '#9aa89a',
+        background: 'rgba(14, 18, 14, 0.92)',
+        border: '1px solid #2a3a2a',
+        borderRadius: '4px',
+        padding: '6px 8px',
+        pointerEvents: 'auto',
+        maxWidth: '440px',
+        zIndex: '10',
+        boxShadow: '0 2px 6px rgba(0, 0, 0, 0.4)',
+      },
     });
+    // Stop pointer events from bubbling to canvas (otherwise clicking inside
+    // the panel would deselect or initiate a drag-create).
+    for (const ev of ['pointerdown', 'pointerup', 'wheel', 'click'] as const) {
+      info.addEventListener(ev, (e) => e.stopPropagation());
+    }
+
+    // Place the floating panel near the selected shape's screen-space AABB,
+    // clamped to the canvas viewport. When nothing is selected, dock it at
+    // the bottom-left of the canvas as a passive hint.
+    const positionInfoPanel = (): void => {
+      const PAD = 8;
+      if (!selectedShapeId) {
+        info.style.left = `${PAD}px`;
+        info.style.top = '';
+        info.style.bottom = `${PAD}px`;
+        return;
+      }
+      const s = doc.shapes.find((x) => x.id === selectedShapeId);
+      if (!s) return;
+      const verts = shapeVertices(s);
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const v of verts) {
+        if (v.x < minX) minX = v.x;
+        if (v.y < minY) minY = v.y;
+        if (v.x > maxX) maxX = v.x;
+        if (v.y > maxY) maxY = v.y;
+      }
+      const sc = effScale();
+      const sxMin = minX * sc + viewOffsetX;
+      const syMin = minY * sc + viewOffsetY;
+      const sxMax = maxX * sc + viewOffsetX;
+      const pw = info.offsetWidth || 240;
+      const ph = info.offsetHeight || 80;
+      // Try to the right of the shape; flip to the left if it overflows.
+      let left = sxMax + PAD;
+      if (left + pw > canvasSide - PAD) left = sxMin - PAD - pw;
+      // Align top with the shape, but clamp to canvas viewport.
+      let top = syMin;
+      if (top + ph > canvasSide - PAD) top = canvasSide - PAD - ph;
+      if (top < PAD) top = PAD;
+      // If neither side fits horizontally, fall back to clamped overlay.
+      if (left < PAD) left = PAD;
+      if (left + pw > canvasSide - PAD) left = Math.max(PAD, canvasSide - PAD - pw);
+      info.style.left = `${left}px`;
+      info.style.top = `${top}px`;
+      info.style.bottom = '';
+    };
 
     const renderInfo = (): void => {
       info.innerHTML = '';
@@ -1145,8 +1207,8 @@ export const mountMapEditor = (root: HTMLElement): void => {
     const mainCol = el('div', { className: 'map-main' });
     const canvasWrap = el('div', { className: 'map-canvas-wrap' });
     canvasWrap.appendChild(canvas);
+    canvasWrap.appendChild(info);
     mainCol.appendChild(canvasWrap);
-    mainCol.appendChild(info);
     body.appendChild(mainCol);
 
     formPanel.appendChild(body);
