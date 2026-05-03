@@ -152,6 +152,19 @@ export interface Initiative {
    */
   readonly playerActivations: number;
   readonly activeActivation: ActiveActivation | null;
+  /**
+   * Cumulative score per faction for the `control-points` scenario. Updated
+   * once per cycle bump (full A→B→A handoff) by the reducer's turnover().
+   * Optional so legacy fixtures / replays without scoring still load cleanly.
+   */
+  readonly objectiveScores?: Readonly<Record<Faction, number>>;
+  /**
+   * Stateful per-objective owner for `control-points`. `null` = neutral.
+   * Once a faction captures, ownership persists across cycles until the
+   * opponent (a) physically clears the owner from the zone and (b) is
+   * uniquely present at the next cycle end. Optional for back-compat.
+   */
+  readonly objectiveControl?: Readonly<Record<string, Faction | null>>;
 }
 
 export interface Objective {

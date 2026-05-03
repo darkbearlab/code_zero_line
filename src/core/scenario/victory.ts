@@ -23,13 +23,15 @@
  */
 import type { Faction, GameState } from '../state/GameState';
 import { isUnitAlive } from '../state/GameState';
+import { factionInstantlyControlsAll } from './objectiveControl';
 
 export type ScenarioMode =
   | 'elimination'
   | 'engage-reach'
   | 'defend'
   | 'extract'
-  | 'assassinate';
+  | 'assassinate'
+  | 'control-points';
 
 export type MatchEndReason =
   | 'ELIMINATED'
@@ -58,6 +60,29 @@ export interface ScenarioParams {
    * defender wins. Default 999 (off).
    */
   readonly assassinateActivations?: number;
+  /**
+   * engage-reach / defend modifier. When true, the side wins (or loses) only
+   * when controlling EVERY objective on the map, not just one. Uses live
+   * presence — does not depend on the stateful capture model.
+   */
+  readonly requireAllObjectives?: boolean;
+  /**
+   * control-points: absolute score threshold a side must reach to win.
+   * Default 5.
+   */
+  readonly winScore?: number;
+  /**
+   * control-points: required margin over the opponent's score on top of
+   * `winScore`. Both gates must pass — prevents the side that scored first
+   * from coasting on stall tactics. Default 2.
+   */
+  readonly winLead?: number;
+  /**
+   * control-points: per-objective score weight. Missing entries default
+   * to 1. Reducer reads this off `state.scenarioInfo.params.objectiveWeights`
+   * each cycle bump.
+   */
+  readonly objectiveWeights?: Readonly<Record<string, number>>;
 }
 
 export interface VictoryResult {
@@ -96,6 +121,8 @@ export const DEFEND_ACTIVATIONS_DEFAULT = 999;
 export const EXTRACT_COUNT_DEFAULT = 2;
 export const EXTRACT_ACTIVATIONS_DEFAULT = 999;
 export const ASSASSINATE_ACTIVATIONS_DEFAULT = 999;
+export const WIN_SCORE_DEFAULT = 5;
+export const WIN_LEAD_DEFAULT = 2;
 
 export const detectScenarioVictory = (
   state: GameState,
@@ -110,24 +137,40 @@ export const detectScenarioVictory = (
   if (b === 0) return { winner: 'A', reason: 'ELIMINATED' };
 
   if (scenario === 'engage-reach') {
-    const aOnObj = factionUnitsOnObjective(state, 'A');
-    const bOnObj = factionUnitsOnObjective(state, 'B');
     const aEngaged = a < initialAlive.A;
     const bEngaged = b < initialAlive.B;
-    if (aOnObj > 0 && bOnObj === 0 && bEngaged) {
-      return { winner: 'A', reason: 'OBJECTIVE_SECURED' };
-    }
-    if (bOnObj > 0 && aOnObj === 0 && aEngaged) {
-      return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
+    if (params.requireAllObjectives) {
+      // ALL-of: only count a side as "on objective" when they uniquely hold
+      // every point on the map (live presence, not stateful capture).
+      if (factionInstantlyControlsAll(state, 'A') && bEngaged) {
+        return { winner: 'A', reason: 'OBJECTIVE_SECURED' };
+      }
+      if (factionInstantlyControlsAll(state, 'B') && aEngaged) {
+        return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
+      }
+    } else {
+      const aOnObj = factionUnitsOnObjective(state, 'A');
+      const bOnObj = factionUnitsOnObjective(state, 'B');
+      if (aOnObj > 0 && bOnObj === 0 && bEngaged) {
+        return { winner: 'A', reason: 'OBJECTIVE_SECURED' };
+      }
+      if (bOnObj > 0 && aOnObj === 0 && aEngaged) {
+        return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
+      }
     }
   }
 
   if (scenario === 'defend') {
     const defendActivations =
       params.defendActivations ?? DEFEND_ACTIVATIONS_DEFAULT;
-    const bOnObj = factionUnitsOnObjective(state, 'B');
-    // Enemy on the marker — defender loses instantly.
-    if (bOnObj > 0) return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
+    // Defender loses when the attacker gets onto the objective(s). With
+    // requireAllObjectives, attacker must be uniquely present on EVERY point.
+    const attackerOnObjective = params.requireAllObjectives
+      ? factionInstantlyControlsAll(state, 'B')
+      : factionUnitsOnObjective(state, 'B') > 0;
+    if (attackerOnObjective) {
+      return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
+    }
     if (state.initiative.playerActivations > defendActivations) {
       const aOnObj = factionUnitsOnObjective(state, 'A');
       // Defender wins by holding past the timer. If A has abandoned the
@@ -147,6 +190,22 @@ export const detectScenarioVictory = (
       return { winner: 'A', reason: 'OBJECTIVE_SECURED' };
     }
     if (state.initiative.playerActivations > limit) {
+      return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
+    }
+  }
+
+  if (scenario === 'control-points') {
+    // Both gates must pass: absolute score + lead margin. The lead gate
+    // stops a side that scored first from coasting on stall tactics —
+    // the opponent can always recapture and pull the margin back below
+    // `winLead`, keeping the match alive.
+    const winScore = params.winScore ?? WIN_SCORE_DEFAULT;
+    const winLead = params.winLead ?? WIN_LEAD_DEFAULT;
+    const scores = state.initiative.objectiveScores ?? { A: 0, B: 0 };
+    if (scores.A >= winScore && scores.A - scores.B >= winLead) {
+      return { winner: 'A', reason: 'OBJECTIVE_SECURED' };
+    }
+    if (scores.B >= winScore && scores.B - scores.A >= winLead) {
       return { winner: 'B', reason: 'OBJECTIVE_SECURED' };
     }
   }

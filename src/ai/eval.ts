@@ -254,27 +254,62 @@ const factionScore = (
   if (objectives.length > 0 && weights.objectiveControlBonus !== 0) {
     const proximityRange = UNIT_DISTANCE_PIXELS * 4;
     const proximityMax = weights.objectiveControlBonus * 0.6;
+    // Control-points eval shaping: read stateful ownership + scoreboard so
+    // the AI is rewarded for grabbing un-owned points and pressured to
+    // contest when behind. Without these multipliers, lookahead can't tell
+    // "camping a point we already own" apart from "taking a fresh one",
+    // and an officer-move loop on one safe point dominates the search.
+    const isControlPoints = state.scenarioInfo?.mode === 'control-points';
+    const ownerMap = state.initiative.objectiveControl ?? {};
+    const scores = state.initiative.objectiveScores ?? { A: 0, B: 0 };
+    const opp: Faction = faction === 'A' ? 'B' : 'A';
+    const behindMult =
+      isControlPoints && scores[faction] < scores[opp] ? 1.5 : 1;
+    const objMult: number[] = [];
+    for (const obj of objectives) {
+      if (!isControlPoints) {
+        objMult.push(1);
+        continue;
+      }
+      const owner = ownerMap[obj.id] ?? null;
+      // Owning a point already pays out at cycle end; reward exploring
+      // un-owned / opponent points (capture is the ROI move) and de-rate
+      // camping points we already own.
+      if (owner === faction) objMult.push(0.5);
+      else if (owner === opp) objMult.push(2);
+      else objMult.push(2);
+    }
     for (const u of ours) {
       let bestContribution = 0;
-      let onObjective = false;
-      for (const obj of objectives) {
+      let bestOnIdx = -1;
+      for (let i = 0; i < objectives.length; i++) {
+        const obj = objectives[i]!;
         const dx = u.position.x - obj.position.x;
         const dy = u.position.y - obj.position.y;
         const dist = Math.hypot(dx, dy);
         if (dist <= obj.radius) {
-          onObjective = true;
-          break;
+          // Pick the highest-mult objective the unit is standing in so
+          // multi-overlap cases prefer the more valuable point.
+          const candidate = weights.objectiveControlBonus * objMult[i]!;
+          if (bestOnIdx === -1 || candidate > weights.objectiveControlBonus * objMult[bestOnIdx]!) {
+            bestOnIdx = i;
+          }
+          continue;
         }
         const margin = dist - obj.radius;
         if (margin <= proximityRange) {
           const pull =
-            ((proximityRange - margin) / proximityRange) * proximityMax;
+            ((proximityRange - margin) / proximityRange) *
+            proximityMax *
+            objMult[i]!;
           if (pull > bestContribution) bestContribution = pull;
         }
       }
-      total +=
-        (onObjective ? weights.objectiveControlBonus : bestContribution) *
-        urgency;
+      const contribution =
+        bestOnIdx >= 0
+          ? weights.objectiveControlBonus * objMult[bestOnIdx]!
+          : bestContribution;
+      total += contribution * urgency * behindMult;
     }
   }
 

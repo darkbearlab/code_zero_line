@@ -699,21 +699,39 @@ export class BattleScene extends Phaser.Scene {
       color = 0x6ad08a;
       prefix = '撤';
     }
+    const isControlPoints = this.missionScenario === 'control-points';
+    const ownerMap = this.gameState.initiative.objectiveControl ?? {};
     for (const o of objs) {
-      this.objectivesGfx.fillStyle(color, 0.12);
+      // Control-points: tint by owner so capture status reads at a glance.
+      let drawColor = color;
+      let drawPrefix = prefix;
+      if (isControlPoints) {
+        const owner = ownerMap[o.id];
+        if (owner === 'A') {
+          drawColor = 0x4a8acf;
+          drawPrefix = 'A';
+        } else if (owner === 'B') {
+          drawColor = 0xcf5a4a;
+          drawPrefix = 'B';
+        } else {
+          drawColor = 0xcfcfcf;
+          drawPrefix = '中';
+        }
+      }
+      this.objectivesGfx.fillStyle(drawColor, 0.12);
       this.objectivesGfx.fillCircle(o.position.x, o.position.y, o.radius);
-      this.objectivesGfx.lineStyle(2, color, 0.85);
+      this.objectivesGfx.lineStyle(2, drawColor, 0.85);
       this.objectivesGfx.strokeCircle(o.position.x, o.position.y, o.radius);
       // Centre cross-hair for legibility
-      this.objectivesGfx.lineStyle(1, color, 0.7);
+      this.objectivesGfx.lineStyle(1, drawColor, 0.7);
       this.objectivesGfx.beginPath();
       this.objectivesGfx.moveTo(o.position.x - o.radius * 0.3, o.position.y);
       this.objectivesGfx.lineTo(o.position.x + o.radius * 0.3, o.position.y);
       this.objectivesGfx.moveTo(o.position.x, o.position.y - o.radius * 0.3);
       this.objectivesGfx.lineTo(o.position.x, o.position.y + o.radius * 0.3);
       this.objectivesGfx.strokePath();
-      const labelText = prefix
-        ? `${prefix} ${o.displayName ?? '目標'}`
+      const labelText = drawPrefix
+        ? `${drawPrefix} ${o.displayName ?? '目標'}`
         : (o.displayName ?? '目標');
       const lbl = this.add.text(
         o.position.x,
@@ -722,7 +740,7 @@ export class BattleScene extends Phaser.Scene {
         {
           fontFamily: 'ui-monospace, monospace',
           fontSize: '10px',
-          color: `#${color.toString(16).padStart(6, '0')}`,
+          color: `#${drawColor.toString(16).padStart(6, '0')}`,
         },
       );
       lbl.setOrigin(0.5, 0);
@@ -1687,7 +1705,16 @@ export class BattleScene extends Phaser.Scene {
   private formatMissionLabel(): string | null {
     const acts = this.gameState.initiative.playerActivations;
     if (this.missionScenario === 'engage-reach') {
-      return '⚑ 攻佔目標';
+      return this.missionParams.requireAllObjectives
+        ? '⚑ 攻佔全部目標'
+        : '⚑ 攻佔目標';
+    }
+    if (this.missionScenario === 'control-points') {
+      const scores =
+        this.gameState.initiative.objectiveScores ?? { A: 0, B: 0 };
+      const winScore = this.missionParams.winScore ?? 5;
+      const winLead = this.missionParams.winLead ?? 2;
+      return `⚑ 占領 A:${scores.A} / B:${scores.B}（目標 ${winScore}，領先 ${winLead}）`;
     }
     if (this.missionScenario === 'defend') {
       const goal = this.missionParams.defendActivations ?? 999;

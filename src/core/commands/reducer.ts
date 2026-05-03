@@ -54,6 +54,10 @@ import type {
   TurnoverReason,
 } from './types';
 import { CommandError } from './types';
+import {
+  cycleScoreDelta,
+  nextObjectiveControl,
+} from '../scenario/objectiveControl';
 
 const opponent = (f: Faction): Faction => (f === 'A' ? 'B' : 'A');
 
@@ -186,6 +190,30 @@ const turnover = (
   // handoff cycle). Simple model: increment cycle whenever turnover's
   // `to` is 'A'. Per-cycle flags reset on bump.
   const cycleBump = to === 'A' ? 1 : 0;
+  // Control-points scoring tick. Only mutates when scenario === 'control-points'
+  // and the cycle just bumped — every other path falls through with the
+  // existing maps untouched (so legacy / unrelated scenarios pay nothing).
+  const isControlPoints =
+    cycleBump > 0 && s.scenarioInfo?.mode === 'control-points';
+  const prevControl = s.initiative.objectiveControl ?? {};
+  const prevScores = s.initiative.objectiveScores ?? { A: 0, B: 0 };
+  const newControl = isControlPoints
+    ? nextObjectiveControl(s, prevControl)
+    : prevControl;
+  const weightsRaw = s.scenarioInfo?.params.objectiveWeights;
+  const weights =
+    isControlPoints && weightsRaw && typeof weightsRaw === 'object'
+      ? (weightsRaw as Readonly<Record<string, number>>)
+      : undefined;
+  const delta = isControlPoints
+    ? cycleScoreDelta(newControl, weights)
+    : { A: 0, B: 0 };
+  const newScores = isControlPoints
+    ? {
+        A: prevScores.A + delta.A,
+        B: prevScores.B + delta.B,
+      }
+    : prevScores;
   const next: GameState = {
     ...s,
     initiative: {
@@ -194,6 +222,13 @@ const turnover = (
       cycle: s.initiative.cycle + cycleBump,
       playerActivations: s.initiative.playerActivations,
       activeActivation: null,
+      ...(s.initiative.objectiveScores !== undefined ||
+      s.initiative.objectiveControl !== undefined
+        ? {
+            objectiveScores: newScores,
+            objectiveControl: newControl,
+          }
+        : {}),
     },
     // lockedThisInitiative is per-initiative-phase: any turnover clears
     // it across all units regardless of cycle bump. Round-scoped flags

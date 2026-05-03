@@ -64,6 +64,7 @@ const SCENARIOS: ScenarioMode[] = [
   'defend',
   'extract',
   'assassinate',
+  'control-points',
 ];
 
 const toDraft = (m: MissionDef): MissionDraft => ({
@@ -165,6 +166,19 @@ const validate = (d: MissionDraft): string[] => {
     d.objectives.length === 0
   ) {
     errs.push(`${d.scenario}: needs at least one objective`);
+  }
+  if (d.scenario === 'control-points') {
+    if (d.objectives.length === 0) {
+      errs.push('control-points: needs at least one objective');
+    }
+    const ws = d.scenarioParams.winScore as number | undefined;
+    if (ws !== undefined && (!Number.isFinite(ws) || ws < 1)) {
+      errs.push('control-points: winScore must be ≥ 1');
+    }
+    const wl = d.scenarioParams.winLead as number | undefined;
+    if (wl !== undefined && (!Number.isFinite(wl) || wl < 1)) {
+      errs.push('control-points: winLead must be ≥ 1');
+    }
   }
   if (d.playerSpawnPositions.length === 0) {
     errs.push('playerSpawnPositions empty');
@@ -474,11 +488,108 @@ export const mountMissionEditor = (root: HTMLElement): void => {
           style: { fontSize: '11px', color: '#7a9a7a', marginTop: '2px' },
         });
 
-      if (draft.scenario === 'defend') {
+      const boolField = (
+        label: string,
+        key: string,
+        help?: string,
+      ): HTMLElement => {
+        const cb = el('input', { type: 'checkbox' }) as HTMLInputElement;
+        cb.checked = !!draft.scenarioParams[key];
+        cb.addEventListener('change', () => {
+          if (cb.checked) draft.scenarioParams[key] = true;
+          else delete draft.scenarioParams[key];
+        });
+        return el('label', {
+          children: [
+            cb,
+            document.createTextNode(' ' + label),
+            ...(help
+              ? [
+                  el('span', {
+                    text: ' — ' + help,
+                    style: { color: '#7a9a7a' },
+                  }),
+                ]
+              : []),
+          ],
+          style: { fontSize: '12px', display: 'flex', alignItems: 'center' },
+        });
+      };
+
+      if (draft.scenario === 'engage-reach') {
+        paramsBox.appendChild(
+          boolField(
+            'requireAllObjectives',
+            'requireAllObjectives',
+            '同時佔領所有點位才算勝利',
+          ),
+        );
+      } else if (draft.scenario === 'defend') {
         paramsBox.appendChild(
           numField('defendActivations', 'defendActivations', 999),
         );
+        paramsBox.appendChild(
+          boolField(
+            'requireAllObjectives',
+            'requireAllObjectives',
+            '攻擊方需同時佔領所有點位才算失守',
+          ),
+        );
         paramsBox.appendChild(hint('玩家方累計啟動次數，超過則任務失敗'));
+      } else if (draft.scenario === 'control-points') {
+        paramsBox.appendChild(numField('winScore', 'winScore', 5));
+        paramsBox.appendChild(numField('winLead', 'winLead', 2));
+        paramsBox.appendChild(
+          hint(
+            '每個 cycle 結束結算分數；達 winScore 且領先對方 winLead 才獲勝',
+          ),
+        );
+        // Per-objective weight rows: one numField per objective. Read/write
+        // through `scenarioParams.objectiveWeights[<id>]`. Missing keys
+        // default to 1 at scoring time.
+        if (draft.objectives.length > 0) {
+          const weightsRaw = draft.scenarioParams.objectiveWeights;
+          const weights: Record<string, number> =
+            weightsRaw && typeof weightsRaw === 'object'
+              ? { ...(weightsRaw as Record<string, number>) }
+              : {};
+          draft.scenarioParams.objectiveWeights = weights;
+          const wTable = el('div', {
+            style: {
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px',
+              padding: '4px 0',
+            },
+          });
+          wTable.appendChild(
+            el('div', {
+              text: 'Per-objective weight (default 1)',
+              style: { fontSize: '11px', color: '#9aa89a' },
+            }),
+          );
+          for (const o of draft.objectives) {
+            const inp = el('input', {
+              type: 'number',
+              value: String(weights[o.id] ?? 1),
+              style: { width: '70px' },
+            }) as HTMLInputElement;
+            inp.addEventListener('input', () => {
+              const n = Number(inp.value);
+              if (Number.isFinite(n)) weights[o.id] = n;
+            });
+            wTable.appendChild(
+              el('label', {
+                children: [
+                  document.createTextNode(o.id + ' '),
+                  inp,
+                ],
+                style: { fontSize: '12px' },
+              }),
+            );
+          }
+          paramsBox.appendChild(wTable);
+        }
       } else if (draft.scenario === 'extract') {
         paramsBox.appendChild(numField('extractCount', 'extractCount', 2));
         paramsBox.appendChild(

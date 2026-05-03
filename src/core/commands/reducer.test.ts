@@ -222,6 +222,98 @@ describe('Round transitions', () => {
   });
 });
 
+describe('control-points scoring tick', () => {
+  it('updates objectiveControl + objectiveScores on cycle bump (A→B→A)', () => {
+    const s0: GameState = {
+      seed: 'cp-test',
+      commandCount: 0,
+      units: [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(100, 100) }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(700, 700) }),
+      ],
+      terrain: [],
+      objectives: [{ id: 'obj-1', position: v2(100, 100), radius: 30 }],
+      scenarioInfo: { mode: 'control-points', params: {} },
+      initiative: {
+        holder: 'A',
+        momentum: { A: 0, B: 0 },
+        cycle: 1,
+        playerActivations: 0,
+        activeActivation: null,
+        objectiveScores: { A: 0, B: 0 },
+        objectiveControl: { 'obj-1': null },
+      },
+    };
+    const r = applyCommands(s0, [
+      { type: 'PASS_INITIATIVE' }, // A → B (no cycle bump)
+      { type: 'PASS_INITIATIVE' }, // B → A (cycle bump → score tick)
+    ]);
+    expect(r.state.initiative.cycle).toBe(2);
+    expect(r.state.initiative.objectiveControl?.['obj-1']).toBe('A');
+    expect(r.state.initiative.objectiveScores).toEqual({ A: 1, B: 0 });
+  });
+
+  it('weights from scenarioInfo.params.objectiveWeights apply', () => {
+    const s0: GameState = {
+      seed: 'cp-w',
+      commandCount: 0,
+      units: [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(100, 100) }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(700, 700) }),
+      ],
+      terrain: [],
+      objectives: [{ id: 'obj-1', position: v2(100, 100), radius: 30 }],
+      scenarioInfo: {
+        mode: 'control-points',
+        params: { objectiveWeights: { 'obj-1': 3 } },
+      },
+      initiative: {
+        holder: 'A',
+        momentum: { A: 0, B: 0 },
+        cycle: 1,
+        playerActivations: 0,
+        activeActivation: null,
+        objectiveScores: { A: 0, B: 0 },
+        objectiveControl: { 'obj-1': null },
+      },
+    };
+    const r = applyCommands(s0, [
+      { type: 'PASS_INITIATIVE' },
+      { type: 'PASS_INITIATIVE' },
+    ]);
+    expect(r.state.initiative.objectiveScores).toEqual({ A: 3, B: 0 });
+  });
+
+  it('non-control-points scenario does not mutate scores even on cycle bump', () => {
+    const s0: GameState = {
+      seed: 'eng-test',
+      commandCount: 0,
+      units: [
+        makeUnit({ id: 'a1', faction: 'A', position: v2(100, 100) }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(700, 700) }),
+      ],
+      terrain: [],
+      objectives: [{ id: 'obj-1', position: v2(100, 100), radius: 30 }],
+      scenarioInfo: { mode: 'engage-reach', params: {} },
+      initiative: {
+        holder: 'A',
+        momentum: { A: 0, B: 0 },
+        cycle: 1,
+        playerActivations: 0,
+        activeActivation: null,
+        objectiveScores: { A: 0, B: 0 },
+        objectiveControl: { 'obj-1': null },
+      },
+    };
+    const r = applyCommands(s0, [
+      { type: 'PASS_INITIATIVE' },
+      { type: 'PASS_INITIATIVE' },
+    ]);
+    expect(r.state.initiative.objectiveScores).toEqual({ A: 0, B: 0 });
+    expect(r.state.initiative.objectiveControl?.['obj-1']).toBeNull();
+  });
+});
+
 describe('Determinism', () => {
   it('same seed + same commands → identical state and events', () => {
     const s0 = withUnit(makeState({ seed: 'deterministic' }), 'a1', { quality: 1 });

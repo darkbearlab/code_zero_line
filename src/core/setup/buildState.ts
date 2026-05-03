@@ -69,6 +69,17 @@ export const buildInitialState = (input: BuildInitialStateInput): GameState => {
       cycle: 1,
       playerActivations: 0,
       activeActivation: null,
+      // Control-points scoring fields. Cheap to keep around for every match;
+      // only the `control-points` scenario actually mutates / reads them, so
+      // other modes leave the neutral map and zero scores untouched.
+      ...(objectives.length > 0
+        ? {
+            objectiveScores: { A: 0, B: 0 },
+            objectiveControl: Object.fromEntries(
+              objectives.map((o) => [o.id, null] as const),
+            ),
+          }
+        : {}),
     },
   };
 };
