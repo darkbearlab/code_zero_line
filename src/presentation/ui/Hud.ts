@@ -1338,5 +1338,7 @@ const formatEvent = (e: GameEvent): string => {
       return `⚔ ${e.attackerId} vs ${e.defenderId}: ${e.attackerHits}-${e.defenderHits} → ${e.winnerId} wins`;
     case 'RALLY_ROLLED':
       return `🎯 ${e.unitId} rally ${e.threshold}+ → ${e.roll} → ${e.success ? `${e.beforeDamage}→${e.afterDamage}` : '✗'}`;
+    case 'IMPULSIVE_TRIGGERED':
+      return `⚡ ${e.unitId} impulsive(${e.variant.toLowerCase()}) on ${e.reason} → ${e.action}`;
   }
 };

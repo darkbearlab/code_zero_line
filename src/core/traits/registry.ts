@@ -67,13 +67,16 @@ export const TRAITS: Readonly<Record<string, TraitDef>> = {
     description:
       '一場遊戲一次，當在非壓制的情況下受到應致死的攻擊時，改為受到壓制。',
   },
-  // • Impulsive (rule 5) — multiple branch behaviors per unit; pending.
-  IMPULSIVE: {
-    id: 'IMPULSIVE',
-    displayName: '衝動',
+  // ✓ Impulsive (rule 5) — variant-per-id design. Each variant ID encodes
+  // both the shared trigger ("act on activation failure or before turnover
+  // if not yet activated this round") and the variant-specific action.
+  // Wired in src/core/commands/impulsive.ts + reducer activateCheck failure
+  // branch + turnover() prelude.
+  IMPULSIVE_AGGRESSIVE: {
+    id: 'IMPULSIVE_AGGRESSIVE',
+    displayName: '衝動（侵略）',
     description:
-      '啟動檢定失敗或主動權易手時尚未行動 → 強制執行特質描述行動。',
-    tbd: true,
+      '啟動檢定失敗或主動權易手時尚未行動 → 視線內有合法射擊目標則射擊期望命中最高者，否則朝最近敵人移動 1 UD（可繞 HARD 牆）。',
   },
   // • Agitator(N) (rule 7) — alternate activation cost from allies; pending.
   AGITATOR: {

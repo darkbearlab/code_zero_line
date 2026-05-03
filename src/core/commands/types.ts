@@ -184,6 +184,13 @@ export type GameEvent =
       officerUsed: string | null;
       beforeDamage: DamageState;
       afterDamage: DamageState;
+    }
+  | {
+      type: 'IMPULSIVE_TRIGGERED';
+      unitId: string;
+      variant: 'AGGRESSIVE';
+      reason: 'CHECK_FAILED' | 'TURNOVER';
+      action: 'SHOOT' | 'MOVE' | 'NONE';
     };
 
 export class CommandError extends Error {

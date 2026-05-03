@@ -71,6 +71,34 @@ export const getUnitTraits = (unit: Unit): ReadonlyArray<TraitInstance> =>
 export const unitHasTrait = (unit: Unit, id: string): boolean =>
   unit.traits.some((t) => parseTrait(t).id === id);
 
+/**
+ * IMPULSIVE variants. Each variant has its own trait id (IMPULSIVE_AGGRESSIVE,
+ * future: IMPULSIVE_CONSCRIPT, IMPULSIVE_FANATIC_RUSH …). They share the
+ * trigger machinery (failed activation check / pre-turnover) but differ in
+ * the forced action they execute.
+ */
+export type ImpulsiveVariant = 'AGGRESSIVE';
+
+const IMPULSIVE_TRAIT_BY_VARIANT: Readonly<Record<ImpulsiveVariant, string>> = {
+  AGGRESSIVE: 'IMPULSIVE_AGGRESSIVE',
+};
+
+const IMPULSIVE_VARIANT_BY_TRAIT: Readonly<Record<string, ImpulsiveVariant>> =
+  Object.fromEntries(
+    Object.entries(IMPULSIVE_TRAIT_BY_VARIANT).map(([v, id]) => [id, v as ImpulsiveVariant]),
+  );
+
+export const getImpulsiveVariant = (unit: Unit): ImpulsiveVariant | null => {
+  for (const t of unit.traits) {
+    const id = parseTrait(t).id;
+    const v = IMPULSIVE_VARIANT_BY_TRAIT[id];
+    if (v) return v;
+  }
+  return null;
+};
+
+export const isImpulsive = (unit: Unit): boolean => getImpulsiveVariant(unit) !== null;
+
 /** Sum the parameters of all trait instances with `id`. ARMOR:1 + ARMOR:2 = 3. */
 export const sumTraitParams = (unit: Unit, id: string): number => {
   let sum = 0;

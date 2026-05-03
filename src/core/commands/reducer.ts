@@ -4,7 +4,9 @@ import { hasStealthBypass } from '../resolution/stealth';
 import { computeMovePath } from '../geometry/path';
 import { isPointInPolygon } from '../geometry/polygon';
 import { TRAITS } from '../traits/registry';
-import { getUnitTraits, unitHasTrait } from '../traits/types';
+import { getUnitTraits, isImpulsive, unitHasTrait } from '../traits/types';
+import { executeImpulsiveAction } from './impulsive';
+import { pathfindingStepToward } from '../../ai/navigation';
 import {
   climbDestination,
   findContactedHardWall,
@@ -181,8 +183,41 @@ const turnover = (
   s: GameState,
   reason: TurnoverReason,
   granted: number,
+  cmdIndex: number,
 ): CommandResult => {
   const from = s.initiative.holder;
+  // Rule 5 (IMPULSIVE) Trigger 2: any IMPULSIVE unit on the OUTGOING side
+  // that hasn't acted this round is forced to act before the swap. Iterate
+  // in units-array order so behaviour is deterministic across snapshots /
+  // replays. Forced shoots & moves can't recursively cause turnover, so a
+  // single pass is enough — but units removed from the eligibility set by
+  // earlier triggers (e.g. killed by their own forced action — impossible
+  // in practice) are skipped via the in-loop liveness check.
+  let working = s;
+  const accumulatedEvents: GameEvent[] = [];
+  const candidateIds = working.units
+    .filter(
+      (u) =>
+        u.faction === from &&
+        isImpulsive(u) &&
+        !u.activatedThisRound &&
+        isUnitAlive(u),
+    )
+    .map((u) => u.id);
+  for (const id of candidateIds) {
+    const fresh = findUnit(working, id);
+    if (!fresh || !isUnitAlive(fresh) || fresh.activatedThisRound) continue;
+    const imp = executeImpulsiveAction(
+      working,
+      id,
+      cmdIndex,
+      'TURNOVER',
+      { pathfind: pathfindingStepToward },
+    );
+    working = imp.state;
+    accumulatedEvents.push(...imp.events);
+  }
+  s = working;
   const to = opponent(from);
   const newMomentum: Record<Faction, number> = { A: 0, B: 0 };
   newMomentum[to] = granted;
@@ -251,6 +286,7 @@ const turnover = (
   return {
     state: next,
     events: [
+      ...accumulatedEvents,
       {
         type: 'INITIATIVE_TURNOVER',
         from,
@@ -329,7 +365,20 @@ const activateCheck = (
       ],
     };
   }
-  const t = turnover(bumped, 'CHECK_FAILED', TURNOVER_MOMENTUM_GRANT);
+  // Rule 5 (IMPULSIVE): a failed check on an IMPULSIVE unit forces the
+  // variant-specific action and KEEPS initiative — no turnover, no momentum
+  // grant. The unit's slot is consumed (executor sets activatedThisRound).
+  if (isImpulsive(u)) {
+    const imp = executeImpulsiveAction(
+      bumped,
+      u.id,
+      cmdIndex,
+      'CHECK_FAILED',
+      { pathfind: pathfindingStepToward },
+    );
+    return { state: imp.state, events: [checkEvent, ...imp.events] };
+  }
+  const t = turnover(bumped, 'CHECK_FAILED', TURNOVER_MOMENTUM_GRANT, cmdIndex);
   return { state: t.state, events: [checkEvent, ...t.events] };
 };
 
@@ -365,7 +414,7 @@ const activateOverdraft = (s: GameState, unitId: string): CommandResult => {
   };
 };
 
-const endActivation = (s: GameState): CommandResult => {
+const endActivation = (s: GameState, cmdIndex: number): CommandResult => {
   const act = s.initiative.activeActivation;
   if (!act) {
     throw new CommandError('NO_ACTIVE_ACTIVATION', 'No activation to end');
@@ -385,18 +434,18 @@ const endActivation = (s: GameState): CommandResult => {
     act.kind === 'OVERDRAFT' && act.overdraftDeficit !== undefined
       ? act.overdraftDeficit
       : TURNOVER_MOMENTUM_GRANT;
-  const t = turnover(cleared, reason, granted);
+  const t = turnover(cleared, reason, granted, cmdIndex);
   return { state: t.state, events: [endedEvent, ...t.events] };
 };
 
-const passInitiative = (s: GameState): CommandResult => {
+const passInitiative = (s: GameState, cmdIndex: number): CommandResult => {
   if (s.initiative.activeActivation) {
     throw new CommandError(
       'ACTIVATION_IN_PROGRESS',
       'Cannot pass initiative while an activation is in progress',
     );
   }
-  return turnover(s, 'VOLUNTARY', TURNOVER_MOMENTUM_GRANT);
+  return turnover(s, 'VOLUNTARY', TURNOVER_MOMENTUM_GRANT, cmdIndex);
 };
 
 type ActionOutcome = 'SUCCESS' | 'FAILURE' | 'REACTION_HIT' | 'FORCED_END';
@@ -411,18 +460,19 @@ type ActionOutcome = 'SUCCESS' | 'FAILURE' | 'REACTION_HIT' | 'FORCED_END';
 const processPostAction = (
   s: GameState,
   outcome: ActionOutcome,
+  cmdIndex: number,
 ): CommandResult => {
   const act = s.initiative.activeActivation;
   if (!act) return { state: s, events: [] };
 
   if (outcome === 'REACTION_HIT') {
     const cleared = setActivation(s, null);
-    return turnover(cleared, 'REACTION_HIT', TURNOVER_MOMENTUM_GRANT);
+    return turnover(cleared, 'REACTION_HIT', TURNOVER_MOMENTUM_GRANT, cmdIndex);
   }
 
   if (outcome === 'FAILURE' && !act.failureProtection) {
     const cleared = setActivation(s, null);
-    return turnover(cleared, 'ACTION_FAILED', TURNOVER_MOMENTUM_GRANT);
+    return turnover(cleared, 'ACTION_FAILED', TURNOVER_MOMENTUM_GRANT, cmdIndex);
   }
 
   // FORCED_END: action completed but activation ends without turnover.
@@ -462,7 +512,7 @@ const processPostAction = (
         act.kind === 'OVERDRAFT' && act.overdraftDeficit !== undefined
           ? act.overdraftDeficit
           : TURNOVER_MOMENTUM_GRANT;
-      const t = turnover(cleared, reason, granted);
+      const t = turnover(cleared, reason, granted, cmdIndex);
       return {
         state: t.state,
         events: [
@@ -887,7 +937,7 @@ const moveAction = (
       : startedInDifficult
         ? 'FORCED_END'
         : 'SUCCESS';
-  const post = processPostAction(moved, outcome);
+  const post = processPostAction(moved, outcome, cmdIndex);
   return {
     state: post.state,
     events: [moveEvent, ...reactionResult.events, ...post.events],
@@ -1028,7 +1078,7 @@ const crawlAction = (
     reactionOutcomeAfterFodder(u, reactionResult) === 'REACTION_HIT'
       ? 'REACTION_HIT'
       : 'FORCED_END';
-  const post = processPostAction(moved, outcome);
+  const post = processPostAction(moved, outcome, cmdIndex);
   return {
     state: post.state,
     events: [moveEvent, ...reactionResult.events, ...post.events],
@@ -1145,7 +1195,7 @@ const vaultAction = (
   };
 
   const outcome: ActionOutcome = reactionOutcomeAfterFodder(u, reactionResult);
-  const post = processPostAction(moved, outcome);
+  const post = processPostAction(moved, outcome, cmdIndex);
   return {
     state: post.state,
     events: [moveEvent, ...reactionResult.events, ...post.events],
@@ -1246,7 +1296,7 @@ const climbAction = (
     reactionOutcomeAfterFodder(u, reactionResult) === 'REACTION_HIT'
       ? 'REACTION_HIT'
       : 'FORCED_END';
-  const post = processPostAction(moved, outcome);
+  const post = processPostAction(moved, outcome, cmdIndex);
   return {
     state: post.state,
     events: [moveEvent, ...reactionResult.events, ...post.events],
@@ -1317,7 +1367,7 @@ const traverseAction = (
   };
 
   const outcome: ActionOutcome = reactionOutcomeAfterFodder(u, reactionResult);
-  const post = processPostAction(moved, outcome);
+  const post = processPostAction(moved, outcome, cmdIndex);
   return {
     state: post.state,
     events: [moveEvent, ...reactionResult.events, ...post.events],
@@ -1652,7 +1702,7 @@ const commandMoveAction = (
   const outcome: ActionOutcome = groupReaction.suppressOrKillCaused
     ? 'REACTION_HIT'
     : 'FORCED_END';
-  const post = processPostAction(finalState, outcome);
+  const post = processPostAction(finalState, outcome, cmdIndex);
   return { state: post.state, events: [...events, ...post.events] };
 };
 
@@ -1739,7 +1789,7 @@ const commandRallyAction = (
   const events: GameEvent[] = [...groupReaction.events];
 
   if (groupReaction.suppressOrKillCaused) {
-    const post = processPostAction(finalState, 'REACTION_HIT');
+    const post = processPostAction(finalState, 'REACTION_HIT', cmdIndex);
     return { state: post.state, events: [...events, ...post.events] };
   }
 
@@ -1781,7 +1831,7 @@ const commandRallyAction = (
 
   // Command rally always ends activation without turnover, even if some
   // checks failed (per rule "行動完成後，軍官的啟動結束").
-  const post = processPostAction(finalState, 'FORCED_END');
+  const post = processPostAction(finalState, 'FORCED_END', cmdIndex);
   return { state: post.state, events: [...events, ...post.events] };
 };
 
@@ -1904,11 +1954,11 @@ const meleeAction = (
   if (!attackerWins && isCharging) {
     // Rule 4.7C: charging attacker lost → turnover.
     const cleared = setActivation(next, null);
-    const t = turnover(cleared, 'MELEE_LOSS', TURNOVER_MOMENTUM_GRANT);
+    const t = turnover(cleared, 'MELEE_LOSS', TURNOVER_MOMENTUM_GRANT, cmdIndex);
     return { state: t.state, events: [meleeEvent, ...t.events] };
   }
 
-  const post = processPostAction(next, 'SUCCESS');
+  const post = processPostAction(next, 'SUCCESS', cmdIndex);
   return { state: post.state, events: [meleeEvent, ...post.events] };
 };
 
@@ -1946,7 +1996,7 @@ const rallyAction = (
   // If reactions interrupted the rally, skip the check and post-action.
   if (reactionResult.interruptT !== null) {
     const outcome = reactionOutcomeAfterFodder(u, reactionResult);
-    const post = processPostAction(reactionResult.state, outcome);
+    const post = processPostAction(reactionResult.state, outcome, cmdIndex);
     return {
       state: post.state,
       events: [...reactionResult.events, ...post.events],
@@ -1958,7 +2008,7 @@ const rallyAction = (
   // without a hit landing damage shouldn't have changed.
   const u2 = findUnit(working, unitId) ?? u;
   if (!isUnitAlive(u2)) {
-    const post = processPostAction(working, 'REACTION_HIT');
+    const post = processPostAction(working, 'REACTION_HIT', cmdIndex);
     return { state: post.state, events: [...reactionResult.events, ...post.events] };
   }
 
@@ -2005,7 +2055,7 @@ const rallyAction = (
 
   if (!success) {
     const cleared = setActivation(working, null);
-    const t = turnover(cleared, 'ACTION_FAILED', TURNOVER_MOMENTUM_GRANT);
+    const t = turnover(cleared, 'ACTION_FAILED', TURNOVER_MOMENTUM_GRANT, cmdIndex);
     return {
       state: t.state,
       events: [...reactionResult.events, ...rallyEvents, ...t.events],
@@ -2079,7 +2129,7 @@ const shootAction = (
   });
 
   const outcome = shot.causedSuppressOrKill ? 'SUCCESS' : 'FAILURE';
-  const post = processPostAction(shot.state, outcome);
+  const post = processPostAction(shot.state, outcome, cmdIndex);
   return { state: post.state, events: [...shot.events, ...post.events] };
 };
 
@@ -2094,9 +2144,9 @@ export const applyCommand = (state: GameState, cmd: Command): CommandResult => {
     case 'ACTIVATE_OVERDRAFT':
       return activateOverdraft(s, cmd.unitId);
     case 'END_ACTIVATION':
-      return endActivation(s);
+      return endActivation(s, cmdIndex);
     case 'PASS_INITIATIVE':
-      return passInitiative(s);
+      return passInitiative(s, cmdIndex);
     case 'MOVE':
       return moveAction(
         s,

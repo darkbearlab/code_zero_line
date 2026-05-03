@@ -79,7 +79,7 @@ describe('registry', () => {
       'CANNON_FODDER',
       'FANATIC',
       'TOUGH',
-      'IMPULSIVE',
+      'IMPULSIVE_AGGRESSIVE',
       'AGITATOR',
       'WARLORD',
       'MARTYRDOM',
