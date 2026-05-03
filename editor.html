@@ -209,6 +209,73 @@
         text-align: center;
         font-size: 13px;
       }
+
+      /* Map editor: sticky top bar + sticky left toolbar, canvas fills rest */
+      .form.map-form {
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        min-height: calc(100vh - 130px);
+      }
+      .map-top-bar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        background: rgba(20, 30, 20, 0.96);
+        border-bottom: 1px solid #3a5a3a;
+        padding: 10px 14px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+      .map-body {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        gap: 10px;
+        flex: 1;
+        min-height: 0;
+      }
+      .map-tools {
+        position: sticky;
+        top: 56px;
+        align-self: start;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 10px;
+        background: rgba(20, 30, 20, 0.6);
+        border-right: 1px solid #2a3a2a;
+        max-height: calc(100vh - 150px);
+        overflow-y: auto;
+        z-index: 10;
+      }
+      .map-tools .sep {
+        height: 1px;
+        background: #3a5a3a;
+        margin: 4px 0;
+      }
+      .map-tools button {
+        text-align: left;
+        font-size: 12px;
+        padding: 4px 8px;
+      }
+      .map-main {
+        display: flex;
+        flex-direction: column;
+        padding: 10px 14px 14px 0;
+        min-width: 0;
+      }
+      .map-canvas-wrap {
+        flex: 1;
+        min-height: 320px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-start;
+      }
+      .map-canvas-wrap canvas {
+        display: block;
+      }
     </style>
   </head>
   <body>

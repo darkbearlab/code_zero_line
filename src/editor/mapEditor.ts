@@ -292,178 +292,20 @@ export const mountMapEditor = (root: HTMLElement): void => {
 
   const renderForm = (): void => {
     formPanel.innerHTML = '';
+    formPanel.classList.add('map-form');
 
-    const toolbar = el('div');
-    toolbar.style.display = 'flex';
-    toolbar.style.flexWrap = 'wrap';
-    toolbar.style.gap = '6px';
-    toolbar.style.marginBottom = '12px';
-
-    for (const t of TOOL_ORDER) {
-      const btn = el('button', {
-        text: TOOL_LABEL[t],
-        onclick: () => {
-          activeTool = t;
-          renderForm();
-        },
-      });
-      if (t === activeTool) btn.style.background = '#2a4a2a';
-      btn.style.padding = '4px 10px';
-      toolbar.appendChild(btn);
-    }
-
-    toolbar.appendChild(el('span', { text: ' | ', style: { color: '#3a5a3a' } }));
-
-    toolbar.appendChild(
-      el('button', {
-        text: 'Rotate -15°',
-        onclick: () => {
-          rotateSelected(-Math.PI / 12);
-        },
-      }),
-    );
-    toolbar.appendChild(
-      el('button', {
-        text: 'Rotate +15°',
-        onclick: () => {
-          rotateSelected(Math.PI / 12);
-        },
-      }),
-    );
-    toolbar.appendChild(
-      el('button', {
-        text: 'Duplicate',
-        onclick: () => {
-          duplicateSelected();
-        },
-      }),
-    );
-    toolbar.appendChild(
-      el('button', {
-        text: 'Delete',
-        onclick: () => {
-          deleteSelected();
-        },
-      }),
-    );
-
-    toolbar.appendChild(el('span', { text: ' | ', style: { color: '#3a5a3a' } }));
-    toolbar.appendChild(
-      el('button', {
-        text: '翻轉 ↔ (整張地圖)',
-        onclick: () => {
-          mirrorMap('h');
-        },
-      }),
-    );
-    toolbar.appendChild(
-      el('button', {
-        text: '翻轉 ↕ (整張地圖)',
-        onclick: () => {
-          mirrorMap('v');
-        },
-      }),
-    );
-
-    // Live mirror toggles — mutually exclusive. While on, every add/edit/
-    // delete is mirrored across the chosen axis.
-    const mirrorH = el('button', {
-      text: mirrorAxis === 'h' ? '✓ 鏡像 ↔' : '鏡像 ↔',
-      onclick: () => {
-        mirrorAxis = mirrorAxis === 'h' ? null : 'h';
-        renderForm();
-      },
-    }) as HTMLButtonElement;
-    mirrorH.title =
-      '開啟後，新增/編輯/刪除任一邊的形狀會自動同步到水平鏡像的另一邊';
-    if (mirrorAxis === 'h') mirrorH.style.background = '#2a4a2a';
-    toolbar.appendChild(mirrorH);
-
-    const mirrorV = el('button', {
-      text: mirrorAxis === 'v' ? '✓ 鏡像 ↕' : '鏡像 ↕',
-      onclick: () => {
-        mirrorAxis = mirrorAxis === 'v' ? null : 'v';
-        renderForm();
-      },
-    }) as HTMLButtonElement;
-    mirrorV.title =
-      '開啟後，新增/編輯/刪除任一邊的形狀會自動同步到垂直鏡像的另一邊';
-    if (mirrorAxis === 'v') mirrorV.style.background = '#2a4a2a';
-    toolbar.appendChild(mirrorV);
-
-    const snapBtn = el('label', {
-      style: {
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: '4px',
-        marginLeft: '8px',
-        fontSize: '12px',
-        color: '#9aa89a',
-      },
-    });
-    const snapBox = el('input', {
-      type: 'checkbox',
-      checked: snap,
-      onchange: () => {
-        snap = (snapBox as HTMLInputElement).checked;
-      },
-    });
-    snapBtn.appendChild(snapBox);
-    snapBtn.appendChild(document.createTextNode('Snap 8px'));
-    toolbar.appendChild(snapBtn);
-
-    // View controls — zoom + reset. Cursor wheel and middle-mouse / space
-    // drag are the primary path; these are the keyboard-free fallback.
-    toolbar.appendChild(el('span', { text: ' | ', style: { color: '#3a5a3a' } }));
-    const zoomAt = (factor: number): void => {
-      const cx = CANVAS_PX / 2;
-      const cy = CANVAS_PX / 2;
-      const before = toWorld(cx, cy);
-      viewScale = Math.max(
-        MIN_VIEW_SCALE,
-        Math.min(MAX_VIEW_SCALE, viewScale * factor),
-      );
-      const s = effScale();
-      viewOffsetX = cx - before.x * s;
-      viewOffsetY = cy - before.y * s;
-      redraw();
-    };
-    const zoomOutBtn = el('button', {
-      text: '−',
-      onclick: () => zoomAt(1 / 1.25),
-    }) as HTMLButtonElement;
-    zoomOutBtn.title = '縮小（也可滑鼠滾輪向下）';
-    toolbar.appendChild(zoomOutBtn);
-    const zoomInBtn = el('button', {
-      text: '+',
-      onclick: () => zoomAt(1.25),
-    }) as HTMLButtonElement;
-    zoomInBtn.title = '放大（也可滑鼠滾輪向上）';
-    toolbar.appendChild(zoomInBtn);
-    const resetViewBtn = el('button', {
-      text: '重設視角',
-      onclick: () => {
-        resetView();
-        redraw();
-      },
-    }) as HTMLButtonElement;
-    resetViewBtn.title =
-      '回到 1:1 並置中。拖曳：按住中鍵或空白鍵 + 左鍵；右鍵也可拖曳。';
-    toolbar.appendChild(resetViewBtn);
-
-    formPanel.appendChild(toolbar);
-
-    // Canvas
+    // Canvas + dynamic side. ResizeObserver below recomputes after layout
+    // so the canvas fills the available space inside .map-canvas-wrap.
+    let canvasSide = CANVAS_PX;
     const canvas = document.createElement('canvas');
-    canvas.width = CANVAS_PX;
-    canvas.height = CANVAS_PX;
+    canvas.width = canvasSide;
+    canvas.height = canvasSide;
     canvas.style.border = '1px solid #2a3a2a';
     canvas.style.background = '#0e120e';
     canvas.style.cursor = activeTool === 'select' ? 'default' : 'crosshair';
     canvas.style.touchAction = 'none';
 
-    const baseScale = CANVAS_PX / doc.size;
-    const effScale = (): number => baseScale * viewScale;
+    const effScale = (): number => (canvasSide / doc.size) * viewScale;
     const toWorld = (px: number, py: number): { x: number; y: number } => {
       const s = effScale();
       return {
@@ -490,7 +332,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
     const redraw = (): void => {
       const ctx = canvas.getContext('2d')!;
       const s = effScale();
-      ctx.clearRect(0, 0, CANVAS_PX, CANVAS_PX);
+      ctx.clearRect(0, 0, canvasSide, canvasSide);
       ctx.save();
       ctx.translate(viewOffsetX, viewOffsetY);
       ctx.scale(s, s);
@@ -520,6 +362,22 @@ export const mountMapEditor = (root: HTMLElement): void => {
       }
 
       ctx.restore();
+    };
+
+    // Cursor-anchored zoom (used by toolbar + wheel). Defined here so the
+    // tool column buttons can reference it when built below.
+    const zoomAt = (factor: number): void => {
+      const cx = canvasSide / 2;
+      const cy = canvasSide / 2;
+      const before = toWorld(cx, cy);
+      viewScale = Math.max(
+        MIN_VIEW_SCALE,
+        Math.min(MAX_VIEW_SCALE, viewScale * factor),
+      );
+      const s = effScale();
+      viewOffsetX = cx - before.x * s;
+      viewOffsetY = cy - before.y * s;
+      redraw();
     };
 
     const onPointerDown = (e: PointerEvent): void => {
@@ -733,13 +591,10 @@ export const mountMapEditor = (root: HTMLElement): void => {
     canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('pointercancel', onPointerUp);
 
-    formPanel.appendChild(canvas);
-
-    // Info / shape inspector
+    // Info / shape inspector — appended into mainCol below.
     const info = el('div', {
       style: { marginTop: '10px', fontSize: '12px', color: '#9aa89a' },
     });
-    formPanel.appendChild(info);
 
     const renderInfo = (): void => {
       info.innerHTML = '';
@@ -841,30 +696,31 @@ export const mountMapEditor = (root: HTMLElement): void => {
       redraw();
     };
 
-    // Doc form (id, displayName, save buttons)
-    const formInputs = el('div');
-    formInputs.style.marginTop = '14px';
-    formInputs.style.borderTop = '1px solid #2a3a2a';
-    formInputs.style.paddingTop = '12px';
+    // ─── Top bar: id / name / size + save actions ─────────────────
+    const topBar = el('div', { className: 'map-top-bar' });
+    const labelStyle = { fontSize: '11px', color: '#9aa89a' };
+    const inlineGroup = (): HTMLElement =>
+      el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } });
 
-    const idRow = el('div', { className: 'row' });
-    idRow.appendChild(el('label', { text: 'Map ID' }));
+    const idGroup = inlineGroup();
+    idGroup.appendChild(el('label', { text: 'ID', style: labelStyle }));
     const idInput = el('input', {
       type: 'text',
       value: doc.id,
+      style: { width: '110px', fontSize: '12px', padding: '3px 6px' },
       oninput: (e) => {
-        const v = (e.target as HTMLInputElement).value.trim();
-        doc = { ...doc, id: v };
+        doc = { ...doc, id: (e.target as HTMLInputElement).value.trim() };
       },
     });
-    idRow.appendChild(idInput);
-    formInputs.appendChild(idRow);
+    idGroup.appendChild(idInput);
+    topBar.appendChild(idGroup);
 
-    const nameRow = el('div', { className: 'row' });
-    nameRow.appendChild(el('label', { text: 'Display name' }));
+    const nameGroup = inlineGroup();
+    nameGroup.appendChild(el('label', { text: 'Name', style: labelStyle }));
     const nameInput = el('input', {
       type: 'text',
       value: doc.displayName,
+      style: { width: '180px', fontSize: '12px', padding: '3px 6px' },
       oninput: (e) => {
         doc = {
           ...doc,
@@ -872,22 +728,22 @@ export const mountMapEditor = (root: HTMLElement): void => {
         };
       },
     });
-    nameRow.appendChild(nameInput);
-    formInputs.appendChild(nameRow);
+    nameGroup.appendChild(nameInput);
+    topBar.appendChild(nameGroup);
 
-    const sizeRow = el('div', { className: 'row' });
-    sizeRow.appendChild(el('label', { text: 'Battlefield size (inches)' }));
-    const sizeWrap = el('div', {
-      style: { display: 'flex', alignItems: 'center', gap: '6px' },
-    });
+    const sizeGroup = inlineGroup();
+    sizeGroup.appendChild(el('label', { text: 'Size', style: labelStyle }));
     const sizeInput = el('input', {
       type: 'number',
       value: (doc.size / PX_PER_INCH).toFixed(0),
-      style: { width: '70px', fontSize: '12px', padding: '2px 4px' },
+      style: { width: '54px', fontSize: '12px', padding: '3px 6px' },
       onchange: (e) => {
         const n = Number((e.target as HTMLInputElement).value);
         if (!Number.isFinite(n)) return;
-        const clamped = Math.max(MIN_MAP_INCHES, Math.min(MAX_MAP_INCHES, Math.round(n)));
+        const clamped = Math.max(
+          MIN_MAP_INCHES,
+          Math.min(MAX_MAP_INCHES, Math.round(n)),
+        );
         const newPx = clamped * PX_PER_INCH;
         if (newPx === doc.size) return;
         doc = { ...doc, size: newPx };
@@ -897,51 +753,48 @@ export const mountMapEditor = (root: HTMLElement): void => {
     sizeInput.min = String(MIN_MAP_INCHES);
     sizeInput.max = String(MAX_MAP_INCHES);
     sizeInput.step = '1';
-    sizeWrap.appendChild(sizeInput);
-    sizeWrap.appendChild(
-      el('span', {
-        text: `(= ${doc.size}px). 越界形狀仍會保留, 但遊戲中不 render`,
-        style: { color: '#7a9a7a', fontSize: '11px' },
+    sizeInput.title = `1 inch = ${PX_PER_INCH}px。越界形狀仍會保留，但遊戲中不 render`;
+    sizeGroup.appendChild(sizeInput);
+    sizeGroup.appendChild(
+      el('span', { text: 'in', style: labelStyle }),
+    );
+    topBar.appendChild(sizeGroup);
+
+    topBar.appendChild(el('div', { style: { flex: '1' } }));
+
+    topBar.appendChild(
+      el('button', {
+        text: 'Save',
+        onclick: () => {
+          if (!doc.id || !doc.displayName) {
+            alert('Map needs an ID and a display name.');
+            return;
+          }
+          if (doc.id === 'demo') {
+            alert('Cannot overwrite the bundled "demo" map. Use a different ID.');
+            return;
+          }
+          upsertCustomMap(toEditorDoc(doc));
+          refresh();
+        },
       }),
     );
-    sizeRow.appendChild(sizeWrap);
-    formInputs.appendChild(sizeRow);
 
-    const actions = el('div', { className: 'actions' });
-    const saveBtn = el('button', {
-      text: 'Save',
-      onclick: () => {
-        if (!doc.id || !doc.displayName) {
-          alert('Map needs an ID and a display name.');
-          return;
-        }
-        if (doc.id === 'demo') {
-          alert('Cannot overwrite the bundled "demo" map. Use a different ID.');
-          return;
-        }
-        upsertCustomMap(toEditorDoc(doc));
-        refresh();
-      },
-    });
-    actions.appendChild(saveBtn);
-
-    const dupBtn = el('button', {
-      text: 'Save as new…',
-      onclick: () => {
-        const newId = prompt(
-          'New map ID:',
-          uniqueId(doc.id || 'my-map'),
-        );
-        if (!newId) return;
-        const newName = prompt('Display name:', doc.displayName + ' (copy)');
-        if (!newName) return;
-        const next: EditorMapDoc = { ...doc, id: newId, displayName: newName };
-        upsertCustomMap(toEditorDoc(next));
-        doc = cloneDoc(next);
-        refresh();
-      },
-    });
-    actions.appendChild(dupBtn);
+    topBar.appendChild(
+      el('button', {
+        text: 'Save as new…',
+        onclick: () => {
+          const newId = prompt('New map ID:', uniqueId(doc.id || 'my-map'));
+          if (!newId) return;
+          const newName = prompt('Display name:', doc.displayName + ' (copy)');
+          if (!newName) return;
+          const next: EditorMapDoc = { ...doc, id: newId, displayName: newName };
+          upsertCustomMap(toEditorDoc(next));
+          doc = cloneDoc(next);
+          refresh();
+        },
+      }),
+    );
 
     const customs = loadCustomMaps();
     const isCustom = customs.some((d) => d.id === doc.id);
@@ -957,42 +810,211 @@ export const mountMapEditor = (root: HTMLElement): void => {
         },
       });
       deleteBtn.classList.add('danger');
-      actions.appendChild(deleteBtn);
+      topBar.appendChild(deleteBtn);
     }
 
-    const validateBtn = el('button', {
-      text: 'Validate',
-      onclick: () => {
-        const issues = validateDoc(doc);
-        if (issues.length === 0) {
-          alert('Map looks good. ✓\n\nThe game battle screen needs at least one Zone A and one Zone B for deployment.');
-        } else {
-          alert('Issues:\n\n• ' + issues.join('\n• '));
-        }
-      },
-    });
-    actions.appendChild(validateBtn);
+    topBar.appendChild(
+      el('button', {
+        text: 'Validate',
+        onclick: () => {
+          const issues = validateDoc(doc);
+          if (issues.length === 0) {
+            alert(
+              'Map looks good. ✓\n\nThe game battle screen needs at least one Zone A and one Zone B for deployment.',
+            );
+          } else {
+            alert('Issues:\n\n• ' + issues.join('\n• '));
+          }
+        },
+      }),
+    );
 
     if (import.meta.env.DEV) {
       const saveToBundleBtn = el('button', {
         text: '⤒ Save to bundle',
         onclick: async () => {
-          if (!doc.id) { alert('Map needs an ID first.'); return; }
+          if (!doc.id) {
+            alert('Map needs an ID first.');
+            return;
+          }
           try {
             const mapDef = docToMapDef(doc);
             const result = await saveToBundleEndpoint('map', doc.id, mapDef);
-            alert(`Saved to ${result.path}\n\nThe JSON file is now part of the bundle. Commit it to make it permanent.`);
+            alert(
+              `Saved to ${result.path}\n\nThe JSON file is now part of the bundle. Commit it to make it permanent.`,
+            );
           } catch (e) {
             alert(`Save to bundle failed: ${(e as Error).message}`);
           }
         },
       }) as HTMLButtonElement;
-      saveToBundleBtn.title = 'Write to src/config/maps/<id>.json (dev server only)';
-      actions.appendChild(saveToBundleBtn);
+      saveToBundleBtn.title =
+        'Write to src/config/maps/<id>.json (dev server only)';
+      topBar.appendChild(saveToBundleBtn);
     }
 
-    formInputs.appendChild(actions);
-    formPanel.appendChild(formInputs);
+    formPanel.appendChild(topBar);
+
+    // ─── Body: left tool column + right canvas/info area ──────────
+    const body = el('div', { className: 'map-body' });
+
+    const tools = el('div', { className: 'map-tools' });
+    const sep = (): HTMLElement => el('div', { className: 'sep' });
+
+    for (const t of TOOL_ORDER) {
+      const btn = el('button', {
+        text: TOOL_LABEL[t],
+        onclick: () => {
+          activeTool = t;
+          renderForm();
+        },
+      }) as HTMLButtonElement;
+      if (t === activeTool) btn.style.background = '#2a4a2a';
+      tools.appendChild(btn);
+    }
+
+    tools.appendChild(sep());
+    tools.appendChild(
+      el('button', {
+        text: 'Rotate −15°',
+        onclick: () => rotateSelected(-Math.PI / 12),
+      }),
+    );
+    tools.appendChild(
+      el('button', {
+        text: 'Rotate +15°',
+        onclick: () => rotateSelected(Math.PI / 12),
+      }),
+    );
+    tools.appendChild(
+      el('button', {
+        text: 'Duplicate',
+        onclick: () => duplicateSelected(),
+      }),
+    );
+    tools.appendChild(
+      el('button', { text: 'Delete', onclick: () => deleteSelected() }),
+    );
+
+    tools.appendChild(sep());
+    tools.appendChild(
+      el('button', {
+        text: '翻轉 ↔ (整張)',
+        onclick: () => mirrorMap('h'),
+      }),
+    );
+    tools.appendChild(
+      el('button', {
+        text: '翻轉 ↕ (整張)',
+        onclick: () => mirrorMap('v'),
+      }),
+    );
+
+    const mirrorH = el('button', {
+      text: mirrorAxis === 'h' ? '✓ 鏡像 ↔' : '鏡像 ↔',
+      onclick: () => {
+        mirrorAxis = mirrorAxis === 'h' ? null : 'h';
+        renderForm();
+      },
+    }) as HTMLButtonElement;
+    mirrorH.title =
+      '開啟後，新增/編輯/刪除任一邊的形狀會自動同步到水平鏡像的另一邊';
+    if (mirrorAxis === 'h') mirrorH.style.background = '#2a4a2a';
+    tools.appendChild(mirrorH);
+
+    const mirrorV = el('button', {
+      text: mirrorAxis === 'v' ? '✓ 鏡像 ↕' : '鏡像 ↕',
+      onclick: () => {
+        mirrorAxis = mirrorAxis === 'v' ? null : 'v';
+        renderForm();
+      },
+    }) as HTMLButtonElement;
+    mirrorV.title =
+      '開啟後，新增/編輯/刪除任一邊的形狀會自動同步到垂直鏡像的另一邊';
+    if (mirrorAxis === 'v') mirrorV.style.background = '#2a4a2a';
+    tools.appendChild(mirrorV);
+
+    tools.appendChild(sep());
+
+    const snapLabel = el('label', {
+      style: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '6px',
+        fontSize: '12px',
+        color: '#9aa89a',
+        padding: '4px 4px',
+      },
+    });
+    const snapBox = el('input', {
+      type: 'checkbox',
+      checked: snap,
+      onchange: () => {
+        snap = (snapBox as HTMLInputElement).checked;
+      },
+    });
+    snapLabel.appendChild(snapBox);
+    snapLabel.appendChild(document.createTextNode('Snap 8px'));
+    tools.appendChild(snapLabel);
+
+    tools.appendChild(sep());
+    const zoomRow = el('div', { style: { display: 'flex', gap: '4px' } });
+    const zoomOutBtn = el('button', {
+      text: '−',
+      onclick: () => zoomAt(1 / 1.25),
+      style: { flex: '1', textAlign: 'center' },
+    }) as HTMLButtonElement;
+    zoomOutBtn.title = '縮小（也可滑鼠滾輪向下）';
+    zoomRow.appendChild(zoomOutBtn);
+    const zoomInBtn = el('button', {
+      text: '+',
+      onclick: () => zoomAt(1.25),
+      style: { flex: '1', textAlign: 'center' },
+    }) as HTMLButtonElement;
+    zoomInBtn.title = '放大（也可滑鼠滾輪向上）';
+    zoomRow.appendChild(zoomInBtn);
+    tools.appendChild(zoomRow);
+    const resetViewBtn = el('button', {
+      text: '重設視角',
+      onclick: () => {
+        resetView();
+        redraw();
+      },
+    }) as HTMLButtonElement;
+    resetViewBtn.title =
+      '回到 1:1 並置中。拖曳：按住中鍵或空白鍵 + 左鍵；右鍵也可拖曳。';
+    tools.appendChild(resetViewBtn);
+
+    body.appendChild(tools);
+
+    const mainCol = el('div', { className: 'map-main' });
+    const canvasWrap = el('div', { className: 'map-canvas-wrap' });
+    canvasWrap.appendChild(canvas);
+    mainCol.appendChild(canvasWrap);
+    mainCol.appendChild(info);
+    body.appendChild(mainCol);
+
+    formPanel.appendChild(body);
+
+    // Dynamic canvas sizing — fits the available area in canvasWrap, capped
+    // by viewport height so it stays square + visible without page scroll.
+    const sizeCanvas = (): void => {
+      const r = canvasWrap.getBoundingClientRect();
+      if (r.width <= 0) return;
+      const maxByHeight = window.innerHeight - 200;
+      const desired = Math.max(
+        320,
+        Math.floor(Math.min(r.width, maxByHeight)),
+      );
+      if (desired === canvasSide) return;
+      canvasSide = desired;
+      canvas.width = canvasSide;
+      canvas.height = canvasSide;
+      redraw();
+    };
+    const ro = new ResizeObserver(sizeCanvas);
+    ro.observe(canvasWrap);
+    requestAnimationFrame(sizeCanvas);
 
     redraw();
     renderInfo();
