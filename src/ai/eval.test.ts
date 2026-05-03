@@ -166,6 +166,58 @@ describe('evaluateState', () => {
     );
   });
 
+  it('unactivated IMPULSIVE_AGGRESSIVE is worth more than activated (free conditional action)', () => {
+    const fresh = baseState([
+      makeUnit({
+        id: 'a1',
+        faction: 'A',
+        traits: ['IMPULSIVE_AGGRESSIVE'],
+        activatedThisRound: false,
+      }),
+      makeUnit({ id: 'b1', faction: 'B' }),
+    ]);
+    const spent = baseState([
+      makeUnit({
+        id: 'a1',
+        faction: 'A',
+        traits: ['IMPULSIVE_AGGRESSIVE'],
+        activatedThisRound: true,
+      }),
+      makeUnit({ id: 'b1', faction: 'B' }),
+    ]);
+    const noTrait = baseState([
+      makeUnit({ id: 'a1', faction: 'A', activatedThisRound: false }),
+      makeUnit({ id: 'b1', faction: 'B' }),
+    ]);
+    expect(evaluateState(fresh, 'A')).toBeGreaterThan(
+      evaluateState(spent, 'A'),
+    );
+    // Activated IMPULSIVE = no value over plain unit (trigger windows passed).
+    expect(evaluateState(spent, 'A')).toBeCloseTo(
+      evaluateState(noTrait, 'A'),
+      5,
+    );
+  });
+
+  it('opponent unactivated IMPULSIVE_AGGRESSIVE lowers our score (voluntary turnover penalty)', () => {
+    const enemyHasIt = baseState([
+      makeUnit({ id: 'a1', faction: 'A' }),
+      makeUnit({
+        id: 'b1',
+        faction: 'B',
+        traits: ['IMPULSIVE_AGGRESSIVE'],
+        activatedThisRound: false,
+      }),
+    ]);
+    const enemyPlain = baseState([
+      makeUnit({ id: 'a1', faction: 'A' }),
+      makeUnit({ id: 'b1', faction: 'B' }),
+    ]);
+    expect(evaluateState(enemyHasIt, 'A')).toBeLessThan(
+      evaluateState(enemyPlain, 'A'),
+    );
+  });
+
   it('momentum advantage is positive', () => {
     const balanced = baseState([
       makeUnit({ id: 'a1', faction: 'A' }),

@@ -154,10 +154,25 @@ const stealthInCoverBonus: TraitEvalHook = (unit, state) => {
   return 0;
 };
 
+/**
+ * Unactivated IMPULSIVE_AGGRESSIVE unit = a conditional bonus action this
+ * round (forced shoot/move on activate-check failure or on outgoing turnover
+ * prelude). Treated as a small-but-real positive for the owning faction, on
+ * the same magnitude as `initiativeHolderBonus` / OFFICER aura. Once
+ * activated the trigger windows have passed for the round → 0.
+ *
+ * Mirror via `evaluateState`'s own − opp subtraction means an opponent's
+ * unactivated IMPULSIVE unit pushes us to avoid voluntary turnover when
+ * possible (since handing initiative back gives them a free shot).
+ */
+const impulsiveTriggerValue: TraitEvalHook = (unit) =>
+  unit.activatedThisRound ? 0 : 6;
+
 export const traitEvalHooks: Record<string, TraitEvalHook> = {
   OFFICER: officerAllyAura,
   TOUGH: toughSaveValue,
   STEALTH: stealthInCoverBonus,
+  IMPULSIVE_AGGRESSIVE: impulsiveTriggerValue,
 };
 
 const oppositeFaction = (f: Faction): Faction => (f === 'A' ? 'B' : 'A');
