@@ -1237,6 +1237,22 @@ export class BattleScene extends Phaser.Scene {
           if (def) this.faceUnitTowardPoint(ev.defenderId, att?.position ?? def.position);
           if (att && def) this.playMeleeEffects(ev, att, def);
         }
+        if (ev.type === 'IMPULSIVE_TRIGGERED') {
+          const u = this.gameState.units.find((x) => x.id === ev.unitId);
+          if (u) {
+            const actionLabel =
+              ev.action === 'SHOOT'
+                ? '射擊'
+                : ev.action === 'MOVE'
+                  ? '移動'
+                  : '無行動';
+            this.effects.hitFloater(
+              { x: u.position.x, y: u.position.y - u.radius - 6 },
+              `⚡ 衝動 → ${actionLabel}`,
+              '#ffd166',
+            );
+          }
+        }
         if (this.isRollEvent(ev)) {
           this.showRollOverlay(ev, overlayIndex++);
         }
