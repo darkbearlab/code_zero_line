@@ -168,6 +168,124 @@ describe('MOVE with reaction plan (Phase 4b)', () => {
     expect(turnover).toBeDefined();
   });
 
+  describe('FANATIC trait', () => {
+    // A "tickler" weapon: one die at 2+ — overwhelmingly likely to land
+    // exactly one hit (max possible hits = 1, so the IMPEDED-only case
+    // is structurally guaranteed when the die hits).
+    const tickler: Weapon = {
+      id: 'tickler',
+      modes: ['ACTIVE', 'REACTION'],
+      kind: 'SHOOT',
+      diceCount: 1,
+      threshold: 2,
+      descriptors: ['FOCUSED', 'COMBINED'],
+    };
+
+    const setupFanaticVsTickler = (fanatic: boolean): GameState => ({
+      seed: 'fanatic-impeded-1',
+      commandCount: 0,
+      units: [
+        makeUnit({
+          id: 'a1',
+          faction: 'A',
+          position: v2(0, 0),
+          quality: 1,
+          traits: fanatic ? ['FANATIC'] : [],
+        }),
+        makeUnit({
+          id: 'b1',
+          faction: 'B',
+          position: v2(50, 200),
+          weapons: [tickler],
+        }),
+      ],
+      terrain: [],
+      initiative: {
+        holder: 'A',
+        momentum: { A: 5, B: 0 },
+        cycle: 1,
+        playerActivations: 0,
+        activeActivation: null,
+      },
+    });
+
+    const fanaticPlan: ReactionPlan = {
+      markers: [
+        { atT: 0.5, shooterId: 'b1', mode: 'SOLO', participantIds: [] },
+      ],
+    };
+
+    it('IMPEDED-only reaction does NOT halt a FANATIC mover', () => {
+      const s0 = setupFanaticVsTickler(true);
+      const r = applyCommands(s0, [
+        { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+        { type: 'MOVE', unitId: 'a1', target: v2(100, 0), reactionPlan: fanaticPlan },
+      ]);
+      const shot = r.events.find((e) => e.type === 'SHOT_RESOLVED') as
+        | { hits: number }
+        | undefined;
+      // Sanity: this seed must produce a hit for the test to be meaningful.
+      // 1d at 2+ → 5/6 hit chance; this seed lands one. If a future RNG
+      // change breaks this assumption, swap the seed rather than weakening
+      // the assertion.
+      expect(shot?.hits).toBe(1);
+      const a1 = r.state.units.find((u) => u.id === 'a1')!;
+      expect(a1.position.x).toBeCloseTo(100);
+      expect(a1.damage).toBe('IMPEDED');
+      expect(r.state.initiative.holder).toBe('A');
+    });
+
+    it('control: same shot without FANATIC halts the mover mid-path', () => {
+      const s0 = setupFanaticVsTickler(false);
+      const r = applyCommands(s0, [
+        { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+        { type: 'MOVE', unitId: 'a1', target: v2(100, 0), reactionPlan: fanaticPlan },
+      ]);
+      const shot = r.events.find((e) => e.type === 'SHOT_RESOLVED') as
+        | { hits: number }
+        | undefined;
+      expect(shot?.hits).toBe(1);
+      const a1 = r.state.units.find((u) => u.id === 'a1')!;
+      expect(a1.position.x).toBeLessThan(100);
+      expect(a1.damage).toBe('IMPEDED');
+    });
+
+    it('SUPPRESS-causing reaction still halts a FANATIC mover', () => {
+      const s0: GameState = {
+        ...makeStateForReactions(),
+        seed: 'fanatic-suppress',
+        units: [
+          makeUnit({
+            id: 'a1',
+            faction: 'A',
+            position: v2(0, 0),
+            quality: 1,
+            traits: ['FANATIC'],
+          }),
+          makeUnit({
+            id: 'b1',
+            faction: 'B',
+            position: v2(50, 200),
+            weapons: [heavyRifle],
+          }),
+        ],
+      };
+      const r = applyCommands(s0, [
+        { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+        { type: 'MOVE', unitId: 'a1', target: v2(100, 0), reactionPlan: fanaticPlan },
+      ]);
+      const shot = r.events.find((e) => e.type === 'SHOT_RESOLVED') as
+        | { hits: number }
+        | undefined;
+      expect(shot?.hits).toBeGreaterThanOrEqual(2);
+      const a1 = r.state.units.find((u) => u.id === 'a1')!;
+      // SUPPRESSED still interrupts even with FANATIC — only IMPEDED is ignored.
+      expect(['SUPPRESSED', 'KILLED']).toContain(a1.damage);
+      expect(a1.position.x).toBeLessThan(100);
+      expect(r.state.initiative.holder).toBe('B');
+    });
+  });
+
   it('multiple markers: first hitting one stops the rest', () => {
     const s0: GameState = {
       ...makeStateForReactions(),

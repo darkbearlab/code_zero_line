@@ -53,13 +53,13 @@ export const TRAITS: Readonly<Record<string, TraitDef>> = {
       '在自己的主動權中，這個單位被壓制或陣亡不會造成主動權易手。',
     cannonFodder: true,
   },
-  // • Fanatic — declared; impeded-interrupt suppression pending.
+  // ✓ Fanatic — wired in resolveReactionPlan / resolveGroupReactionPlan
+  // (IMPEDED-only reaction hits don't halt the path).
   FANATIC: {
     id: 'FANATIC',
     displayName: '狂熱',
     description: '不會因為受到「受阻」狀態而中斷行動。',
     fanaticIgnoresImpededInterrupt: true,
-    tbd: true,
   },
   TOUGH: {
     id: 'TOUGH',

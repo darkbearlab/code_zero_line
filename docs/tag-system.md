@@ -59,7 +59,7 @@ Source: `src/core/traits/registry.ts`. **Status legend:**
 | TOUGH | ability | ✓ | shooting (once-per-match save), AI eval (save value) |
 | STEALTH | ability | ✓ | resolution/stealth.ts (path-immunity), reducer (MOVE/CRAWL window short-circuit), AI reaction.ts (planner skip), AI eval (cover-bonus) |
 | CANNON_FODDER | ability | ✓ | reducer (`reactionOutcomeAfterFodder` — own-unit kill skips turnover) |
-| FANATIC | ability | ◷ | `fanaticIgnoresImpededInterrupt` flag declared, no reads yet |
+| FANATIC | ability | ✓ | reducer (`resolveReactionPlan` / `resolveGroupReactionPlan` — IMPEDED-only reaction hits don't halt the path) |
 | TOUGH (older note) | ability | ✓ | (see TOUGH above) |
 | IMPULSIVE | ability | ◷ | declared only |
 | AGITATOR | ability(param) | ◷ | declared only |

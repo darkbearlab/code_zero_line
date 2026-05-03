@@ -591,6 +591,16 @@ const resolveReactionPlan = (
       }
       continue;
     }
+    // FANATIC: an IMPEDED-only hit doesn't interrupt the action. The target
+    // already took the damage (state has IMPEDED); we just don't halt the
+    // path and let subsequent markers re-evaluate against the now-IMPEDED
+    // mover. SUPPRESSED / KILLED still interrupt (they apply unconditionally).
+    if (
+      unitHasTrait(target, 'FANATIC') &&
+      !shot.causedSuppressOrKill
+    ) {
+      continue;
+    }
     return {
       state: working,
       events,
@@ -705,6 +715,14 @@ const resolveGroupReactionPlan = (
         if (pid === m.shooterId) continue;
         working = updateUnit(working, pid, { cannotReactThisRound: true });
       }
+      continue;
+    }
+    // FANATIC: see resolveReactionPlan — IMPEDED-only hits don't halt the
+    // group either; the FANATIC mover keeps rolling toward its endpoint.
+    if (
+      unitHasTrait(target, 'FANATIC') &&
+      !shot.causedSuppressOrKill
+    ) {
       continue;
     }
     return {
