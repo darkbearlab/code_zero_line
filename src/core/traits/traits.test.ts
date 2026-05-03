@@ -84,6 +84,8 @@ describe('registry', () => {
       'WARLORD',
       'MARTYRDOM',
       'STEALTH',
+      'INFANTRY',
+      'BEAST',
     ]) {
       expect(getTraitDef(id), id).toBeDefined();
     }
@@ -139,6 +141,47 @@ describe('FRAGILE trait', () => {
     if (shot && shot.hits === 1) {
       expect(target.damage).toBe('SUPPRESSED');
     }
+  });
+
+  it('two hits on a FRAGILE unit kill it (cumulative IMPEDED→SUPPRESSED→KILLED)', () => {
+    // 2d at 2+ — almost always lands both. Seed `fragile-2hit-1` is a
+    // probed seed that lands exactly 2 hits; if a future RNG change breaks
+    // this assumption, swap the seed rather than weakening the assertion.
+    const twoShot: Weapon = {
+      id: 'two-shot',
+      modes: ['ACTIVE', 'REACTION'],
+      kind: 'SHOOT',
+      diceCount: 2,
+      threshold: 2,
+      descriptors: ['FOCUSED', 'COMBINED'],
+    };
+    const s0: GameState = {
+      ...baseState([
+        makeUnit({
+          id: 'a1',
+          faction: 'A',
+          position: v2(0, 0),
+          weapons: [twoShot],
+        }),
+        makeUnit({
+          id: 'b1',
+          faction: 'B',
+          position: v2(200, 0),
+          traits: ['FRAGILE'],
+        }),
+      ]),
+      seed: 'fragile-2hit-1',
+    };
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'SHOOT', mode: 'SOLO', shooterId: 'a1', targetId: 'b1' },
+    ]);
+    const shot = r.events.find((e) => e.type === 'SHOT_RESOLVED') as
+      | { hits: number }
+      | undefined;
+    expect(shot?.hits).toBe(2);
+    const target = r.state.units.find((u) => u.id === 'b1')!;
+    expect(target.damage).toBe('KILLED');
   });
 });
 

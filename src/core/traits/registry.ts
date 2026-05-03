@@ -115,6 +115,12 @@ export const TRAITS: Readonly<Record<string, TraitDef>> = {
     description: '輕裝徒步單位的分類標籤；無內建效果。',
     kind: 'category',
   },
+  BEAST: {
+    id: 'BEAST',
+    displayName: '野獸',
+    description: '生物型單位的分類標籤；無內建效果。',
+    kind: 'category',
+  },
   HEAVY: {
     id: 'HEAVY',
     displayName: '重裝',

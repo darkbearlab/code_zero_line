@@ -53,7 +53,7 @@ Source: `src/core/traits/registry.ts`. **Status legend:**
 |---|---|---|---|
 | OFFICER | ability | ✓ | reducer (COMMAND_MOVE/RALLY validation, rally aura), shooting (COMBINED gate), shoot_modes (officer LOS), AI eval (ally aura), candidates (command-* generators) |
 | STALWART | ability | ✓ | reducer (`meleeIgnoresStatus`) |
-| FRAGILE | ability | ✓ | shooting (IMPEDED → SUPPRESSED upgrade) |
+| FRAGILE | ability | ✓ | shooting (+1 to hit count → cumulative ladder advances one extra tier per shot, so 2 hits = KILLED per rule 4.3) |
 | ARMOR | ability(param) | ✓ | shooting (`sumTraitParams` for hit absorption) |
 | CUMBERSOME | ability | ✓ | reducer (`capActionsForTraits` → max 1 action) |
 | TOUGH | ability | ✓ | shooting (once-per-match save), AI eval (save value) |
@@ -66,6 +66,7 @@ Source: `src/core/traits/registry.ts`. **Status legend:**
 | WARLORD | ability | ◷ | declared only — depends on Red faction |
 | MARTYRDOM | ability | ◷ | declared only — depends on militia faction |
 | **INFANTRY** | category | ○ | unit JSONs only — *consumed* by future combat-intel meta lookup |
+| **BEAST** | category | ○ | same as above — biological / non-vehicular |
 | **HEAVY** | category | ○ | same as above |
 | **CYBORG** | category | ○ | same |
 | **MECH** | category | ○ | same |

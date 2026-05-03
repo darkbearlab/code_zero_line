@@ -269,11 +269,16 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
   const hits = Math.max(0, rawHits - effectiveArmor);
 
   const beforeDamage = target.damage;
-  let afterDamage = applyHits(beforeDamage, hits);
-  // FRAGILE: a result of IMPEDED is upgraded to SUPPRESSED.
-  if (unitHasTrait(target, 'FRAGILE') && afterDamage === 'IMPEDED') {
-    afterDamage = 'SUPPRESSED';
-  }
+  // FRAGILE: each hit's "would-be IMPEDED" tier is treated as SUPPRESSED, so a
+  // FRAGILE unit advances one extra damage tier per shot that lands. Implementing
+  // it as +1 to the hit count keeps the cumulative ladder honest:
+  //   1 hit  → applyHits(NONE, 2) = SUPPRESSED  (impeded → suppressed promotion)
+  //   2 hits → applyHits(NONE, 3) = KILLED      (suppressed + 1 = killed, per rule 4.3)
+  // The post-applyHits IMPEDED→SUPPRESSED check that used to live here missed
+  // the 2-hit case (cumulative result was already SUPPRESSED, so the bump never
+  // fired and the unit lived).
+  const fragileBonus = unitHasTrait(target, 'FRAGILE') && hits > 0 ? 1 : 0;
+  let afterDamage = applyHits(beforeDamage, hits + fragileBonus);
   // TOUGH (rule 強韌): once per match, a non-SUPPRESSED unit that would be
   // KILLED is demoted to SUPPRESSED instead. Burns the save permanently —
   // a second lethal hit later in the match goes through.
