@@ -33,6 +33,7 @@ type Drag =
   | { kind: 'create'; tool: EditorShapeTool; x0: number; y0: number; x1: number; y1: number }
   | { kind: 'move'; shapeId: string; offX: number; offY: number }
   | { kind: 'rotate'; shapeId: string }
+  | { kind: 'pan'; startX: number; startY: number; startOffX: number; startOffY: number }
   | null;
 
 const CANVAS_PX = 600;
@@ -112,6 +113,20 @@ export const mountMapEditor = (root: HTMLElement): void => {
   // live in editor session only — saved JSON just sees two real shapes.
   let mirrorAxis: 'h' | 'v' | null = null;
   const mirrorPairs = new Map<string, string>();
+
+  // View transform: zoom multiplier on top of base fit-to-canvas scale, plus
+  // pan offset in screen pixels. Persists across renderForm() rebuilds.
+  let viewScale = 1;
+  let viewOffsetX = 0;
+  let viewOffsetY = 0;
+  let spaceHeld = false;
+  const MIN_VIEW_SCALE = 0.25;
+  const MAX_VIEW_SCALE = 8;
+  const resetView = (): void => {
+    viewScale = 1;
+    viewOffsetX = 0;
+    viewOffsetY = 0;
+  };
 
   const mirroredShape = (
     s: EditorMapShape,
@@ -397,6 +412,45 @@ export const mountMapEditor = (root: HTMLElement): void => {
     snapBtn.appendChild(document.createTextNode('Snap 8px'));
     toolbar.appendChild(snapBtn);
 
+    // View controls — zoom + reset. Cursor wheel and middle-mouse / space
+    // drag are the primary path; these are the keyboard-free fallback.
+    toolbar.appendChild(el('span', { text: ' | ', style: { color: '#3a5a3a' } }));
+    const zoomAt = (factor: number): void => {
+      const cx = CANVAS_PX / 2;
+      const cy = CANVAS_PX / 2;
+      const before = toWorld(cx, cy);
+      viewScale = Math.max(
+        MIN_VIEW_SCALE,
+        Math.min(MAX_VIEW_SCALE, viewScale * factor),
+      );
+      const s = effScale();
+      viewOffsetX = cx - before.x * s;
+      viewOffsetY = cy - before.y * s;
+      redraw();
+    };
+    const zoomOutBtn = el('button', {
+      text: '−',
+      onclick: () => zoomAt(1 / 1.25),
+    }) as HTMLButtonElement;
+    zoomOutBtn.title = '縮小（也可滑鼠滾輪向下）';
+    toolbar.appendChild(zoomOutBtn);
+    const zoomInBtn = el('button', {
+      text: '+',
+      onclick: () => zoomAt(1.25),
+    }) as HTMLButtonElement;
+    zoomInBtn.title = '放大（也可滑鼠滾輪向上）';
+    toolbar.appendChild(zoomInBtn);
+    const resetViewBtn = el('button', {
+      text: '重設視角',
+      onclick: () => {
+        resetView();
+        redraw();
+      },
+    }) as HTMLButtonElement;
+    resetViewBtn.title =
+      '回到 1:1 並置中。拖曳：按住中鍵或空白鍵 + 左鍵；右鍵也可拖曳。';
+    toolbar.appendChild(resetViewBtn);
+
     formPanel.appendChild(toolbar);
 
     // Canvas
@@ -408,11 +462,15 @@ export const mountMapEditor = (root: HTMLElement): void => {
     canvas.style.cursor = activeTool === 'select' ? 'default' : 'crosshair';
     canvas.style.touchAction = 'none';
 
-    const scale = CANVAS_PX / doc.size;
-    const toWorld = (px: number, py: number): { x: number; y: number } => ({
-      x: px / scale,
-      y: py / scale,
-    });
+    const baseScale = CANVAS_PX / doc.size;
+    const effScale = (): number => baseScale * viewScale;
+    const toWorld = (px: number, py: number): { x: number; y: number } => {
+      const s = effScale();
+      return {
+        x: (px - viewOffsetX) / s,
+        y: (py - viewOffsetY) / s,
+      };
+    };
 
     const findShapeAt = (x: number, y: number): EditorMapShape | null => {
       for (let i = doc.shapes.length - 1; i >= 0; i--) {
@@ -431,19 +489,21 @@ export const mountMapEditor = (root: HTMLElement): void => {
 
     const redraw = (): void => {
       const ctx = canvas.getContext('2d')!;
+      const s = effScale();
       ctx.clearRect(0, 0, CANVAS_PX, CANVAS_PX);
       ctx.save();
-      ctx.scale(scale, scale);
+      ctx.translate(viewOffsetX, viewOffsetY);
+      ctx.scale(s, s);
 
       // 1-UD checker floor — same look as in-game battlefield.
       paintBoardFloorCanvas(ctx, doc.size);
       ctx.strokeStyle = '#2a3a2a';
-      ctx.lineWidth = 2 / scale;
+      ctx.lineWidth = 2 / s;
       ctx.strokeRect(0, 0, doc.size, doc.size);
 
       // Shapes
-      for (const s of doc.shapes) {
-        drawShape(ctx, s, s.id === selectedShapeId, scale);
+      for (const sh of doc.shapes) {
+        drawShape(ctx, sh, sh.id === selectedShapeId, s);
       }
 
       // Active drag preview
@@ -454,7 +514,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
         const h = Math.abs(drag.y1 - drag.y0);
         ctx.fillStyle = TOOL_FILL[drag.tool];
         ctx.strokeStyle = TOOL_STROKE[drag.tool];
-        ctx.lineWidth = 1.5 / scale;
+        ctx.lineWidth = 1.5 / s;
         ctx.fillRect(x, y, w, h);
         ctx.strokeRect(x, y, w, h);
       }
@@ -469,6 +529,19 @@ export const mountMapEditor = (root: HTMLElement): void => {
       const wp = toWorld(px, py);
       canvas.setPointerCapture(e.pointerId);
 
+      // Middle/right mouse OR space-modifier → pan, regardless of active tool.
+      if (e.button === 1 || e.button === 2 || spaceHeld) {
+        drag = {
+          kind: 'pan',
+          startX: px,
+          startY: py,
+          startOffX: viewOffsetX,
+          startOffY: viewOffsetY,
+        };
+        canvas.style.cursor = 'grabbing';
+        return;
+      }
+
       if (activeTool === 'select') {
         // Rotate handle?
         if (selectedShapeId) {
@@ -477,7 +550,8 @@ export const mountMapEditor = (root: HTMLElement): void => {
             const h = getRotateHandlePos(s);
             const dx = wp.x - h.x;
             const dy = wp.y - h.y;
-            if (dx * dx + dy * dy <= (12 / scale) * (12 / scale)) {
+            const eff = effScale();
+            if (dx * dx + dy * dy <= (12 / eff) * (12 / eff)) {
               drag = { kind: 'rotate', shapeId: s.id };
               return;
             }
@@ -535,6 +609,13 @@ export const mountMapEditor = (root: HTMLElement): void => {
       const wp = toWorld(px, py);
 
       if (!drag) return;
+
+      if (drag.kind === 'pan') {
+        viewOffsetX = drag.startOffX + (px - drag.startX);
+        viewOffsetY = drag.startOffY + (py - drag.startY);
+        redraw();
+        return;
+      }
 
       if (drag.kind === 'create') {
         let nx = wp.x;
@@ -607,13 +688,49 @@ export const mountMapEditor = (root: HTMLElement): void => {
           selectedShapeId = id;
         }
       }
+      const wasPan = drag?.kind === 'pan';
       drag = null;
-      renderForm();
+      if (wasPan) {
+        canvas.style.cursor = spaceHeld
+          ? 'grab'
+          : activeTool === 'select'
+            ? 'default'
+            : 'crosshair';
+        redraw();
+      } else {
+        renderForm();
+      }
     };
+
+    // Wheel zoom — anchored at cursor so the world point under the pointer
+    // stays put. Bounded by MIN/MAX_VIEW_SCALE.
+    const onWheel = (e: WheelEvent): void => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      const before = toWorld(px, py);
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      const next = Math.max(
+        MIN_VIEW_SCALE,
+        Math.min(MAX_VIEW_SCALE, viewScale * factor),
+      );
+      if (next === viewScale) return;
+      viewScale = next;
+      // Anchor: re-derive offset so `before` stays under (px, py).
+      const s = effScale();
+      viewOffsetX = px - before.x * s;
+      viewOffsetY = py - before.y * s;
+      redraw();
+    };
+
+    // Right-click context menu would interfere with right-button pan; drop it.
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);
     canvas.addEventListener('pointerup', onPointerUp);
+    canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('pointercancel', onPointerUp);
 
     formPanel.appendChild(canvas);
@@ -953,6 +1070,14 @@ export const mountMapEditor = (root: HTMLElement): void => {
     ) {
       return;
     }
+    if (e.key === ' ' && !spaceHeld) {
+      // Photoshop-style: hold space to pan with left mouse.
+      e.preventDefault();
+      spaceHeld = true;
+      const c = formPanel.querySelector('canvas') as HTMLCanvasElement | null;
+      if (c) c.style.cursor = 'grab';
+      return;
+    }
     if (e.key === 'Delete' || e.key === 'Backspace') {
       if (selectedShapeId) {
         e.preventDefault();
@@ -968,13 +1093,24 @@ export const mountMapEditor = (root: HTMLElement): void => {
       renderForm();
     }
   };
+  const keyUpHandler = (e: KeyboardEvent): void => {
+    if (e.key === ' ' && spaceHeld) {
+      spaceHeld = false;
+      const c = formPanel.querySelector('canvas') as HTMLCanvasElement | null;
+      if (c) {
+        c.style.cursor = activeTool === 'select' ? 'default' : 'crosshair';
+      }
+    }
+  };
   document.addEventListener('keydown', keyHandler);
+  document.addEventListener('keyup', keyUpHandler);
 
   // Cleanup when the editor is unmounted (handled by index.ts wiping innerHTML).
   // Use a MutationObserver for robust cleanup of the keydown listener.
   const observer = new MutationObserver(() => {
     if (!root.contains(grid)) {
       document.removeEventListener('keydown', keyHandler);
+      document.removeEventListener('keyup', keyUpHandler);
       observer.disconnect();
     }
   });
