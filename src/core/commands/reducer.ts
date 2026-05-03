@@ -222,7 +222,8 @@ const turnover = (
       cycle: s.initiative.cycle + cycleBump,
       playerActivations: s.initiative.playerActivations,
       activeActivation: null,
-      ...(s.initiative.objectiveScores !== undefined ||
+      ...(isControlPoints ||
+      s.initiative.objectiveScores !== undefined ||
       s.initiative.objectiveControl !== undefined
         ? {
             objectiveScores: newScores,

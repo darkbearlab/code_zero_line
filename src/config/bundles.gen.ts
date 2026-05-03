@@ -24,6 +24,7 @@ import maps_demo from './maps/demo.json';
 import maps_indoor_map_test from './maps/indoor_map_test.json';
 import maps_testmap1 from './maps/testmap1.json';
 import missions_breakthrough from './missions/breakthrough.json';
+import missions_conquest_copy from './missions/conquest-copy.json';
 import missions_conquest from './missions/conquest.json';
 import missions_decapitation from './missions/decapitation.json';
 import missions_extraction from './missions/extraction.json';
@@ -59,6 +60,7 @@ export const BUNDLED_MAPS: ReadonlyArray<MapDef> = [
 ];
 export const BUNDLED_MISSIONS: ReadonlyArray<MissionDef> = [
   missions_breakthrough as unknown as MissionDef,
+  missions_conquest_copy as unknown as MissionDef,
   missions_conquest as unknown as MissionDef,
   missions_decapitation as unknown as MissionDef,
   missions_extraction as unknown as MissionDef,

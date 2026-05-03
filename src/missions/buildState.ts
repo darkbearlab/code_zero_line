@@ -214,15 +214,31 @@ export const buildMissionState = (
 
   // Initial-momentum upgrade only buffs the player side (faction A).
   const startingMomentum = initialMomentumBonus(upgradeLevels);
-  const initiative = startingMomentum > 0
-    ? {
-        ...baseState.initiative,
-        momentum: {
-          ...baseState.initiative.momentum,
-          A: baseState.initiative.momentum.A + startingMomentum,
-        },
-      }
-    : baseState.initiative;
+  // Re-seed control-points scoring fields against the FINAL objective set —
+  // mission-level objectives override the map's, so any owner map
+  // baseState built from map.objectives has the wrong keys (or is missing
+  // entirely when the map ships without objectives).
+  const objectiveControlInit =
+    objectives && objectives.length > 0
+      ? Object.fromEntries(objectives.map((o) => [o.id, null] as const))
+      : undefined;
+  const initiative = {
+    ...baseState.initiative,
+    ...(startingMomentum > 0
+      ? {
+          momentum: {
+            ...baseState.initiative.momentum,
+            A: baseState.initiative.momentum.A + startingMomentum,
+          },
+        }
+      : {}),
+    ...(objectiveControlInit
+      ? {
+          objectiveControl: objectiveControlInit,
+          objectiveScores: { A: 0, B: 0 },
+        }
+      : {}),
+  };
 
   return {
     ...baseState,
