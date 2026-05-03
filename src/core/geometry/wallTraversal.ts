@@ -3,13 +3,15 @@ import { isPointInPolygon } from './polygon';
 import type { Terrain, Unit } from '../state/GameState';
 
 /**
- * Find a wall-like terrain piece (HARD / BLOCKER / HIGH_GROUND) the unit's
- * base is in contact with. Returns null if not touching any. Uses a small
- * ε so "touching" includes a few pixels of slack.
+ * Find a wall-like terrain piece (HARD / BLOCKER / HIGH_GROUND /
+ * OUT_OF_BOUNDS / NO_ENTRY) the unit's base is in contact with. Returns
+ * null if not touching any. Uses a small ε so "touching" includes a few
+ * pixels of slack.
  *
  * Callers (vaultAction / climbAction) filter the returned kind to decide
- * whether the action is legal — BLOCKER refuses both, HIGH_GROUND only
- * supports CLIMB (onto the platform), HARD splits by height.
+ * whether the action is legal — BLOCKER / OUT_OF_BOUNDS / NO_ENTRY refuse
+ * both, HIGH_GROUND only supports CLIMB (onto the platform), HARD splits
+ * by height.
  */
 export const findContactedWall = (
   terrains: ReadonlyArray<Terrain>,
@@ -17,7 +19,13 @@ export const findContactedWall = (
   epsilon = 4,
 ): Terrain | null => {
   for (const t of terrains) {
-    if (t.kind !== 'HARD' && t.kind !== 'BLOCKER' && t.kind !== 'HIGH_GROUND') {
+    if (
+      t.kind !== 'HARD' &&
+      t.kind !== 'BLOCKER' &&
+      t.kind !== 'HIGH_GROUND' &&
+      t.kind !== 'OUT_OF_BOUNDS' &&
+      t.kind !== 'NO_ENTRY'
+    ) {
       continue;
     }
     const verts = t.polygon.vertices;

@@ -22,6 +22,29 @@ const styleFor = (t: Terrain): TerrainStyle => {
       strokeWidth: 1.5,
     };
   }
+  if (t.kind === 'OUT_OF_BOUNDS') {
+    // 不可互動區域 — solid red-tinted void with hatching to read as
+    // "off-limits boundary" at a glance. Distinct from BLOCKER's grey core.
+    return {
+      fillColor: 0x2a1010,
+      fillAlpha: 0.95,
+      strokeColor: 0xff5050,
+      strokeWidth: 2,
+      hatched: true,
+    };
+  }
+  if (t.kind === 'NO_ENTRY') {
+    // 不可進入區 — atrium / void; LOS passes through. Translucent fill +
+    // dashed border to suggest "you can see across, but can't walk in".
+    return {
+      fillColor: 0x102030,
+      fillAlpha: 0.35,
+      strokeColor: 0x6ab0ff,
+      strokeWidth: 2,
+      dashed: true,
+      hatched: true,
+    };
+  }
   if (t.kind === 'HIGH_GROUND') {
     return {
       fillColor: 0x6a4a30,

@@ -1037,9 +1037,15 @@ const vaultAction = (
   if (!wall) {
     throw new CommandError('NOT_TOUCHING_WALL', `${unitId} not in contact with any wall`);
   }
-  // BLOCKER explicitly refuses traversal — sealed walls. HIGH_GROUND
-  // platforms aren't vault-able either; you climb up, you don't hop over.
-  if (wall.kind === 'BLOCKER' || wall.kind === 'HIGH_GROUND') {
+  // BLOCKER / OUT_OF_BOUNDS / NO_ENTRY explicitly refuse traversal — sealed
+  // walls and area boundaries. HIGH_GROUND platforms aren't vault-able
+  // either; you climb up, you don't hop over.
+  if (
+    wall.kind === 'BLOCKER' ||
+    wall.kind === 'HIGH_GROUND' ||
+    wall.kind === 'OUT_OF_BOUNDS' ||
+    wall.kind === 'NO_ENTRY'
+  ) {
     throw new CommandError(
       'WALL_NOT_VAULTABLE',
       `${wall.id} (${wall.kind}) refuses VAULT`,
@@ -1121,11 +1127,16 @@ const climbAction = (
   if (!wall) {
     throw new CommandError('NOT_TOUCHING_WALL', `${unitId} not in contact with any wall`);
   }
-  // BLOCKER refuses CLIMB by spec — pure sealed walls.
-  if (wall.kind === 'BLOCKER') {
+  // BLOCKER / OUT_OF_BOUNDS / NO_ENTRY refuse CLIMB — pure sealed walls
+  // and area boundaries.
+  if (
+    wall.kind === 'BLOCKER' ||
+    wall.kind === 'OUT_OF_BOUNDS' ||
+    wall.kind === 'NO_ENTRY'
+  ) {
     throw new CommandError(
       'WALL_NOT_CLIMBABLE',
-      `${wall.id} (BLOCKER) refuses CLIMB`,
+      `${wall.id} (${wall.kind}) refuses CLIMB`,
     );
   }
   // HARD walls must be tall to require climbing (low ones use VAULT).

@@ -37,15 +37,21 @@ type Drag =
   | null;
 
 const CANVAS_PX = 600;
-/** 1 inch in world pixels — also the unit base diameter / unit-distance. */
-const PX_PER_INCH = 96;
-const DEFAULT_SIZE = 8 * PX_PER_INCH;
+/**
+ * 1 unit-distance (UD) in world pixels — also the unit base diameter.
+ * Game terminology: 1 UD = 3 英吋 (inches) of physical measurement.
+ */
+const PX_PER_UD = 96;
+const INCHES_PER_UD = 3;
+/** Pixels per real inch — derived. Used to render dimensions in 英吋 (inches). */
+const PX_PER_INCH = PX_PER_UD / INCHES_PER_UD;
+const DEFAULT_SIZE = 8 * PX_PER_UD;
 const MIN_RECT = 8;
-/** Min/max map size in inches. 48 supports long-push scenarios. */
-const MIN_MAP_INCHES = 4;
-const MAX_MAP_INCHES = 48;
+/** Min/max map size in 英吋 (inches). 144 in = 48 UD = long-push scenarios. */
+const MIN_MAP_INCHES = 12;
+const MAX_MAP_INCHES = 144;
 /** Click-to-place objectives spawn at this diameter (1 unit-distance). */
-const OBJECTIVE_DEFAULT_DIAMETER = 96;
+const OBJECTIVE_DEFAULT_DIAMETER = PX_PER_UD;
 /** Pixel offset applied when duplicating a shape, so it's visible. */
 const DUPLICATE_OFFSET_PX = 16;
 
@@ -57,6 +63,8 @@ const TOOL_ORDER: Tool[] = [
   'high-ground',
   'difficult',
   'soft',
+  'out-of-bounds',
+  'no-entry',
   'zone-a',
   'zone-b',
   'objective',
@@ -70,6 +78,8 @@ const TOOL_LABEL: Record<Tool, string> = {
   'high-ground': 'High Ground (高地)',
   difficult: 'Difficult',
   soft: 'Soft (Smoke)',
+  'out-of-bounds': 'Out of Bounds (不可互動)',
+  'no-entry': 'No Entry (不可進入)',
   'zone-a': 'Zone A',
   'zone-b': 'Zone B',
   objective: 'Objective',
@@ -82,6 +92,8 @@ const TOOL_FILL: Record<EditorShapeTool, string> = {
   'high-ground': 'rgba(120,90,60,0.55)',
   difficult: 'rgba(160,120,70,0.45)',
   soft: 'rgba(220,220,220,0.25)',
+  'out-of-bounds': 'rgba(80,20,20,0.85)',
+  'no-entry': 'rgba(20,40,80,0.35)',
   'zone-a': 'rgba(74,138,207,0.18)',
   'zone-b': 'rgba(207,90,74,0.18)',
   objective: 'rgba(255, 209, 102, 0.18)',
@@ -94,6 +106,8 @@ const TOOL_STROKE: Record<EditorShapeTool, string> = {
   'high-ground': '#d8a76a',
   difficult: '#b8884a',
   soft: '#cfcfcf',
+  'out-of-bounds': '#ff5050',
+  'no-entry': '#6ab0ff',
   'zone-a': '#6ab0ff',
   'zone-b': '#ff8a6a',
   objective: '#ffd166',
@@ -633,7 +647,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
         value: number,
         step: number,
         onChange: (v: number) => void,
-        suffix = 'in',
+        suffix = '英吋',
       ): void => {
         grid.appendChild(
           el('label', { text: label, style: { fontSize: '11px' } }),
@@ -753,10 +767,10 @@ export const mountMapEditor = (root: HTMLElement): void => {
     sizeInput.min = String(MIN_MAP_INCHES);
     sizeInput.max = String(MAX_MAP_INCHES);
     sizeInput.step = '1';
-    sizeInput.title = `1 inch = ${PX_PER_INCH}px。越界形狀仍會保留，但遊戲中不 render`;
+    sizeInput.title = `1 UD = 3 英吋；1 英吋 = ${PX_PER_INCH}px。越界形狀仍會保留，但遊戲中不 render`;
     sizeGroup.appendChild(sizeInput);
     sizeGroup.appendChild(
-      el('span', { text: 'in', style: labelStyle }),
+      el('span', { text: '英吋', style: labelStyle }),
     );
     topBar.appendChild(sizeGroup);
 

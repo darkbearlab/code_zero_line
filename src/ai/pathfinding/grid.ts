@@ -44,14 +44,18 @@ export const buildNavGrid = (
   const cols = Math.ceil(mapSize / cellSize);
   const rows = Math.ceil(mapSize / cellSize);
   const blocked = new Array<boolean>(cols * rows).fill(false);
-  // HARD + BLOCKER block movement unconditionally. HIGH_GROUND blocks
-  // grid cells too (units must climb in). The grid is for ground-level
-  // pathfinding — once a unit is on a platform, they can't reach the
-  // grid anyway. AI lookahead doesn't model on-top movement yet.
+  // HARD + BLOCKER + OUT_OF_BOUNDS + NO_ENTRY block movement unconditionally.
+  // HIGH_GROUND blocks grid cells too (units must climb in). The grid is
+  // for ground-level pathfinding — once a unit is on a platform, they can't
+  // reach the grid anyway. AI lookahead doesn't model on-top movement yet.
   const hardPolys = terrains
     .filter(
       (t) =>
-        t.kind === 'HARD' || t.kind === 'BLOCKER' || t.kind === 'HIGH_GROUND',
+        t.kind === 'HARD' ||
+        t.kind === 'BLOCKER' ||
+        t.kind === 'HIGH_GROUND' ||
+        t.kind === 'OUT_OF_BOUNDS' ||
+        t.kind === 'NO_ENTRY',
     )
     .map((t) => t.polygon);
   const inflateSq = inflateBy * inflateBy;

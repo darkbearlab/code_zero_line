@@ -68,7 +68,10 @@ export const targetHasCover = (
   const bothOnHigh = shooterOnHigh && targetOnHigh;
   const hardPolys: import('../geometry/types').Polygon[] = [];
   for (const t of terrains) {
-    if (t.kind === 'BLOCKER') {
+    // OUT_OF_BOUNDS treated as a sealed boundary like BLOCKER for cross-cover.
+    // NO_ENTRY does not contribute cover — it's an atrium void that LOS sees
+    // through and that no one can stand inside, so the rim doesn't shield.
+    if (t.kind === 'BLOCKER' || t.kind === 'OUT_OF_BOUNDS') {
       hardPolys.push(t.polygon);
       continue;
     }

@@ -79,7 +79,20 @@ export type CoverKind =
    *    doesn't get low-wall cover.
    *  - target on high ground + shooter not on same: target gets cover.
    */
-  | 'HIGH_GROUND';
+  | 'HIGH_GROUND'
+  /**
+   * 不可互動區域 — out-of-bounds boundary marker. Refuses every form of
+   * traversal (no MOVE / VAULT / CLIMB / TRAVERSE in or out) and blocks
+   * LOS unconditionally. Used to define the playable area edge.
+   */
+  | 'OUT_OF_BOUNDS'
+  /**
+   * 不可進入區 — atrium / void space. Can never be entered (movement and
+   * vault/climb refuse it like OUT_OF_BOUNDS) but LOS passes through
+   * freely as if the polygon weren't there. Use for inaccessible
+   * architectural voids that don't visually obstruct.
+   */
+  | 'NO_ENTRY';
 
 export interface Terrain {
   readonly id: string;
@@ -236,6 +249,12 @@ export const isBlocker = (t: Terrain): boolean => t.kind === 'BLOCKER';
 /** Elevated platform — climb in, free movement on top, asymmetric LOS/cover. */
 export const isHighGround = (t: Terrain): boolean => t.kind === 'HIGH_GROUND';
 
+/** 不可互動區域 — refuses every traversal and blocks LOS. */
+export const isOutOfBounds = (t: Terrain): boolean => t.kind === 'OUT_OF_BOUNDS';
+
+/** 不可進入區 — refuses entry but LOS passes through. */
+export const isNoEntry = (t: Terrain): boolean => t.kind === 'NO_ENTRY';
+
 /**
  * True iff `unit`'s centre sits inside any HIGH_GROUND polygon. Used by the
  * resolver + AI eval to flip cover / LOS rules per the high-ground spec.
@@ -275,9 +294,10 @@ export const sharesHighGround = (
 
 /**
  * Polygons that act as hard movement obstacles for a mover starting at
- * `fromPosition`. HARD + BLOCKER are unconditional; HIGH_GROUND only
- * blocks when the mover starts OUTSIDE the platform (a unit on top is
- * free to walk anywhere on top, and is allowed to step off the edge).
+ * `fromPosition`. HARD + BLOCKER + OUT_OF_BOUNDS + NO_ENTRY are
+ * unconditional; HIGH_GROUND only blocks when the mover starts OUTSIDE
+ * the platform (a unit on top is free to walk anywhere on top, and is
+ * allowed to step off the edge).
  */
 export const movementBlockingPolygons = (
   terrains: ReadonlyArray<Terrain>,
@@ -285,7 +305,12 @@ export const movementBlockingPolygons = (
 ): Polygon[] => {
   const out: Polygon[] = [];
   for (const t of terrains) {
-    if (t.kind === 'HARD' || t.kind === 'BLOCKER') {
+    if (
+      t.kind === 'HARD' ||
+      t.kind === 'BLOCKER' ||
+      t.kind === 'OUT_OF_BOUNDS' ||
+      t.kind === 'NO_ENTRY'
+    ) {
       out.push(t.polygon);
     } else if (t.kind === 'HIGH_GROUND') {
       if (!isPointInPolygon(fromPosition, t.polygon)) {

@@ -76,8 +76,10 @@ export const buildLosBlockers = (
         if (lowWallBypass) continue;
         if (options.aProne || options.bProne) blockers.push(t.polygon);
       }
-    } else if (t.kind === 'BLOCKER') {
-      // Sealed wall — always occludes, height-independent.
+    } else if (t.kind === 'BLOCKER' || t.kind === 'OUT_OF_BOUNDS') {
+      // Sealed wall / out-of-bounds boundary — always occludes,
+      // height-independent. NO_ENTRY is intentionally absent: atrium
+      // voids let LOS pass through unobstructed.
       blockers.push(t.polygon);
     } else if (t.kind === 'SOFT') {
       const aIn = isPointInPolygon(a, t.polygon);

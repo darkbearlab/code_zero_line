@@ -1911,7 +1911,11 @@ export class BattleScene extends Phaser.Scene {
     const softTerrain = findContactedSoftTerrain(this.gameState.terrain, u);
     const canTraverse = softTerrain !== null;
     if (!wall) return { canVault: false, canClimb: false, canTraverse };
-    if (wall.kind === 'BLOCKER') {
+    if (
+      wall.kind === 'BLOCKER' ||
+      wall.kind === 'OUT_OF_BOUNDS' ||
+      wall.kind === 'NO_ENTRY'
+    ) {
       return { canVault: false, canClimb: false, canTraverse };
     }
     if (wall.kind === 'HIGH_GROUND') {

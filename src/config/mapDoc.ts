@@ -23,6 +23,8 @@ export type EditorShapeTool =
   | 'high-ground'
   | 'difficult'
   | 'soft'
+  | 'out-of-bounds'
+  | 'no-entry'
   | 'zone-a'
   | 'zone-b'
   | 'objective';
@@ -58,6 +60,8 @@ const TOOL_LABEL: Readonly<Record<EditorShapeTool, string>> = {
   'high-ground': '高地',
   difficult: '瓦礫',
   soft: '煙幕',
+  'out-of-bounds': '不可互動區域',
+  'no-entry': '不可進入區',
   'zone-a': 'Zone A',
   'zone-b': 'Zone B',
   objective: '目標',
@@ -131,9 +135,13 @@ export const docToMapDef = (doc: EditorMapDoc): MapDef => {
           ? 'BLOCKER'
           : s.tool === 'high-ground'
             ? 'HIGH_GROUND'
-            : s.tool === 'difficult'
-              ? 'DIFFICULT'
-              : 'SOFT';
+            : s.tool === 'out-of-bounds'
+              ? 'OUT_OF_BOUNDS'
+              : s.tool === 'no-entry'
+                ? 'NO_ENTRY'
+                : s.tool === 'difficult'
+                  ? 'DIFFICULT'
+                  : 'SOFT';
     const def: MapTerrainDef = {
       id: s.id,
       kind,
@@ -186,6 +194,8 @@ const terrainTool = (t: MapTerrainDef): EditorShapeTool => {
   }
   if (t.kind === 'BLOCKER') return 'blocker';
   if (t.kind === 'HIGH_GROUND') return 'high-ground';
+  if (t.kind === 'OUT_OF_BOUNDS') return 'out-of-bounds';
+  if (t.kind === 'NO_ENTRY') return 'no-entry';
   return t.kind === 'DIFFICULT' ? 'difficult' : 'soft';
 };
 
