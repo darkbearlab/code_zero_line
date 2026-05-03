@@ -61,7 +61,7 @@ Source: `src/core/traits/registry.ts`. **Status legend:**
 | CANNON_FODDER | ability | ✓ | reducer (`reactionOutcomeAfterFodder` — own-unit kill skips turnover) |
 | FANATIC | ability | ✓ | reducer (`resolveReactionPlan` / `resolveGroupReactionPlan` — IMPEDED-only reaction hits don't halt the path) |
 | TOUGH (older note) | ability | ✓ | (see TOUGH above) |
-| IMPULSIVE_AGGRESSIVE | ability | ✓ | reducer (`activateCheck` failure branch + `turnover` outgoing-side prelude), commands/impulsive.ts (executor + shoot/move pickers) |
+| IMPULSIVE_AGGRESSIVE | ability | ✓ | reducer (`activateCheck` failure branch + `turnover` outgoing-side prelude), commands/impulsive.ts (executor + shoot/move pickers; forced-move 走 `resolveReactionPlan` 完整流程含反應射擊，但跳過 `processPostAction` 不觸發易手) |
 | AGITATOR | ability(param) | ◷ | declared only |
 | WARLORD | ability | ◷ | declared only — depends on Red faction |
 | MARTYRDOM | ability | ◷ | declared only — depends on militia faction |

@@ -5,8 +5,14 @@ import { computeMovePath } from '../geometry/path';
 import { isPointInPolygon } from '../geometry/polygon';
 import { TRAITS } from '../traits/registry';
 import { getUnitTraits, isImpulsive, unitHasTrait } from '../traits/types';
-import { executeImpulsiveAction } from './impulsive';
+import { executeImpulsiveAction, type ImpulsiveDeps } from './impulsive';
 import { pathfindingStepToward } from '../../ai/navigation';
+import { planReactions } from '../../ai/reaction';
+
+const IMPULSIVE_DEPS: ImpulsiveDeps = {
+  pathfind: pathfindingStepToward,
+  planReactions,
+};
 import {
   climbDestination,
   findContactedHardWall,
@@ -60,6 +66,10 @@ import {
   cycleScoreDelta,
   nextObjectiveControl,
 } from '../scenario/objectiveControl';
+import {
+  resolveReactionPlan,
+  type ReactionResolveResult,
+} from './reactions';
 
 const opponent = (f: Faction): Faction => (f === 'A' ? 'B' : 'A');
 
@@ -212,7 +222,7 @@ const turnover = (
       id,
       cmdIndex,
       'TURNOVER',
-      { pathfind: pathfindingStepToward },
+      IMPULSIVE_DEPS,
     );
     working = imp.state;
     accumulatedEvents.push(...imp.events);
@@ -374,7 +384,7 @@ const activateCheck = (
       u.id,
       cmdIndex,
       'CHECK_FAILED',
-      { pathfind: pathfindingStepToward },
+      IMPULSIVE_DEPS,
     );
     return { state: imp.state, events: [checkEvent, ...imp.events] };
   }
@@ -537,137 +547,6 @@ const processPostAction = (
   return { state: updated, events: [] };
 };
 
-interface ReactionResolveResult {
-  state: GameState;
-  events: GameEvent[];
-  interruptedByMarker: number;
-  interruptT: number | null;
-  suppressOrKillCaused: boolean;
-}
-
-/**
- * Resolve a reaction plan against a target unit moving (or stationary) along
- * pathStart → pathEnd. Markers are resolved in t-order; first hit halts the
- * action. Used by both MOVE (real path) and RALLY (degenerate path: start = end).
- */
-const resolveReactionPlan = (
-  s: GameState,
-  targetId: string,
-  pathStart: Vec2,
-  pathEnd: Vec2,
-  plan: ReactionPlan | undefined,
-  cmdIndex: number,
-): ReactionResolveResult => {
-  const empty: ReactionResolveResult = {
-    state: s,
-    events: [],
-    interruptedByMarker: -1,
-    interruptT: null,
-    suppressOrKillCaused: false,
-  };
-  if (!plan || plan.markers.length === 0) return empty;
-  const target = findUnit(s, targetId);
-  if (!target) return empty;
-
-  const sorted = [...plan.markers]
-    .map((m, originalIndex) => ({ m, originalIndex }))
-    .sort((a, b) => a.m.atT - b.m.atT);
-
-  let working = s;
-  const events: GameEvent[] = [];
-
-  for (const { m, originalIndex } of sorted) {
-    const moverPos = v2Lerp(pathStart, pathEnd, m.atT);
-    const shooter = findUnit(working, m.shooterId);
-    if (!shooter) continue;
-    if (!isUnitAlive(shooter)) continue;
-    if (shooter.damage === 'SUPPRESSED') continue;
-    if (shooter.cannotReactThisRound) continue;
-    if (shooter.faction === target.faction) continue;
-
-    // All FOCUSED/COMBINED participants must still be eligible to react.
-    // If any has become ineligible (suppressed, dead, already-reacted), skip
-    // the marker entirely rather than silently degrading the shot.
-    let participantsValid = true;
-    for (const pid of m.participantIds) {
-      if (pid === m.shooterId) continue;
-      const p = findUnit(working, pid);
-      if (
-        !p ||
-        !isUnitAlive(p) ||
-        p.damage === 'SUPPRESSED' ||
-        p.cannotReactThisRound ||
-        p.faction !== shooter.faction
-      ) {
-        participantsValid = false;
-        break;
-      }
-    }
-    if (!participantsValid) continue;
-
-    const visibleHere = hasLOS(
-      getUnitCircle(shooter),
-      { center: moverPos, radius: target.radius },
-      working.terrain,
-      { aProne: shooter.stance === 'PRONE', bProne: target.stance === 'PRONE' },
-    );
-    if (!visibleHere) continue;
-
-    // Temporarily place target at moverPos so resolveShot's LOS/cover checks
-    // use the mid-path position. Restore afterwards so subsequent logic can
-    // place the target wherever appropriate.
-    const tempState = updateUnit(working, targetId, { position: moverPos });
-    const shot = resolveShot({
-      state: tempState,
-      shooterId: m.shooterId,
-      targetId,
-      mode: m.mode,
-      weaponId: m.weaponId,
-      participantIds: m.participantIds,
-      weaponMode: 'REACTION',
-      rngLabel: `reaction:${cmdIndex}:m${originalIndex}`,
-      cmdIndex,
-    });
-    working = updateUnit(shot.state, targetId, { position: target.position });
-    events.push(...shot.events);
-
-    if (shot.hits === 0) {
-      // Rule 4.4: every unit that participated in the missed shot is barred
-      // from reacting again this initiative round (shooter + all participants).
-      working = updateUnit(working, m.shooterId, { cannotReactThisRound: true });
-      for (const pid of m.participantIds) {
-        if (pid === m.shooterId) continue;
-        working = updateUnit(working, pid, { cannotReactThisRound: true });
-      }
-      continue;
-    }
-    // FANATIC: an IMPEDED-only hit doesn't interrupt the action. The target
-    // already took the damage (state has IMPEDED); we just don't halt the
-    // path and let subsequent markers re-evaluate against the now-IMPEDED
-    // mover. SUPPRESSED / KILLED still interrupt (they apply unconditionally).
-    if (
-      unitHasTrait(target, 'FANATIC') &&
-      !shot.causedSuppressOrKill
-    ) {
-      continue;
-    }
-    return {
-      state: working,
-      events,
-      interruptedByMarker: originalIndex,
-      interruptT: m.atT,
-      suppressOrKillCaused: shot.causedSuppressOrKill,
-    };
-  }
-
-  return {
-    state: working,
-    events,
-    interruptedByMarker: -1,
-    interruptT: null,
-    suppressOrKillCaused: false,
-  };
-};
 
 interface MoverPath {
   unitId: string;

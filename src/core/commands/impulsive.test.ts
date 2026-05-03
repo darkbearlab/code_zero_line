@@ -94,6 +94,7 @@ describe('IMPULSIVE_AGGRESSIVE — Trigger 1 (failed activation check)', () => {
 
   it('failed check + no LOS → forced move toward nearest enemy', () => {
     const wall = {
+      id: 'wall-1',
       kind: 'HARD' as const,
       polygon: {
         vertices: [v2(80, -200), v2(120, -200), v2(120, 200), v2(80, 200)],
@@ -294,5 +295,169 @@ describe('IMPULSIVE_AGGRESSIVE — Trigger 2 (turnover prelude)', () => {
     const r = applyCommands(s0, [{ type: 'PASS_INITIATIVE' }]);
     expect(r.events.find((e) => e.type === 'IMPULSIVE_TRIGGERED')).toBeUndefined();
     expect(r.state.initiative.holder).toBe('B');
+  });
+});
+
+const bigRifle: Weapon = {
+  id: 'big-rifle',
+  modes: ['ACTIVE', 'REACTION'],
+  kind: 'SHOOT',
+  diceCount: 20,
+  threshold: 2,
+  descriptors: ['FOCUSED', 'COMBINED'],
+};
+
+describe('IMPULSIVE_AGGRESSIVE — forced move + reactions (Stage 1)', () => {
+  it('forced-move with enemy in LOS along path → reaction plan + REACTION shot', () => {
+    // a1 has no weapons → pickAggressiveShoot returns null → forced-move.
+    // b1 has clear LOS along the entire path (no walls) and a strong rifle,
+    // so planReactions clears the EV gate and places a marker.
+    const s0 = makeState({
+      seed: 'forced-move-reaction',
+      units: [
+        makeUnit({
+          id: 'a1',
+          faction: 'A',
+          position: v2(0, 0),
+          quality: 6,
+          weapons: [],
+          traits: ['IMPULSIVE_AGGRESSIVE'],
+        }),
+        makeUnit({
+          id: 'b1',
+          faction: 'B',
+          position: v2(300, 0),
+          weapons: [bigRifle],
+        }),
+      ],
+    });
+    let r = applyCommands(s0, [{ type: 'ACTIVATE_CHECK', unitId: 'a1' }]);
+    let attempts = 0;
+    while (
+      r.events.some((e) => e.type === 'ACTIVATION_CHECK_ROLLED' && e.success) &&
+      attempts < 20
+    ) {
+      attempts++;
+      r = applyCommands(
+        { ...s0, seed: `forced-move-reaction-${attempts}` },
+        [{ type: 'ACTIVATE_CHECK', unitId: 'a1' }],
+      );
+    }
+    const move = r.events.find((e) => e.type === 'MOVE_RESOLVED') as
+      | { reactionWindows: unknown[] }
+      | undefined;
+    expect(move).toBeDefined();
+    expect(move!.reactionWindows.length).toBeGreaterThan(0);
+    const reactionShot = r.events.find(
+      (e) =>
+        e.type === 'SHOT_RESOLVED' && e.shooterId === 'b1' && e.targetId === 'a1',
+    );
+    expect(reactionShot).toBeDefined();
+    expect(r.events.find((e) => e.type === 'INITIATIVE_TURNOVER')).toBeUndefined();
+  });
+
+  it('forced-move killed by reaction → mover KILLED, no nested turnover', () => {
+    const s0 = makeState({
+      seed: 'forced-move-kill',
+      units: [
+        makeUnit({
+          id: 'a1',
+          faction: 'A',
+          position: v2(0, 0),
+          quality: 6,
+          weapons: [],
+          traits: ['IMPULSIVE_AGGRESSIVE'],
+        }),
+        makeUnit({
+          id: 'b1',
+          faction: 'B',
+          position: v2(300, 0),
+          weapons: [bigRifle],
+        }),
+      ],
+    });
+    let r = applyCommands(s0, [{ type: 'ACTIVATE_CHECK', unitId: 'a1' }]);
+    let attempts = 0;
+    while (
+      r.events.some((e) => e.type === 'ACTIVATION_CHECK_ROLLED' && e.success) &&
+      attempts < 20
+    ) {
+      attempts++;
+      r = applyCommands(
+        { ...s0, seed: `forced-move-kill-${attempts}` },
+        [{ type: 'ACTIVATE_CHECK', unitId: 'a1' }],
+      );
+    }
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    // 20d/2+ unobstructed → ~16 hits → IMPEDED→SUPPRESSED→KILLED in one shot.
+    expect(a1.damage).toBe('KILLED');
+    // Trigger 1 must NOT cause turnover even when the impulse mover dies.
+    expect(r.events.find((e) => e.type === 'INITIATIVE_TURNOVER')).toBeUndefined();
+    expect(r.state.initiative.holder).toBe('A');
+  });
+
+  it('Trigger 2: forced-move killed by reaction → exactly one INITIATIVE_TURNOVER (from PASS_INITIATIVE)', () => {
+    const s0 = makeState({
+      seed: 'turnover-forced-move-kill',
+      units: [
+        makeUnit({
+          id: 'a1',
+          faction: 'A',
+          position: v2(0, 0),
+          weapons: [],
+          traits: ['IMPULSIVE_AGGRESSIVE'],
+        }),
+        makeUnit({
+          id: 'b1',
+          faction: 'B',
+          position: v2(300, 0),
+          weapons: [bigRifle],
+        }),
+      ],
+    });
+    const r = applyCommands(s0, [{ type: 'PASS_INITIATIVE' }]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    expect(a1.damage).toBe('KILLED');
+    const turnovers = r.events.filter((e) => e.type === 'INITIATIVE_TURNOVER');
+    expect(turnovers.length).toBe(1);
+    expect(turnovers[0]).toMatchObject({ reason: 'VOLUNTARY' });
+    expect(r.state.initiative.holder).toBe('B');
+  });
+
+  it('Trigger 2: reaction on first IMPULSIVE → second IMPULSIVE still fires', () => {
+    const s0 = makeState({
+      seed: 'turnover-multi-with-reaction',
+      units: [
+        makeUnit({
+          id: 'a1',
+          faction: 'A',
+          position: v2(0, 0),
+          weapons: [],
+          traits: ['IMPULSIVE_AGGRESSIVE'],
+        }),
+        makeUnit({
+          id: 'a2',
+          faction: 'A',
+          position: v2(40, 40),
+          weapons: [],
+          traits: ['IMPULSIVE_AGGRESSIVE'],
+        }),
+        makeUnit({
+          id: 'b1',
+          faction: 'B',
+          position: v2(400, 0),
+          weapons: [bigRifle],
+        }),
+      ],
+    });
+    const r = applyCommands(s0, [{ type: 'PASS_INITIATIVE' }]);
+    const triggered = (
+      r.events.filter((e) => e.type === 'IMPULSIVE_TRIGGERED') as Array<{
+        unitId: string;
+      }>
+    ).map((e) => e.unitId);
+    // Both a1 and a2 must have triggered, even if a1 was killed by reaction.
+    expect(triggered).toContain('a1');
+    expect(triggered).toContain('a2');
   });
 });

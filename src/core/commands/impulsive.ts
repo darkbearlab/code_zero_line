@@ -1,6 +1,7 @@
 import { computeMovePath } from '../geometry/path';
+import { computeReactionWindows } from '../geometry/los_window';
 import type { Vec2 } from '../geometry/types';
-import { v2Dist } from '../geometry/vec2';
+import { v2Dist, v2Lerp } from '../geometry/vec2';
 import {
   applyCoverToProfile,
   profileExpectedHits,
@@ -11,6 +12,7 @@ import {
   listAvailableShootModes,
   type AvailableShootMode,
 } from '../resolution/shoot_modes';
+import { hasStealthBypass } from '../resolution/stealth';
 import { getImpulsiveVariant, sumTraitParams } from '../traits/types';
 import {
   findUnit,
@@ -21,17 +23,27 @@ import {
   movementExitStopPolygons,
   updateUnit,
 } from '../state/GameState';
-import type { GameState, Unit } from '../state/GameState';
+import type { Faction, GameState, Unit } from '../state/GameState';
 import { sumWeaponDescriptorParam } from '../resolution/weapon_descriptors';
-import type { CommandResult, GameEvent } from './types';
+import { resolveReactionPlan } from './reactions';
+import type { Command, CommandResult, GameEvent, ReactionPlan } from './types';
 import { CommandError } from './types';
 
 /**
  * Dependency injected from the reducer to avoid a core → ai import. The
- * forced-move logic uses the AI's pathfinder to route around HARD walls.
+ * forced-move logic uses the AI's pathfinder + reaction planner.
+ *
+ * Both deps are passed through (rather than imported here) so this file
+ * stays in `core/` without taking on an `ai/` dependency. The reducer is
+ * the single injection point.
  */
 export interface ImpulsiveDeps {
   readonly pathfind: (state: GameState, from: Vec2, to: Vec2) => Vec2;
+  readonly planReactions: (
+    state: GameState,
+    defenderFaction: Faction,
+    cmd: Command,
+  ) => ReactionPlan;
 }
 
 interface ShootChoice {
@@ -136,10 +148,26 @@ export const pickAggressiveMove = (
   return deps.pathfind(state, mover.position, nearest.position);
 };
 
+/**
+ * Forced move: 1-UD step toward the picked target, going through the same
+ * reaction-window + reaction-plan pipeline as a normal MOVE so opposing
+ * units can react-shoot the impulse mover. We deliberately bypass
+ * `moveAction` because it requires (and mutates) `activeActivation` and
+ * runs `processPostAction` afterwards — IMPULSIVE has no activation slot
+ * and must not trigger nested turnover (Trigger 1 is already inside a
+ * failed-check branch; Trigger 2 is inside the turnover prelude).
+ *
+ * REACTION_HIT during forced move: the mover is stopped at the interrupt
+ * t and damage from the reaction is applied (via resolveShot inside the
+ * reaction resolver). No turnover follows — this is the deliberate
+ * difference from normal MOVE.
+ */
 const forcedMove = (
   state: GameState,
   mover: Unit,
   rawTarget: Vec2,
+  cmdIndex: number,
+  deps: ImpulsiveDeps,
 ): { state: GameState; events: GameEvent[] } => {
   const enemyCircles = state.units
     .filter((o) => o.faction !== mover.faction && isUnitAlive(o))
@@ -160,18 +188,71 @@ const forcedMove = (
     friendlyCircles,
     moverRadius: mover.radius,
   });
-  const next = updateUnit(state, mover.id, { position: path.endpoint });
-  const event: GameEvent = {
+
+  const oppFaction: Faction = mover.faction === 'A' ? 'B' : 'A';
+  // Synthetic MOVE command for the reaction planner — only `unitId` and
+  // `target` are read by `planReactions`. The plan uses the path endpoint
+  // as the target (not rawTarget), matching what actually gets traversed.
+  const syntheticCmd: Command = {
+    type: 'MOVE',
+    unitId: mover.id,
+    target: path.endpoint,
+  };
+  const stealthSafe = hasStealthBypass(
+    mover,
+    mover.position,
+    path.endpoint,
+    state.terrain,
+  );
+  const plan: ReactionPlan = stealthSafe
+    ? { markers: [] }
+    : deps.planReactions(state, oppFaction, syntheticCmd);
+
+  const enemiesForLOS = state.units
+    .filter((o) => o.faction !== mover.faction && isUnitAlive(o))
+    .map((o) => ({
+      id: o.id,
+      circle: getUnitCircle(o),
+      prone: o.stance === 'PRONE',
+    }));
+  const reactionWindows = stealthSafe
+    ? []
+    : computeReactionWindows(
+        mover.position,
+        path.endpoint,
+        mover.radius,
+        enemiesForLOS,
+        state.terrain,
+        { moverProne: mover.stance === 'PRONE' },
+      );
+
+  const reactionResult = resolveReactionPlan(
+    state,
+    mover.id,
+    mover.position,
+    path.endpoint,
+    plan,
+    cmdIndex,
+    'impulsive-reaction',
+  );
+  const finalEndpoint =
+    reactionResult.interruptT !== null
+      ? v2Lerp(mover.position, path.endpoint, reactionResult.interruptT)
+      : path.endpoint;
+  const next = updateUnit(reactionResult.state, mover.id, {
+    position: finalEndpoint,
+  });
+  const moveEvent: GameEvent = {
     type: 'MOVE_RESOLVED',
     unitId: mover.id,
     from: mover.position,
-    to: path.endpoint,
+    to: finalEndpoint,
     stopReason: path.stopReason,
-    distance: path.distance,
-    reactionWindows: [],
-    interruptedByMarker: -1,
+    distance: v2Dist(mover.position, finalEndpoint),
+    reactionWindows,
+    interruptedByMarker: reactionResult.interruptedByMarker,
   };
-  return { state: next, events: [event] };
+  return { state: next, events: [moveEvent, ...reactionResult.events] };
 };
 
 /**
@@ -186,8 +267,22 @@ const forcedMove = (
  * triggers (CHECK_FAILED is during the holder's own check; TURNOVER's
  * outgoing-side hook runs *before* the holder swap). The forced shoot
  * never triggers turnover (resolveShot doesn't), and the forced move
- * carries no reactionPlan (no REACTION_HIT possible), so the executor
- * is single-pass and cannot re-enter `turnover` directly.
+ * runs through `resolveReactionPlan` directly (NOT `moveAction`), which
+ * resolves reactions and applies damage but never calls `turnover` or
+ * `processPostAction` — so the executor remains single-pass and cannot
+ * re-enter `turnover` even when reactions kill the impulse mover.
+ *
+ * Trait interactions:
+ *  - CANNON_FODDER: forced-shoot path doesn't run turnover (no interaction);
+ *    forced-move killed by a reaction also doesn't trigger turnover here
+ *    (CANNON_FODDER's "own death suppresses turnover" rule still applies
+ *    on the *outer* turnover, e.g. PASS_INITIATIVE in Trigger 2).
+ *  - FRAGILE: forced-shoot's hit accumulation honours FRAGILE +1 via the
+ *    standard resolveShot path — no special handling needed.
+ *  - STEALTH: `hasStealthBypass` zeroes out the reaction plan when the
+ *    forced-move stays within a single cover polygon, mirroring `moveAction`.
+ *  - FANATIC: the standard reaction resolver already lets IMPEDED-only
+ *    hits pass without halting the path (mover keeps rolling).
  */
 export const executeImpulsiveAction = (
   state: GameState,
@@ -236,7 +331,7 @@ export const executeImpulsiveAction = (
     } else if (unit.damage !== 'IMPEDED') {
       const moveTarget = pickAggressiveMove(working, unit, deps);
       if (moveTarget) {
-        const out = forcedMove(working, unit, moveTarget);
+        const out = forcedMove(working, unit, moveTarget, cmdIndex, deps);
         working = out.state;
         events.push(...out.events);
         action = 'MOVE';
