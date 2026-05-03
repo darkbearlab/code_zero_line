@@ -1,0 +1,765 @@
+{
+  "id": "indoor_map_test",
+  "displayName": "indoor_map_test",
+  "size": 768,
+  "terrain": [
+    {
+      "id": "no-entry-1",
+      "kind": "NO_ENTRY",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 288,
+            "y": 288
+          },
+          {
+            "x": 384,
+            "y": 288
+          },
+          {
+            "x": 384,
+            "y": 384
+          },
+          {
+            "x": 288,
+            "y": 384
+          }
+        ]
+      },
+      "displayName": "不可進入區"
+    },
+    {
+      "id": "no-entry-2",
+      "kind": "NO_ENTRY",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 384,
+            "y": 288
+          },
+          {
+            "x": 480,
+            "y": 288
+          },
+          {
+            "x": 480,
+            "y": 384
+          },
+          {
+            "x": 384,
+            "y": 384
+          }
+        ]
+      },
+      "displayName": "不可進入區"
+    },
+    {
+      "id": "no-entry-3",
+      "kind": "NO_ENTRY",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 288,
+            "y": 384
+          },
+          {
+            "x": 384,
+            "y": 384
+          },
+          {
+            "x": 384,
+            "y": 480
+          },
+          {
+            "x": 288,
+            "y": 480
+          }
+        ]
+      },
+      "displayName": "不可進入區"
+    },
+    {
+      "id": "no-entry-4",
+      "kind": "NO_ENTRY",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 384,
+            "y": 384
+          },
+          {
+            "x": 480,
+            "y": 384
+          },
+          {
+            "x": 480,
+            "y": 480
+          },
+          {
+            "x": 384,
+            "y": 480
+          }
+        ]
+      },
+      "displayName": "不可進入區"
+    },
+    {
+      "id": "blocker-1",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 264,
+            "y": 264
+          },
+          {
+            "x": 312,
+            "y": 264
+          },
+          {
+            "x": 312,
+            "y": 312
+          },
+          {
+            "x": 264,
+            "y": 312
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "blocker-2",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 456,
+            "y": 264
+          },
+          {
+            "x": 504,
+            "y": 264
+          },
+          {
+            "x": 504,
+            "y": 312
+          },
+          {
+            "x": 456,
+            "y": 312
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "blocker-3",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 264,
+            "y": 456
+          },
+          {
+            "x": 312,
+            "y": 456
+          },
+          {
+            "x": 312,
+            "y": 504
+          },
+          {
+            "x": 264,
+            "y": 504
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "blocker-4",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 456,
+            "y": 456
+          },
+          {
+            "x": 504,
+            "y": 456
+          },
+          {
+            "x": 504,
+            "y": 504
+          },
+          {
+            "x": 456,
+            "y": 504
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "low-1",
+      "kind": "HARD",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 280,
+            "y": 312
+          },
+          {
+            "x": 288,
+            "y": 312
+          },
+          {
+            "x": 288,
+            "y": 384
+          },
+          {
+            "x": 280,
+            "y": 384
+          }
+        ]
+      },
+      "height": 24,
+      "displayName": "矮牆"
+    },
+    {
+      "id": "low-2",
+      "kind": "HARD",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 480,
+            "y": 312
+          },
+          {
+            "x": 488,
+            "y": 312
+          },
+          {
+            "x": 488,
+            "y": 384
+          },
+          {
+            "x": 480,
+            "y": 384
+          }
+        ]
+      },
+      "height": 24,
+      "displayName": "矮牆"
+    },
+    {
+      "id": "low-3",
+      "kind": "HARD",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 280,
+            "y": 384
+          },
+          {
+            "x": 288,
+            "y": 384
+          },
+          {
+            "x": 288,
+            "y": 456
+          },
+          {
+            "x": 280,
+            "y": 456
+          }
+        ]
+      },
+      "height": 24,
+      "displayName": "矮牆"
+    },
+    {
+      "id": "low-4",
+      "kind": "HARD",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 480,
+            "y": 384
+          },
+          {
+            "x": 488,
+            "y": 384
+          },
+          {
+            "x": 488,
+            "y": 456
+          },
+          {
+            "x": 480,
+            "y": 456
+          }
+        ]
+      },
+      "height": 24,
+      "displayName": "矮牆"
+    },
+    {
+      "id": "low-5",
+      "kind": "HARD",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 312,
+            "y": 280
+          },
+          {
+            "x": 384,
+            "y": 280
+          },
+          {
+            "x": 384,
+            "y": 288
+          },
+          {
+            "x": 312,
+            "y": 288
+          }
+        ]
+      },
+      "height": 24,
+      "displayName": "矮牆"
+    },
+    {
+      "id": "low-6",
+      "kind": "HARD",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 384,
+            "y": 280
+          },
+          {
+            "x": 456,
+            "y": 280
+          },
+          {
+            "x": 456,
+            "y": 288
+          },
+          {
+            "x": 384,
+            "y": 288
+          }
+        ]
+      },
+      "height": 24,
+      "displayName": "矮牆"
+    },
+    {
+      "id": "low-7",
+      "kind": "HARD",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 312,
+            "y": 480
+          },
+          {
+            "x": 384,
+            "y": 480
+          },
+          {
+            "x": 384,
+            "y": 488
+          },
+          {
+            "x": 312,
+            "y": 488
+          }
+        ]
+      },
+      "height": 24,
+      "displayName": "矮牆"
+    },
+    {
+      "id": "low-8",
+      "kind": "HARD",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 384,
+            "y": 480
+          },
+          {
+            "x": 456,
+            "y": 480
+          },
+          {
+            "x": 456,
+            "y": 488
+          },
+          {
+            "x": 384,
+            "y": 488
+          }
+        ]
+      },
+      "height": 24,
+      "displayName": "矮牆"
+    },
+    {
+      "id": "blocker-9",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 96,
+            "y": 264
+          },
+          {
+            "x": 144,
+            "y": 264
+          },
+          {
+            "x": 144,
+            "y": 312
+          },
+          {
+            "x": 96,
+            "y": 312
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "blocker-10",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 624,
+            "y": 264
+          },
+          {
+            "x": 672,
+            "y": 264
+          },
+          {
+            "x": 672,
+            "y": 312
+          },
+          {
+            "x": 624,
+            "y": 312
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "blocker-11",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 96,
+            "y": 456
+          },
+          {
+            "x": 144,
+            "y": 456
+          },
+          {
+            "x": 144,
+            "y": 504
+          },
+          {
+            "x": 96,
+            "y": 504
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "blocker-12",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 624,
+            "y": 456
+          },
+          {
+            "x": 672,
+            "y": 456
+          },
+          {
+            "x": 672,
+            "y": 504
+          },
+          {
+            "x": 624,
+            "y": 504
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "blocker-13",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 260,
+            "y": 624
+          },
+          {
+            "x": 308,
+            "y": 624
+          },
+          {
+            "x": 308,
+            "y": 672
+          },
+          {
+            "x": 260,
+            "y": 672
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "blocker-14",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 460,
+            "y": 624
+          },
+          {
+            "x": 508,
+            "y": 624
+          },
+          {
+            "x": 508,
+            "y": 672
+          },
+          {
+            "x": 460,
+            "y": 672
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "blocker-15",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 260,
+            "y": 96
+          },
+          {
+            "x": 308,
+            "y": 96
+          },
+          {
+            "x": 308,
+            "y": 144
+          },
+          {
+            "x": 260,
+            "y": 144
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "blocker-16",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 460,
+            "y": 96
+          },
+          {
+            "x": 508,
+            "y": 96
+          },
+          {
+            "x": 508,
+            "y": 144
+          },
+          {
+            "x": 460,
+            "y": 144
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "blocker-5",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 96,
+            "y": 624
+          },
+          {
+            "x": 144,
+            "y": 624
+          },
+          {
+            "x": 144,
+            "y": 672
+          },
+          {
+            "x": 96,
+            "y": 672
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "blocker-6",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 624,
+            "y": 624
+          },
+          {
+            "x": 672,
+            "y": 624
+          },
+          {
+            "x": 672,
+            "y": 672
+          },
+          {
+            "x": 624,
+            "y": 672
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "blocker-7",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 96,
+            "y": 96
+          },
+          {
+            "x": 144,
+            "y": 96
+          },
+          {
+            "x": 144,
+            "y": 144
+          },
+          {
+            "x": 96,
+            "y": 144
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    },
+    {
+      "id": "blocker-8",
+      "kind": "BLOCKER",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 624,
+            "y": 96
+          },
+          {
+            "x": 672,
+            "y": 96
+          },
+          {
+            "x": 672,
+            "y": 144
+          },
+          {
+            "x": 624,
+            "y": 144
+          }
+        ]
+      },
+      "displayName": "封頂牆"
+    }
+  ],
+  "deploymentZones": [
+    {
+      "id": "zone-a-1",
+      "faction": "A",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 96,
+            "y": 672
+          },
+          {
+            "x": 288,
+            "y": 672
+          },
+          {
+            "x": 288,
+            "y": 768
+          },
+          {
+            "x": 96,
+            "y": 768
+          }
+        ]
+      }
+    },
+    {
+      "id": "zone-b-1",
+      "faction": "B",
+      "polygon": {
+        "vertices": [
+          {
+            "x": 480,
+            "y": 0
+          },
+          {
+            "x": 672,
+            "y": 0
+          },
+          {
+            "x": 672,
+            "y": 96
+          },
+          {
+            "x": 480,
+            "y": 96
+          }
+        ]
+      }
+    }
+  ]
+}

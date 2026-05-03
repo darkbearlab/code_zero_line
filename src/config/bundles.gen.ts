@@ -21,6 +21,7 @@ import units_squad_lead from './units/squad_lead.json';
 import units_trooper from './units/trooper.json';
 import units_veteran from './units/veteran.json';
 import maps_demo from './maps/demo.json';
+import maps_indoor_map_test from './maps/indoor_map_test.json';
 import maps_testmap1 from './maps/testmap1.json';
 import missions_breakthrough from './missions/breakthrough.json';
 import missions_decapitation from './missions/decapitation.json';
@@ -52,6 +53,7 @@ export const BUNDLED_TEMPLATES: ReadonlyArray<UnitTemplate> = [
 ];
 export const BUNDLED_MAPS: ReadonlyArray<MapDef> = [
   maps_demo as unknown as MapDef,
+  maps_indoor_map_test as unknown as MapDef,
   maps_testmap1 as unknown as MapDef,
 ];
 export const BUNDLED_MISSIONS: ReadonlyArray<MissionDef> = [
