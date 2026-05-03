@@ -461,3 +461,125 @@ describe('IMPULSIVE_AGGRESSIVE — forced move + reactions (Stage 1)', () => {
     expect(triggered).toContain('a2');
   });
 });
+
+describe('IMPULSIVE_AGGRESSIVE × CANNON_FODDER (Stage 2 interaction audit)', () => {
+  // CANNON_FODDER's bypass logic (`reactionOutcomeAfterFodder`) only short-
+  // circuits the REACTION_HIT → turnover branch inside `processPostAction`.
+  // The IMPULSIVE forced flow never calls `processPostAction`, so the trait
+  // is a non-interaction here — these tests pin that down so a future
+  // refactor can't silently re-introduce a turnover from inside an impulse.
+
+  it('Trigger 1 forced-shoot kills opponent CANNON_FODDER → no turnover', () => {
+    // The IMPULSIVE shooter holds initiative; killing the opponent's fodder
+    // is irrelevant to CANNON_FODDER (which only protects the *own* faction
+    // from reaction-driven turnover). The forced-shoot path has no turnover
+    // anyway, so this only verifies the obvious non-interaction.
+    const s0 = makeState({
+      seed: 'fodder-shoot-target',
+      units: [
+        makeUnit({
+          id: 'a1',
+          faction: 'A',
+          position: v2(0, 0),
+          quality: 6,
+          weapons: [bigRifle],
+          traits: ['IMPULSIVE_AGGRESSIVE'],
+        }),
+        makeUnit({
+          id: 'b1',
+          faction: 'B',
+          position: v2(200, 0),
+          weapons: [],
+          traits: ['CANNON_FODDER'],
+        }),
+      ],
+    });
+    let r = applyCommands(s0, [{ type: 'ACTIVATE_CHECK', unitId: 'a1' }]);
+    let attempts = 0;
+    while (
+      r.events.some((e) => e.type === 'ACTIVATION_CHECK_ROLLED' && e.success) &&
+      attempts < 20
+    ) {
+      attempts++;
+      r = applyCommands(
+        { ...s0, seed: `fodder-shoot-target-${attempts}` },
+        [{ type: 'ACTIVATE_CHECK', unitId: 'a1' }],
+      );
+    }
+    expect(r.events.find((e) => e.type === 'INITIATIVE_TURNOVER')).toBeUndefined();
+    expect(r.state.initiative.holder).toBe('A');
+  });
+
+  it('Trigger 1 forced-move + own CANNON_FODDER killed by reaction → no turnover', () => {
+    // The IMPULSIVE mover is itself CANNON_FODDER. Without the trait this
+    // already wouldn't turnover (Stage 1: the executor skips processPostAction).
+    // Adding CANNON_FODDER must not change anything — verify both pre-existing
+    // (no-turnover) and post-trait paths still yield no turnover.
+    const s0 = makeState({
+      seed: 'fodder-impulsive-trigger1',
+      units: [
+        makeUnit({
+          id: 'a1',
+          faction: 'A',
+          position: v2(0, 0),
+          quality: 6,
+          weapons: [],
+          traits: ['IMPULSIVE_AGGRESSIVE', 'CANNON_FODDER'],
+        }),
+        makeUnit({
+          id: 'b1',
+          faction: 'B',
+          position: v2(300, 0),
+          weapons: [bigRifle],
+        }),
+      ],
+    });
+    let r = applyCommands(s0, [{ type: 'ACTIVATE_CHECK', unitId: 'a1' }]);
+    let attempts = 0;
+    while (
+      r.events.some((e) => e.type === 'ACTIVATION_CHECK_ROLLED' && e.success) &&
+      attempts < 20
+    ) {
+      attempts++;
+      r = applyCommands(
+        { ...s0, seed: `fodder-impulsive-trigger1-${attempts}` },
+        [{ type: 'ACTIVATE_CHECK', unitId: 'a1' }],
+      );
+    }
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    expect(a1.damage).toBe('KILLED');
+    expect(r.events.find((e) => e.type === 'INITIATIVE_TURNOVER')).toBeUndefined();
+    expect(r.state.initiative.holder).toBe('A');
+  });
+
+  it('Trigger 2 forced-move + own CANNON_FODDER killed by reaction → exactly one turnover (PASS_INITIATIVE)', () => {
+    // Same as Stage 1's Trigger 2 kill test, plus CANNON_FODDER. The
+    // PASS_INITIATIVE turnover MUST still proceed — CANNON_FODDER's bypass
+    // is gated on REACTION_HIT, not VOLUNTARY.
+    const s0 = makeState({
+      seed: 'fodder-impulsive-trigger2',
+      units: [
+        makeUnit({
+          id: 'a1',
+          faction: 'A',
+          position: v2(0, 0),
+          weapons: [],
+          traits: ['IMPULSIVE_AGGRESSIVE', 'CANNON_FODDER'],
+        }),
+        makeUnit({
+          id: 'b1',
+          faction: 'B',
+          position: v2(300, 0),
+          weapons: [bigRifle],
+        }),
+      ],
+    });
+    const r = applyCommands(s0, [{ type: 'PASS_INITIATIVE' }]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    expect(a1.damage).toBe('KILLED');
+    const turnovers = r.events.filter((e) => e.type === 'INITIATIVE_TURNOVER');
+    expect(turnovers.length).toBe(1);
+    expect(turnovers[0]).toMatchObject({ reason: 'VOLUNTARY' });
+    expect(r.state.initiative.holder).toBe('B');
+  });
+});
