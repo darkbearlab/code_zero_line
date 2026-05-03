@@ -122,6 +122,9 @@ export const mountMapEditor = (root: HTMLElement): void => {
   let activeTool: Tool = 'low';
   let drag: Drag = null;
   let snap = true;
+  // Floating shape inspector — collapse cx/cy by default since the
+  // canvas drag covers the common case; remember user preference.
+  let coordsExpanded = false;
   // Live-mirror mode: when an axis is enabled, every add / edit / delete on a
   // shape gets applied to twin shape(s) reflected across that axis. Both
   // axes can be active simultaneously — a single source then spawns 3 twins
@@ -771,11 +774,12 @@ export const mountMapEditor = (root: HTMLElement): void => {
     // clamped to the canvas viewport. When nothing is selected, dock it at
     // the bottom-left of the canvas as a passive hint.
     const positionInfoPanel = (): void => {
-      const PAD = 8;
+      const EDGE_PAD = 8;
+      const SHAPE_GAP = 18;
       if (!selectedShapeId) {
-        info.style.left = `${PAD}px`;
+        info.style.left = `${EDGE_PAD}px`;
         info.style.top = '';
-        info.style.bottom = `${PAD}px`;
+        info.style.bottom = `${EDGE_PAD}px`;
         return;
       }
       const s = doc.shapes.find((x) => x.id === selectedShapeId);
@@ -795,15 +799,17 @@ export const mountMapEditor = (root: HTMLElement): void => {
       const pw = info.offsetWidth || 240;
       const ph = info.offsetHeight || 80;
       // Try to the right of the shape; flip to the left if it overflows.
-      let left = sxMax + PAD;
-      if (left + pw > canvasSide - PAD) left = sxMin - PAD - pw;
+      let left = sxMax + SHAPE_GAP;
+      if (left + pw > canvasSide - EDGE_PAD) left = sxMin - SHAPE_GAP - pw;
       // Align top with the shape, but clamp to canvas viewport.
       let top = syMin;
-      if (top + ph > canvasSide - PAD) top = canvasSide - PAD - ph;
-      if (top < PAD) top = PAD;
+      if (top + ph > canvasSide - EDGE_PAD) top = canvasSide - EDGE_PAD - ph;
+      if (top < EDGE_PAD) top = EDGE_PAD;
       // If neither side fits horizontally, fall back to clamped overlay.
-      if (left < PAD) left = PAD;
-      if (left + pw > canvasSide - PAD) left = Math.max(PAD, canvasSide - PAD - pw);
+      if (left < EDGE_PAD) left = EDGE_PAD;
+      if (left + pw > canvasSide - EDGE_PAD) {
+        left = Math.max(EDGE_PAD, canvasSide - EDGE_PAD - pw);
+      }
       info.style.left = `${left}px`;
       info.style.top = `${top}px`;
       info.style.bottom = '';
@@ -831,24 +837,28 @@ export const mountMapEditor = (root: HTMLElement): void => {
       });
       info.appendChild(header);
 
-      const grid = el('div', {
-        style: {
-          display: 'grid',
-          gridTemplateColumns: 'auto 1fr auto 1fr',
-          gap: '4px 8px',
-          alignItems: 'center',
-          maxWidth: '420px',
-        },
+      const gridStyle = {
+        display: 'grid',
+        gridTemplateColumns: 'auto 1fr auto 1fr',
+        gap: '4px 8px',
+        alignItems: 'center',
+        maxWidth: '420px',
+      };
+      const mainGrid = el('div', { style: gridStyle });
+      const coordGrid = el('div', {
+        style: { ...gridStyle, marginTop: '4px',
+          display: coordsExpanded ? 'grid' : 'none' },
       });
 
       const numField = (
+        target: HTMLElement,
         label: string,
         value: number,
         step: number,
         onChange: (v: number) => void,
         suffix = '英吋',
       ): void => {
-        grid.appendChild(
+        target.appendChild(
           el('label', { text: label, style: { fontSize: '11px' } }),
         );
         const wrap = el('div', {
@@ -871,7 +881,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
             style: { fontSize: '10px', color: '#7a9a7a' },
           }),
         );
-        grid.appendChild(wrap);
+        target.appendChild(wrap);
       };
 
       const inches = (px: number): number => px / PX_PER_INCH;
@@ -886,19 +896,19 @@ export const mountMapEditor = (root: HTMLElement): void => {
         renderForm();
       };
 
-      numField('cx', inches(s.cx), 0.05, (v) =>
-        updateShape({ cx: v * PX_PER_INCH }),
-      );
-      numField('cy', inches(s.cy), 0.05, (v) =>
-        updateShape({ cy: v * PX_PER_INCH }),
-      );
-      numField('w', inches(s.w), 0.05, (v) =>
+      numField(mainGrid, 'w', inches(s.w), 0.05, (v) =>
         updateShape({ w: Math.max(MIN_RECT / PX_PER_INCH, v) * PX_PER_INCH }),
       );
-      numField(isCircleTool(s.tool) ? 'h (=w)' : 'h', inches(s.h), 0.05, (v) =>
-        updateShape({ h: Math.max(MIN_RECT / PX_PER_INCH, v) * PX_PER_INCH }),
+      numField(
+        mainGrid,
+        isCircleTool(s.tool) ? 'h (=w)' : 'h',
+        inches(s.h),
+        0.05,
+        (v) =>
+          updateShape({ h: Math.max(MIN_RECT / PX_PER_INCH, v) * PX_PER_INCH }),
       );
       numField(
+        mainGrid,
         'angle',
         (s.angle * 180) / Math.PI,
         1,
@@ -906,7 +916,79 @@ export const mountMapEditor = (root: HTMLElement): void => {
         '°',
       );
 
-      info.appendChild(grid);
+      info.appendChild(mainGrid);
+
+      // Collapsible coordinates section — rarely tweaked by hand since
+      // the shape can be dragged on the canvas.
+      const coordToggle = el('button', {
+        text: `${coordsExpanded ? '▾' : '▸'} 座標 (cx, cy)`,
+        style: {
+          marginTop: '6px',
+          fontSize: '11px',
+          color: '#9aa89a',
+          background: 'transparent',
+          border: 'none',
+          padding: '2px 0',
+          cursor: 'pointer',
+          textAlign: 'left',
+        },
+        onclick: () => {
+          coordsExpanded = !coordsExpanded;
+          coordGrid.style.display = coordsExpanded ? 'grid' : 'none';
+          coordToggle.textContent = `${coordsExpanded ? '▾' : '▸'} 座標 (cx, cy)`;
+          positionInfoPanel();
+        },
+      });
+      info.appendChild(coordToggle);
+      numField(coordGrid, 'cx', inches(s.cx), 0.05, (v) =>
+        updateShape({ cx: v * PX_PER_INCH }),
+      );
+      numField(coordGrid, 'cy', inches(s.cy), 0.05, (v) =>
+        updateShape({ cy: v * PX_PER_INCH }),
+      );
+      info.appendChild(coordGrid);
+
+      // Action buttons row — moved here from the left toolbar so they sit
+      // next to the thing they act on.
+      const actionRow = el('div', {
+        style: {
+          display: 'flex',
+          gap: '4px',
+          marginTop: '8px',
+          flexWrap: 'wrap',
+        },
+      });
+      const actionBtnStyle = { fontSize: '11px', padding: '3px 8px' };
+      actionRow.appendChild(
+        el('button', {
+          text: '↺ −15°',
+          style: actionBtnStyle,
+          onclick: () => rotateSelected(-Math.PI / 12),
+        }),
+      );
+      actionRow.appendChild(
+        el('button', {
+          text: '↻ +15°',
+          style: actionBtnStyle,
+          onclick: () => rotateSelected(Math.PI / 12),
+        }),
+      );
+      actionRow.appendChild(
+        el('button', {
+          text: '複製 (Ctrl+D)',
+          style: actionBtnStyle,
+          onclick: () => duplicateSelected(),
+        }),
+      );
+      actionRow.appendChild(
+        el('button', {
+          text: '刪除',
+          style: actionBtnStyle,
+          onclick: () => deleteSelected(),
+        }),
+      );
+      info.appendChild(actionRow);
+
       redraw();
     };
 
@@ -1087,29 +1169,6 @@ export const mountMapEditor = (root: HTMLElement): void => {
       if (t === activeTool) btn.style.background = '#2a4a2a';
       tools.appendChild(btn);
     }
-
-    tools.appendChild(sep());
-    tools.appendChild(
-      el('button', {
-        text: 'Rotate −15°',
-        onclick: () => rotateSelected(-Math.PI / 12),
-      }),
-    );
-    tools.appendChild(
-      el('button', {
-        text: 'Rotate +15°',
-        onclick: () => rotateSelected(Math.PI / 12),
-      }),
-    );
-    tools.appendChild(
-      el('button', {
-        text: 'Duplicate',
-        onclick: () => duplicateSelected(),
-      }),
-    );
-    tools.appendChild(
-      el('button', { text: 'Delete', onclick: () => deleteSelected() }),
-    );
 
     tools.appendChild(sep());
     tools.appendChild(
