@@ -78,7 +78,12 @@ export class RoundSetupScene extends Phaser.Scene {
 
     const cardsHtml = this.round.options
       .map((opt, i) => {
-        const mission = getMissionById(opt.missionId);
+        // Stage 2: cards still render the main mission only — full
+        // operation chain UI lands in Stage 4. Picking the card commits
+        // the entire chain into RunState below.
+        const mainMissionId =
+          opt.operation.missionIds[opt.operation.missionIds.length - 1]!;
+        const mission = getMissionById(mainMissionId);
         const squadHtml = opt.squadIds
           .map((id) => {
             const member = this.campaign.pool.find((u) => u.id === id);
@@ -196,7 +201,7 @@ export class RoundSetupScene extends Phaser.Scene {
       .filter((u): u is NonNullable<typeof u> => !!u);
     if (draftedSquad.length === 0) return;
     const runSeed = `${this.round.seed}-pick-${idx}`;
-    const run = newRunState(runSeed, draftedSquad, [option.missionId]);
+    const run = newRunState(runSeed, draftedSquad, option.operation.missionIds);
     // Pre-roll the auto-resolved fates of every unpicked option (§4.1).
     // Done here so the fates are deterministic and survive a reload —
     // RunResultScene will pass them through to advanceCampaignAfterRun.

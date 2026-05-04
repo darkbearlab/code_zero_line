@@ -4,6 +4,11 @@
  * "executed" off-screen — each gets a single mission-success roll, and
  * each squad member in that option rolls independently for survival.
  *
+ * For multi-stage operations the unpicked roll resolves against the
+ * **main** (last) mission of each operation chain — a single coin flip
+ * standing in for the whole chain. Sub-mission resolution is reserved
+ * for when the player actually plays through the chain.
+ *
  * The success / survival rates come from the option's fuzzy band via
  * `fuzzyToRates` (see ./fuzzy.ts). v1 places medium at 70%/70%, low at
  * 85%/85%, high at 50%/55% — a "high risk" mission really does punish
@@ -16,7 +21,7 @@
  */
 import { Rng } from '../core/rng/sfc32';
 import type { UnpickedOptionOutcome } from '../campaign/state';
-import type { RoundMissionOption } from './state';
+import type { RoundOperationOption } from './state';
 import { fuzzyToRates } from './fuzzy';
 
 /**
@@ -24,7 +29,7 @@ import { fuzzyToRates } from './fuzzy';
  * player chose (skipped here); every other option gets rolled.
  */
 export const resolveUnpickedOptions = (
-  options: ReadonlyArray<RoundMissionOption>,
+  options: ReadonlyArray<RoundOperationOption>,
   pickedIdx: number,
   seed: string,
 ): UnpickedOptionOutcome[] => {
@@ -39,8 +44,10 @@ export const resolveUnpickedOptions = (
     for (const id of opt.squadIds) {
       if (rng.next() < rates.survivalRate) survivors.push(id);
     }
+    const mainMissionId =
+      opt.operation.missionIds[opt.operation.missionIds.length - 1]!;
     out.push({
-      missionId: opt.missionId,
+      missionId: mainMissionId,
       squadIds: opt.squadIds,
       survivorIds: survivors,
       won,

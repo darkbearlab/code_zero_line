@@ -1,23 +1,53 @@
 import { describe, it, expect } from 'vitest';
 import { resolveUnpickedOptions } from './autoResolve';
 import { fuzzyToRates } from './fuzzy';
-import type { RoundMissionOption, FuzzyDifficulty } from './state';
+import type { RoundOperationOption, FuzzyDifficulty } from './state';
+import type { OperationInstance } from '../operations/types';
+
+const inst = (
+  operationId: string,
+  missionIds: string[],
+): OperationInstance => ({
+  operationId,
+  missionIds,
+  stageLabels: missionIds.map((_, i) =>
+    i === missionIds.length - 1 ? 'MAIN' : 'ELIM',
+  ),
+  difficulty: 3,
+  rewards: {
+    perStage: { tactical: 0, regional: 0, honor: 0 },
+    onComplete: { tactical: 0, regional: 0, honor: 0 },
+  },
+});
 
 const opt = (
-  missionId: string,
+  operationId: string,
+  missionIds: string[],
   squadIds: string[],
   fuzzy: FuzzyDifficulty = 'medium',
-): RoundMissionOption => ({ missionId, squadIds, fuzzy });
+): RoundOperationOption => ({
+  operation: inst(operationId, missionIds),
+  squadIds,
+  fuzzy,
+});
 
 describe('resolveUnpickedOptions', () => {
   it('skips the picked option', () => {
-    const options = [opt('m1', ['a']), opt('m2', ['b']), opt('m3', ['c'])];
+    const options = [
+      opt('o1', ['e1', 'm1'], ['a']),
+      opt('o2', ['e2', 'm2'], ['b']),
+      opt('o3', ['e3', 'm3'], ['c']),
+    ];
     const out = resolveUnpickedOptions(options, 1, 'seed');
+    // Each unpicked option's outcome reports the operation's MAIN mission id.
     expect(out.map((o) => o.missionId)).toEqual(['m1', 'm3']);
   });
 
   it('returns one outcome per unpicked option, preserving its squadIds', () => {
-    const options = [opt('m1', ['a', 'b']), opt('m2', ['c', 'd'])];
+    const options = [
+      opt('o1', ['e1', 'm1'], ['a', 'b']),
+      opt('o2', ['e2', 'm2'], ['c', 'd']),
+    ];
     const out = resolveUnpickedOptions(options, 0, 'seed');
     expect(out).toHaveLength(1);
     expect(out[0]!.squadIds).toEqual(['c', 'd']);
@@ -25,8 +55,8 @@ describe('resolveUnpickedOptions', () => {
 
   it('is deterministic for the same seed', () => {
     const options = [
-      opt('m1', ['a', 'b', 'c', 'd']),
-      opt('m2', ['e', 'f', 'g', 'h']),
+      opt('o1', ['e1', 'm1'], ['a', 'b', 'c', 'd']),
+      opt('o2', ['e2', 'm2'], ['e', 'f', 'g', 'h']),
     ];
     const a = resolveUnpickedOptions(options, 0, 'seed-x');
     const b = resolveUnpickedOptions(options, 0, 'seed-x');
@@ -36,7 +66,10 @@ describe('resolveUnpickedOptions', () => {
   it('medium-fuzzy survival roll lands near 70% over many seeds', () => {
     const expected = fuzzyToRates('medium').survivalRate;
     const squad = Array.from({ length: 200 }, (_, i) => `m${i}`);
-    const options = [opt('picked', ['p']), opt('unpicked', squad, 'medium')];
+    const options = [
+      opt('p', ['p-main'], ['p']),
+      opt('u', ['u-main'], squad, 'medium'),
+    ];
     const out = resolveUnpickedOptions(options, 0, 'big-seed');
     const rate = out[0]!.survivorIds.length / squad.length;
     expect(rate).toBeGreaterThan(expected - 0.1);
@@ -48,12 +81,12 @@ describe('resolveUnpickedOptions', () => {
     // should produce noticeably fewer survivors than medium.
     const squad = Array.from({ length: 400 }, (_, i) => `m${i}`);
     const med = resolveUnpickedOptions(
-      [opt('p', ['p']), opt('u', squad, 'medium')],
+      [opt('p', ['p-main'], ['p']), opt('u', ['u-main'], squad, 'medium')],
       0,
       'fuzzy-seed',
     )[0]!.survivorIds.length;
     const hi = resolveUnpickedOptions(
-      [opt('p', ['p']), opt('u', squad, 'high')],
+      [opt('p', ['p-main'], ['p']), opt('u', ['u-main'], squad, 'high')],
       0,
       'fuzzy-seed',
     )[0]!.survivorIds.length;
@@ -68,12 +101,12 @@ describe('resolveUnpickedOptions', () => {
   it('low-fuzzy clearly favors survival vs medium', () => {
     const squad = Array.from({ length: 400 }, (_, i) => `m${i}`);
     const med = resolveUnpickedOptions(
-      [opt('p', ['p']), opt('u', squad, 'medium')],
+      [opt('p', ['p-main'], ['p']), opt('u', ['u-main'], squad, 'medium')],
       0,
       'fuzzy-seed-2',
     )[0]!.survivorIds.length;
     const low = resolveUnpickedOptions(
-      [opt('p', ['p']), opt('u', squad, 'low')],
+      [opt('p', ['p-main'], ['p']), opt('u', ['u-main'], squad, 'low')],
       0,
       'fuzzy-seed-2',
     )[0]!.survivorIds.length;
@@ -85,7 +118,10 @@ describe('resolveUnpickedOptions', () => {
     let wins = 0;
     const tries = 200;
     for (let i = 0; i < tries; i++) {
-      const options = [opt('picked', ['p']), opt('unpicked', ['x'], 'medium')];
+      const options = [
+        opt('p', ['p-main'], ['p']),
+        opt('u', ['u-main'], ['x'], 'medium'),
+      ];
       const out = resolveUnpickedOptions(options, 0, `seed-${i}`);
       if (out[0]!.won) wins += 1;
     }
@@ -95,7 +131,11 @@ describe('resolveUnpickedOptions', () => {
   });
 
   it('returns empty when there is only one option (the picked one)', () => {
-    const out = resolveUnpickedOptions([opt('only', ['a'])], 0, 'seed');
+    const out = resolveUnpickedOptions(
+      [opt('only', ['only-main'], ['a'])],
+      0,
+      'seed',
+    );
     expect(out).toEqual([]);
   });
 });

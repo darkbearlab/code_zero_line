@@ -12,7 +12,7 @@
  * means at the dice — autoResolve and any future "shown success %" UI
  * should both call it.
  */
-import type { FuzzyDifficulty, RoundMissionOption } from './state';
+import type { FuzzyDifficulty, RoundOperationOption } from './state';
 import type { MissionDef } from '../missions/types';
 import type { RosterEntry } from '../core/setup/types';
 import { getUnitTemplate } from '../config/loader';
@@ -90,6 +90,6 @@ export const classifyFuzzy = (
   return 'high';
 };
 
-/** Helper for callers (e.g. autoResolve) that hold a RoundMissionOption. */
-export const fuzzyOf = (option: RoundMissionOption): FuzzyDifficulty =>
+/** Helper for callers (e.g. autoResolve) that hold a RoundOperationOption. */
+export const fuzzyOf = (option: RoundOperationOption): FuzzyDifficulty =>
   option.fuzzy;
