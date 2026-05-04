@@ -8,10 +8,12 @@
 import Phaser from 'phaser';
 import { listUnitTemplates } from '../../config/loader';
 import { didRunSucceed, type RunState } from '../../runs/state';
+import { clearRun } from '../../runs/persist';
 import {
   advanceCampaignAfterRun,
   type CampaignState,
   type RunResolution,
+  type RunOutcome,
 } from '../../campaign/state';
 import { loadCampaign, saveCampaign } from '../../campaign/persist';
 
@@ -48,19 +50,100 @@ export class RunResultScene extends Phaser.Scene {
 
   private applyCampaignOutcome(): void {
     const campaign = loadCampaign();
-    if (!campaign) return; // Campaign got cleared mid-run; bail.
-    // Run is single-mission in 3a, so history[0] holds the only outcome.
+    if (!campaign) {
+      // Campaign got cleared mid-run; flush run state too so we don't
+      // resume into a phantom save next launch.
+      clearRun();
+      return;
+    }
     const lastResult = this.runState.history[this.runState.history.length - 1];
-    if (!lastResult) return;
+
+    // Build the discriminated outcome:
+    //  - retreat → RETREATED, banked preserved, no KIA on picked side
+    //  - operation context + final stage win → OPERATION_COMPLETE
+    //  - operation context + wipe / not all stages cleared → OPERATION_FAILED
+    //  - no operation → SINGLE_MISSION (legacy)
+    const op = this.runState.operation;
+    let outcome: RunOutcome;
+    let missionId: string;
+    let squadIds: ReadonlyArray<string>;
+    let survivorIds: ReadonlyArray<string>;
+    let winner: 'A' | 'B' | 'DRAW';
+
+    if (op && this.runState.retreated) {
+      outcome = {
+        kind: 'RETREATED',
+        banked: this.runState.bankedRewards ?? {
+          tactical: 0,
+          regional: 0,
+          honor: 0,
+        },
+      };
+      missionId = op.operationId;
+      squadIds = this.runState.squad.map((s) => s.id);
+      // On retreat survivors include everyone who came back from the
+      // last battle (or the full squad if no battle was fought yet).
+      survivorIds = this.runState.survivorIds.length
+        ? this.runState.survivorIds
+        : squadIds;
+      winner = 'DRAW';
+    } else if (op) {
+      // Determine COMPLETE vs FAILED from the actual chain progress.
+      const completedAll =
+        lastResult?.winner === 'A' &&
+        this.runState.missionIndex >= this.runState.missionIds.length;
+      outcome = completedAll
+        ? {
+            kind: 'OPERATION_COMPLETE',
+            banked: this.runState.bankedRewards ?? {
+              tactical: 0,
+              regional: 0,
+              honor: 0,
+            },
+          }
+        : {
+            kind: 'OPERATION_FAILED',
+            banked: this.runState.bankedRewards ?? {
+              tactical: 0,
+              regional: 0,
+              honor: 0,
+            },
+          };
+      missionId =
+        lastResult?.missionId ??
+        this.runState.missionIds[this.runState.missionIds.length - 1] ??
+        op.operationId;
+      squadIds = this.runState.squad.map((s) => s.id);
+      survivorIds = this.runState.survivorIds;
+      winner = lastResult?.winner ?? 'B';
+    } else {
+      if (!lastResult) {
+        clearRun();
+        return;
+      }
+      outcome = {
+        kind: 'SINGLE_MISSION',
+        won: lastResult.winner === 'A',
+      };
+      missionId = lastResult.missionId;
+      squadIds = this.runState.squad.map((s) => s.id);
+      survivorIds = this.runState.survivorIds;
+      winner = lastResult.winner;
+    }
+
     const resolution: RunResolution = {
-      missionId: lastResult.missionId,
-      squadIds: this.runState.squad.map((s) => s.id),
-      survivorIds: this.runState.survivorIds,
-      winner: lastResult.winner,
+      missionId,
+      squadIds,
+      survivorIds,
+      winner,
+      outcome,
       unpicked: this.runState.unpickedOutcomes,
     };
     const advanced = advanceCampaignAfterRun(campaign, resolution);
     saveCampaign(advanced);
+    // Run resolved into the campaign — clear the in-flight run save so a
+    // refresh from RoundSetup doesn't offer a stale resume.
+    clearRun();
     this.prevCampaign = campaign;
     this.newCampaign = advanced;
   }

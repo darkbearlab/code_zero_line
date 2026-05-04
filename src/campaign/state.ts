@@ -113,11 +113,34 @@ export interface UnpickedOptionOutcome {
   readonly won: boolean;
 }
 
+/**
+ * Discriminated outcome of a finished run. Drives reward + KIA branching
+ * in `advanceCampaignAfterRun`:
+ *  - SINGLE_MISSION: legacy / sandbox-style — uses MISSION_BASE_INTEL
+ *    formula. Honored when the run carried no operation context.
+ *  - OPERATION_COMPLETE: every stage of the picked operation cleared;
+ *    `banked` already includes the on-complete bonus.
+ *  - OPERATION_FAILED: squad wiped mid-chain; `banked` is whatever
+ *    perStage rewards accrued before the failure (possibly zero).
+ *  - RETREATED: player chose to bail between stages; `banked` preserved,
+ *    KIA processing skipped (all surviving units return safely).
+ */
+export type RunOutcome =
+  | { readonly kind: 'SINGLE_MISSION'; readonly won: boolean }
+  | { readonly kind: 'OPERATION_COMPLETE'; readonly banked: CampaignCurrencies }
+  | { readonly kind: 'OPERATION_FAILED'; readonly banked: CampaignCurrencies }
+  | { readonly kind: 'RETREATED'; readonly banked: CampaignCurrencies };
+
 export interface RunResolution {
   readonly missionId: string;
   readonly squadIds: ReadonlyArray<string>;
   readonly survivorIds: ReadonlyArray<string>;
+  /**
+   * Battle outcome of the most recent mission for legacy callers / UI.
+   * Reward + KIA branching is driven by `outcome` instead.
+   */
   readonly winner: 'A' | 'B' | 'DRAW';
+  readonly outcome?: RunOutcome;
   readonly unpicked?: ReadonlyArray<UnpickedOptionOutcome>;
 }
 
@@ -185,14 +208,25 @@ export const advanceCampaignAfterRun = (
   campaign: CampaignState,
   result: RunResolution,
 ): CampaignState => {
-  const won = result.winner === 'A';
+  // Default to legacy single-mission outcome when caller didn't tag one
+  // — keeps sandbox / 3-mission run paths untouched.
+  const outcome: RunOutcome =
+    result.outcome ?? {
+      kind: 'SINGLE_MISSION',
+      won: result.winner === 'A',
+    };
 
-  // KIA = (drafted ∖ survived) for the picked mission, plus the same for
-  // every auto-resolved unpicked option (see UnpickedOptionOutcome).
+  // KIA = (drafted ∖ survived) for the picked side. Retreat gives every
+  // surviving unit safe passage, so we skip the picked-side KIA pass; the
+  // squad list survives intact regardless of survivorIds at retreat time.
   const kia = new Set<string>();
-  for (const id of result.squadIds) {
-    if (!result.survivorIds.includes(id)) kia.add(id);
+  if (outcome.kind !== 'RETREATED') {
+    for (const id of result.squadIds) {
+      if (!result.survivorIds.includes(id)) kia.add(id);
+    }
   }
+  // Unpicked options are auto-resolved up-front (§4.1) and unaffected by
+  // a retreat decision on the picked op — KIA still rolls in.
   for (const u of result.unpicked ?? []) {
     for (const id of u.squadIds) {
       if (!u.survivorIds.includes(id)) kia.add(id);
@@ -218,17 +252,28 @@ export const advanceCampaignAfterRun = (
         : u,
     );
 
-  const tactical = won
-    ? Math.round(MISSION_BASE_INTEL * TACTICAL_SHARE)
-    : 0;
-  // Regional intel is the 30% share of any mission that resolved in the
-  // player's favor — the picked one if won, plus each unpicked option
-  // whose auto-roll succeeded (§4.1).
+  // Picked-side rewards: legacy formula for SINGLE_MISSION; banked rewards
+  // (already including any onCompleteReward) for operation outcomes.
+  let pickedTactical = 0;
+  let pickedRegional = 0;
+  let pickedHonor = 0;
+  if (outcome.kind === 'SINGLE_MISSION') {
+    if (outcome.won) {
+      pickedTactical = Math.round(MISSION_BASE_INTEL * TACTICAL_SHARE);
+      pickedRegional = Math.round(MISSION_BASE_INTEL * REGIONAL_SHARE);
+      pickedHonor = HONOR_PER_WIN;
+    }
+  } else {
+    pickedTactical = outcome.banked.tactical;
+    pickedRegional = outcome.banked.regional;
+    pickedHonor = outcome.banked.honor;
+  }
+  // Unpicked regional share is independent of the picked outcome.
   const unpickedWins = (result.unpicked ?? []).filter((u) => u.won).length;
+  const tactical = pickedTactical;
   const regional =
-    (won ? Math.round(MISSION_BASE_INTEL * REGIONAL_SHARE) : 0) +
-    unpickedWins * Math.round(MISSION_BASE_INTEL * REGIONAL_SHARE);
-  const honor = won ? HONOR_PER_WIN : 0;
+    pickedRegional + unpickedWins * Math.round(MISSION_BASE_INTEL * REGIONAL_SHARE);
+  const honor = pickedHonor;
 
   // Replenish before returning so the next round's RoundSetupScene already
   // sees a full POOL_TARGET roster. Seeded by campaign seed × round so

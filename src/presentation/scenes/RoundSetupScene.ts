@@ -12,7 +12,8 @@
 import Phaser from 'phaser';
 import { listUnitTemplates } from '../../config/loader';
 import { getMissionById } from '../../missions/library';
-import { newRunState } from '../../runs/state';
+import { newRunState, type RunOperationContext } from '../../runs/state';
+import { saveRun, clearRun } from '../../runs/persist';
 import {
   isCampaignOver,
   newCampaignState,
@@ -22,6 +23,7 @@ import { loadCampaign, saveCampaign } from '../../campaign/persist';
 import { newRoundState, type RoundState } from '../../rounds/state';
 import { resolveUnpickedOptions } from '../../rounds/autoResolve';
 import { veteranAdjustedQuality } from '../../campaign/veteran';
+import { getOperationDef } from '../../config/loader';
 
 const SCENARIO_LABEL: Readonly<Record<string, string>> = {
   'engage-reach': '攻佔目標',
@@ -184,6 +186,7 @@ export class RoundSetupScene extends Phaser.Scene {
         // Lazy import to avoid circular load in test envs.
         import('../../campaign/persist').then((m) => {
           m.clearCampaign();
+          clearRun();
           this.rootEl.remove();
           this.scene.start('Title');
         });
@@ -201,7 +204,21 @@ export class RoundSetupScene extends Phaser.Scene {
       .filter((u): u is NonNullable<typeof u> => !!u);
     if (draftedSquad.length === 0) return;
     const runSeed = `${this.round.seed}-pick-${idx}`;
-    const run = newRunState(runSeed, draftedSquad, option.operation.missionIds);
+    // Snapshot the operation's reward template into the run so banking
+    // is deterministic across editor edits mid-run.
+    const opDef = getOperationDef(option.operation.operationId);
+    const operationCtx: RunOperationContext = {
+      operationId: option.operation.operationId,
+      stageLabels: option.operation.stageLabels,
+      perStageReward: opDef.rewards.perStage,
+      onCompleteReward: opDef.rewards.onComplete,
+    };
+    const run = newRunState(
+      runSeed,
+      draftedSquad,
+      option.operation.missionIds,
+      operationCtx,
+    );
     // Pre-roll the auto-resolved fates of every unpicked option (§4.1).
     // Done here so the fates are deterministic and survive a reload —
     // RunResultScene will pass them through to advanceCampaignAfterRun.
@@ -219,6 +236,8 @@ export class RoundSetupScene extends Phaser.Scene {
       upgradeLevels: { ...this.campaign.upgradeLevels },
       unpickedOutcomes,
     };
+    // Snapshot the fresh run so a tab-close mid-operation can resume.
+    saveRun(campaignRun);
     this.rootEl.remove();
     this.scene.start('Battle', { runState: campaignRun });
   }
@@ -246,6 +265,7 @@ export class RoundSetupScene extends Phaser.Scene {
       () => {
         import('../../campaign/persist').then((m) => {
           m.clearCampaign();
+          clearRun();
           this.rootEl.remove();
           this.scene.start('RoundSetup');
         });

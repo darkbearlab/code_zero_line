@@ -1343,6 +1343,14 @@ export class BattleScene extends Phaser.Scene {
         losses,
       };
       const advanced = advanceAfterMission(this.runState, result, damageCarry);
+      // Persist post-mission run state so a tab close lands cleanly back
+      // here on resume (either at Hub for next stage, or RunResult). The
+      // RunResultScene clears this slot once the campaign-side advance
+      // commits.
+      if (advanced.inCampaign) {
+        // Defer the import to avoid pulling persist into sandbox-only paths.
+        import('../../runs/persist').then((m) => m.saveRun(advanced));
+      }
       this.time.delayedCall(800, () => {
         if (isRunOver(advanced)) {
           this.scene.start('RunResult', { runState: advanced });

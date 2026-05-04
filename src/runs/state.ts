@@ -3,14 +3,18 @@
  *
  * A *run* is one squad's deployment: pick a fixed roster, fight N missions
  * in sequence, with an optional Hub between each mission to apply a boon.
- * State persists in memory only; no localStorage yet (that's Phase 3).
+ * Phase 3a wires multi-stage **operations** in: when launched from the
+ * campaign loop, a run carries an `operation` context (per-stage + on-
+ * complete reward templates) and `bankedRewards` accumulator. Single-
+ * mission / sandbox runs leave both undefined and behave as before.
  *
  * Key contract: between missions, the player's squad carries over with the
  * accumulated boons applied. Damage state from the previous mission persists
  * unless a boon clears it.
  */
 import type { RosterEntry } from '../core/setup/types';
-import type { UnpickedOptionOutcome } from '../campaign/state';
+import type { UnpickedOptionOutcome, CampaignCurrencies } from '../campaign/state';
+import type { StageLabel } from '../operations/types';
 
 /** Single applied effect that only lives for the current run. */
 export type RunBoonEffect =
@@ -31,6 +35,33 @@ export interface MissionResult {
   readonly survivorIds: ReadonlyArray<string>;
   readonly losses: ReadonlyArray<string>;
 }
+
+/**
+ * Operation chain context carried by a run launched from the campaign
+ * loop. Reward templates are snapshotted at run-start so a mid-run
+ * editor change can't retro-buff banked rewards.
+ */
+export interface RunOperationContext {
+  readonly operationId: string;
+  readonly stageLabels: ReadonlyArray<StageLabel>;
+  readonly perStageReward: CampaignCurrencies;
+  readonly onCompleteReward: CampaignCurrencies;
+}
+
+const ZERO_CURRENCIES: CampaignCurrencies = {
+  tactical: 0,
+  regional: 0,
+  honor: 0,
+};
+
+const addCurrencies = (
+  a: CampaignCurrencies,
+  b: CampaignCurrencies,
+): CampaignCurrencies => ({
+  tactical: a.tactical + b.tactical,
+  regional: a.regional + b.regional,
+  honor: a.honor + b.honor,
+});
 
 export interface RunState {
   readonly seed: string;
@@ -72,12 +103,31 @@ export interface RunState {
    * and feed deterministically into `advanceCampaignAfterRun`.
    */
   readonly unpickedOutcomes?: ReadonlyArray<UnpickedOptionOutcome>;
+  /**
+   * Operation chain context — present when run was launched from a
+   * picked operation card (Stage 3+). Drives per-stage banking and
+   * outcome routing.
+   */
+  readonly operation?: RunOperationContext;
+  /**
+   * Currencies banked from per-stage wins so far in this operation.
+   * On the final-stage win this also includes onCompleteReward.
+   * Only meaningful when `operation` is set.
+   */
+  readonly bankedRewards?: CampaignCurrencies;
+  /**
+   * Set true when the player chose to retreat between stages. Causes
+   * the run-over check to fire and the campaign-side resolution to
+   * skip KIA for the surviving squad.
+   */
+  readonly retreated?: boolean;
 }
 
 export const newRunState = (
   seed: string,
   squad: ReadonlyArray<RosterEntry>,
   missionIds: ReadonlyArray<string>,
+  operation?: RunOperationContext,
 ): RunState => ({
   seed,
   squad,
@@ -87,18 +137,49 @@ export const newRunState = (
   survivorIds: squad.map((s) => s.id),
   damageCarry: Object.fromEntries(squad.map((s) => [s.id, 'NONE' as const])),
   history: [],
+  ...(operation ? { operation, bankedRewards: ZERO_CURRENCIES } : {}),
 });
 
 export const advanceAfterMission = (
   run: RunState,
   result: MissionResult,
   perUnitDamage: Readonly<Record<string, 'NONE' | 'IMPEDED' | 'SUPPRESSED'>>,
-): RunState => ({
+): RunState => {
+  let bankedRewards = run.bankedRewards;
+  if (result.winner === 'A' && run.operation) {
+    bankedRewards = addCurrencies(
+      bankedRewards ?? ZERO_CURRENCIES,
+      run.operation.perStageReward,
+    );
+    const isFinalStage = run.missionIndex + 1 >= run.missionIds.length;
+    if (isFinalStage) {
+      bankedRewards = addCurrencies(
+        bankedRewards,
+        run.operation.onCompleteReward,
+      );
+    }
+  }
+  return {
+    ...run,
+    missionIndex: run.missionIndex + 1,
+    survivorIds: result.survivorIds,
+    damageCarry: perUnitDamage,
+    history: [...run.history, result],
+    ...(bankedRewards ? { bankedRewards } : {}),
+  };
+};
+
+/**
+ * Mark the run as retreated. Skips the next stage entirely; survivors
+ * stay alive and bankedRewards (whatever's been earned through prior
+ * won stages) is preserved. Calling on a non-operation run is a no-op
+ * but still sets the flag for symmetry.
+ */
+export const retreatOperation = (run: RunState): RunState => ({
   ...run,
-  missionIndex: run.missionIndex + 1,
-  survivorIds: result.survivorIds,
-  damageCarry: perUnitDamage,
-  history: [...run.history, result],
+  retreated: true,
+  // Skip remaining stages so isRunOver fires.
+  missionIndex: run.missionIds.length,
 });
 
 export const applyBoon = (run: RunState, boon: RunBoon): RunState => {
@@ -116,12 +197,14 @@ export const applyBoon = (run: RunState, boon: RunBoon): RunState => {
 };
 
 export const isRunOver = (run: RunState): boolean => {
+  if (run.retreated) return true;
   if (run.survivorIds.length === 0) return true; // squad wiped
   if (run.missionIndex >= run.missionIds.length) return true; // all missions done
   return false;
 };
 
 export const didRunSucceed = (run: RunState): boolean => {
+  if (run.retreated) return false;
   if (run.survivorIds.length === 0) return false;
   return run.missionIndex >= run.missionIds.length;
 };

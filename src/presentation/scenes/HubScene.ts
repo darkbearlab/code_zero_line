@@ -4,11 +4,20 @@
  * doesn't know what's ahead, so the boons are the squad's intel /
  * supply / tactical risk choices.
  *
- * v1 has 3 fixed boons (heal / +1 die / risk-reward). Phase 4 will
- * draw from a larger pool with weighted-random + scenario context.
+ * Stage 3 adds operation context: when a multi-stage operation is in
+ * flight, the hub shows banked rewards + a Retreat button. Picking a
+ * boon still routes into the next mission; Retreat skips remaining
+ * stages, banks what's been earned, and routes to RunResult with the
+ * RETREATED outcome.
  */
 import Phaser from 'phaser';
-import { applyBoon, type RunBoon, type RunState } from '../../runs/state';
+import {
+  applyBoon,
+  retreatOperation,
+  type RunBoon,
+  type RunState,
+} from '../../runs/state';
+import { saveRun } from '../../runs/persist';
 import { getMissionById } from '../../missions/library';
 
 interface InitData {
@@ -90,12 +99,30 @@ export class HubScene extends Phaser.Scene {
       ? `<div style="color:#7a9a7a;font-style:italic;margin-bottom:12px;">「${previousResult.winner === 'A' ? '完成任務目標。生還' : '退守過程中折損'} ${survivorCount}/${fullCount} 人。」</div>`
       : '';
 
+    // Operation banner (banked rewards + stage progress) only for in-flight
+    // multi-stage operations. Sandbox / single-mission flows skip the banner
+    // so the hub still reads cleanly.
+    const op = this.runState.operation;
+    const banked = this.runState.bankedRewards;
+    const opBanner = op
+      ? `
+        <div style="margin-bottom:12px;padding:10px 14px;background:rgba(20,30,40,0.6);border:1px solid #4a6a8a;display:flex;justify-content:space-between;align-items:center;font-size:12px;">
+          <div style="color:#a1a1cf;">行動 ${op.operationId} — 階段 ${nextIdx + 1} / ${this.runState.missionIds.length}</div>
+          <div style="color:#cfd1a1;">已入袋 作戰 ${banked?.tactical ?? 0} · 區域 ${banked?.regional ?? 0} · 榮譽 ${banked?.honor ?? 0}</div>
+        </div>
+      `
+      : '';
+    const retreatBtn = op
+      ? `<button data-action="retreat" style="padding:6px 14px;background:#3a1a1a;color:#cfa8a8;border:1px solid #6a3a3a;cursor:pointer;font:inherit;">撤退 (保留階段獎)</button>`
+      : '';
+
     const root = document.createElement('div');
     root.className = 'setup-root';
     root.innerHTML = `
       <h1>Hub — 前線回報</h1>
       <div class="setup-body" style="display:flex;flex-direction:column;gap:24px;align-items:center;">
-        <div style="max-width:680px;text-align:center;">
+        <div style="max-width:680px;text-align:center;width:100%;">
+          ${opBanner}
           ${flavorHtml}
           <div style="color:#cfe8cf;font-size:14px;margin-bottom:6px;">
             <strong>下一場:</strong> 關 ${nextIdx + 1} ${nextMission ? `— ${nextMission.displayName}` : ''}
@@ -111,6 +138,7 @@ export class HubScene extends Phaser.Scene {
         <span style="color:#7a9a7a;font-size:12px;">
           已選 boons: ${this.runState.pickedBoons.length === 0 ? '(無)' : this.runState.pickedBoons.map((b) => b.displayName).join(', ')}
         </span>
+        ${retreatBtn ? `<span style="margin-left:auto;">${retreatBtn}</span>` : ''}
       </div>
     `;
     document.body.appendChild(root);
@@ -120,9 +148,28 @@ export class HubScene extends Phaser.Scene {
         .querySelector<HTMLButtonElement>(`[data-boon="${b.id}"]`)!
         .addEventListener('click', () => {
           const next = applyBoon(this.runState, b);
+          if (next.inCampaign) saveRun(next);
           this.rootEl.remove();
           this.scene.start('Battle', { runState: next });
         });
+    }
+
+    const retreatEl = root.querySelector<HTMLButtonElement>(
+      '[data-action="retreat"]',
+    );
+    if (retreatEl) {
+      retreatEl.onclick = () => {
+        if (
+          !confirm(
+            '撤退會結束本行動,保留已入袋階段獎(放棄完成獎),所有單位安全歸隊。確定?',
+          )
+        )
+          return;
+        const next = retreatOperation(this.runState);
+        if (next.inCampaign) saveRun(next);
+        this.rootEl.remove();
+        this.scene.start('RunResult', { runState: next });
+      };
     }
     return root;
   }
@@ -136,4 +183,3 @@ const hideBattleHud = (): void => {
   const glow = document.getElementById('hud-frame-glow');
   if (glow) (glow as HTMLElement).style.display = 'none';
 };
-

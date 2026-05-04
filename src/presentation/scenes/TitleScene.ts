@@ -9,6 +9,7 @@ import {
   hasSavedCampaign,
   clearCampaign,
 } from '../../campaign/persist';
+import { hasSavedRun, loadRun, clearRun } from '../../runs/persist';
 import { UNIT_SPRITES } from '../assets/spriteManifest';
 
 export class TitleScene extends Phaser.Scene {
@@ -35,6 +36,7 @@ export class TitleScene extends Phaser.Scene {
 
   private makeRoot(): HTMLElement {
     const hasSave = hasSavedCampaign();
+    const hasRun = hasSavedRun();
     const root = document.createElement('div');
     root.className = 'setup-root';
     root.innerHTML = `
@@ -46,6 +48,11 @@ export class TitleScene extends Phaser.Scene {
           <span style="color:#9a9a9a;font-style:italic;">(Phase 3a — Campaign + Round 骨架)</span>
         </div>
         <div style="display:flex;flex-direction:column;gap:12px;width:280px;">
+          ${
+            hasRun
+              ? `<button data-action="resume-run" style="padding:12px;font:inherit;font-size:16px;background:#2a3a4a;color:#a1cfd1;border:1px solid #4a8a8a;cursor:pointer;">▶ Resume Operation</button>`
+              : ''
+          }
           ${
             hasSave
               ? `<button data-action="continue" style="padding:12px;font:inherit;font-size:16px;background:#1a3a2a;color:#cfe8cf;border:1px solid #4a8a5a;cursor:pointer;">▶ Continue Campaign</button>
@@ -64,6 +71,31 @@ export class TitleScene extends Phaser.Scene {
     `;
     document.body.appendChild(root);
 
+    const resumeRunBtn = root.querySelector<HTMLButtonElement>(
+      '[data-action="resume-run"]',
+    );
+    if (resumeRunBtn) {
+      resumeRunBtn.onclick = () => {
+        const run = loadRun();
+        if (!run) {
+          // Stale flag — drop and refresh.
+          clearRun();
+          this.rootEl.remove();
+          this.scene.start('Title');
+          return;
+        }
+        this.rootEl.remove();
+        // Resume routes back to where the run left off:
+        //  - missionIndex past last → run was about to be resolved → RunResult
+        //  - between missions (just exited Hub or pre-battle) → Hub for boon pick
+        //  - mid-battle is not represented; if survivors === 0 → RunResult
+        if (run.retreated || run.survivorIds.length === 0 || run.missionIndex >= run.missionIds.length) {
+          this.scene.start('RunResult', { runState: run });
+        } else {
+          this.scene.start('Hub', { runState: run });
+        }
+      };
+    }
     const continueBtn = root.querySelector<HTMLButtonElement>(
       '[data-action="continue"]',
     );
@@ -82,6 +114,8 @@ export class TitleScene extends Phaser.Scene {
           if (!confirm('開新戰役會清除目前存檔,確定?')) return;
           clearCampaign();
         }
+        // A fresh campaign also invalidates any in-flight run.
+        clearRun();
         this.rootEl.remove();
         this.scene.start('RoundSetup');
       };
