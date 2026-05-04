@@ -1,7 +1,7 @@
 # 開發進度與待辦
 
 > 取代舊的 `docs/archive/implementation-roadmap.md` 5-phase 計畫。
-> **最後更新:2026-05-04**(Operation 系統四階段 push 完之後)。
+> **最後更新:2026-05-05**(LOS 規則統一 + 預覽連線 push 完之後)。
 > 已出貨 / WIP / 不在 v1 範圍 三類分明,別跟設計願景混淆 — 願景在 [roguelite-design-summary.md](roguelite-design-summary.md)。
 
 ---
@@ -12,6 +12,7 @@
 - 命令 reducer:MOVE / SHOOT / RALLY / VAULT / CLIMB / CRAWL / COMMAND_MOVE / COMMAND_RALLY / activations
 - 自由 2D 空間、多邊形地形、圓形單位底板、確定性 sfc32 RNG
 - 掩體 / 趴下 / 高低牆 / 困難地形 / 軟掩體 / 反應射擊窗口
+- **LOS 模型**:中心對中心單線判定(rulebook §4.1「底板中心」),overlay 用同一條判定產生的可見多邊形渲染 — 所見即所射。預覽 hover 時對所有可見單位畫線(友軍青、敵軍紅 + 掩體來源標籤)。`coverDetail()` 拆出趴地 / 高地 / 困難地形 / 煙霧 / 矮牆五項供 UI 使用。
 - AI:`greedy` 1-ply、`lookahead` depth-2 beam-6,EV-gated reactions、formation-aware
 - 已實裝 traits:OFFICER、STALWART、FRAGILE、ARMOR(N)、CUMBERSOME、TOUGH、STEALTH、CANNON_FODDER、FANATIC、IMPULSIVE_AGGRESSIVE、NO_PRONE、NO_CLIMB、NO_VAULT
 - Scenarios:elimination、engage-reach、defend(holdout)、extract、assassinate(decapitation)、control-points(conquest)、breakthrough
@@ -31,13 +32,20 @@
 - **Stage 3**(`8c5790a`):RunState 加 `operation` / `bankedRewards` / `retreated`、`retreatOperation` helper、新 `czl.run.v1` 持久化、CampaignState 加 `RunOutcome` discriminated union(SINGLE_MISSION / OPERATION_COMPLETE / OPERATION_FAILED / RETREATED),TitleScene 加 Resume Operation 按鈕
 - **Stage 4**(`8683485`):RoundSetup 卡片顯示完整 op(主任務 + 鏈條 chips + 3 檔難度 + 預期總獎 + 隊員)、RunResult 標題依 outcome 分歧 + banked 顯示
 
+### 夜間隱密狀態(2026-05-04~05 全 5 階段完成)
+- **Stage 1**(`b3dc0e0`):`stealth` schema + state plumbing(missionId 旗標、RunState 攜帶、operation chain 繼承)
+- **Stage 2**(`7d95bb6`):隱密啟用時 B→A 視距夾頂 1UD(`effectiveLOS` wrapper)、敵方反應射擊關閉
+- **Stage 3**(`c3570dc`):POI 追蹤(警戒方收到「噪音 / 屍體」線索)+ cycle 衰減
+- **Stage 4**(`6372e10`):patrol 行為(無 POI 時靜止,有 POI 時優先朝最近的走)
+- **Stage 5a/b/c**(`082ada0` / `caedc80` / `13c473c`):破隱偵測 + 壓制規則延後、operation chain 傳染、HUD 月亮 indicator + POI markers + 破隱浮字 + 卡片標示
+
 ### Tooling
 - 編輯器:weapons / units / factions / maps / missions / operations 6 分頁(瀏覽器)
 - `npm run gen-bundles`:scan config/ 產 `bundles.gen.ts`(每個 npm script 都有 pre-hook 自動跑)
 - `npm run sim`:headless 批量對戰(AI 迴歸)
 - `npm run probe`:A↔B 連通性測試
 - Replay 系統:`czl.replay.*` 5-槽 ring buffer + ReplayScene
-- 473 tests(48 test files)全綠
+- 544 tests(54 test files)全綠
 
 ---
 
@@ -97,24 +105,24 @@ AGITATOR / WARLORD / MARTYRDOM 完全 stub;FANATIC / IMPULSIVE_AGGRESSIVE 已實
 ## 近期 commit 軌跡(往回看 15 筆)
 
 ```
+3fc32f2  LOS 規則統一:中心線判定 + 預覽連線 + 掩體標籤
+30b0da9  LOS 視野預覽:重寫 visibility polygon 為角度掃描法
+2fbc7c4  LOS 視野預覽:修 atan2 wraparound 造成的長弦/反向陰影
+13c473c  夜間隱密狀態 Stage 5c:UI(HUD 月亮 indicator + POI markers + 破隱浮字 + 卡片標示)
+caedc80  夜間隱密狀態 Stage 5b:Operation chain 傳染
+082ada0  夜間隱密狀態 Stage 5a:破隱偵測 + 壓制延後規則
+6372e10  夜間隱密狀態 Stage 4:patrol 行為(無 POI 則靜止)
+c3570dc  夜間隱密狀態 Stage 3:POI 追蹤與衰減
+7d95bb6  夜間隱密狀態 Stage 2:1UD 視距夾頂 + 敵方反應射擊關閉
+b3dc0e0  夜間隱密狀態 Stage 1:Schema + state plumbing
+25da002  開發文件重構:歸檔過時 + 新增四份主參考
 8683485  Operation 系統 Stage 4:UI — 卡片鏈條預覽 + RunResult 文案分歧
 8c5790a  Operation 系統 Stage 3:RunState 串接 + 撤退 + 持久化
 402e6ab  Operation 系統 Stage 2:pickOperations + RoundState 接 OperationInstance
 dec6508  Operation 系統 Stage 1:MissionDef 加 difficulty + Operation schema
-bbe40d7  新增 NO_PRONE / NO_CLIMB / NO_VAULT 機動限制特質
-d281d37  AI 評估識別 IMPULSIVE_AGGRESSIVE 觸發價值(Stage 4/4)
-d469c55  IMPULSIVE_TRIGGERED 事件加入戰場字幕(Stage 3/4)
-db21f64  IMPULSIVE × CANNON_FODDER 交互審查(Stage 2/4)
-ff3c0db  IMPULSIVE 強制移動可被反應射擊(Stage 1/4)
-9ca1ba2  實裝 IMPULSIVE_AGGRESSIVE:兩個強制觸發點 + 攻擊性行動選擇器
-b05265e  新增 BEAST 分類標籤;修 FRAGILE 累積傷害 bug
-14c2e5d  實裝 FANATIC:受阻反應命中不中斷行動
-1a35fcb  LOS 預覽改用可見多邊形,斜邊不再有方格感
-1a59894  修 control-points 在戰役中分數不更新的 bug
-7b44e3b  新增 conquest 範例任務(control-points scenario)
 ```
 
-軌跡:Operation 系統 → IMPULSIVE 完整實裝 → FANATIC + 機動限制 trait → bug 修。重點還是 traits 與 campaign loop 的整合。
+軌跡:Operation 系統 → 夜間隱密狀態 5 階段 → LOS overlay 修正與規則統一。LOS 段落把「畫面看到的」與「規則允許射的」對齊到同一條中心線。
 
 ---
 
