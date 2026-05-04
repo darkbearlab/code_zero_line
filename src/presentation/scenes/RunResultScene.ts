@@ -168,8 +168,30 @@ export class RunResultScene extends Phaser.Scene {
       .map((s) => s.id);
     const survivors = this.runState.survivorIds;
 
-    const headerColor = success ? '#9af09a' : '#ff8a6a';
-    const headerLabel = success ? 'RUN 完成' : 'RUN 失敗';
+    // Outcome-aware header. Operation runs distinguish RETREATED /
+    // OPERATION_COMPLETE / OPERATION_FAILED so the player sees what kind
+    // of result they got, not just success/failure.
+    const op = this.runState.operation;
+    let headerColor: string;
+    let headerLabel: string;
+    let headerHint = '';
+    if (op && this.runState.retreated) {
+      headerColor = '#f0d090';
+      headerLabel = '撤退完成';
+      headerHint = '已入袋階段獎保留;放棄完成獎。';
+    } else if (op && success) {
+      headerColor = '#9af09a';
+      headerLabel = '行動完成';
+      headerHint = '完成獎入袋。';
+    } else if (op) {
+      headerColor = '#ff8a6a';
+      headerLabel = '行動失敗';
+      headerHint = '行動中止;已入袋階段獎仍保留。';
+    } else {
+      headerColor = success ? '#9af09a' : '#ff8a6a';
+      headerLabel = success ? 'RUN 完成' : 'RUN 失敗';
+    }
+    const banked = this.runState.bankedRewards;
 
     const lossesHtml = losses.length === 0
       ? '<li style="color:#7a9a7a;font-style:italic;">無人陣亡</li>'
@@ -201,12 +223,23 @@ export class RunResultScene extends Phaser.Scene {
 
     const root = document.createElement('div');
     root.className = 'setup-root';
+    const bankedHtml = op && banked
+      ? `<div style="margin-top:14px;padding:8px 12px;background:rgba(20,30,40,0.6);border:1px solid #4a6a8a;color:#cfd1a1;font-size:12px;">
+           已入袋:作戰 ${banked.tactical} · 區域 ${banked.regional} · 榮譽 ${banked.honor}
+         </div>`
+      : '';
+    const headerHintHtml = headerHint
+      ? `<div style="color:#9aa89a;font-size:12px;margin-top:-12px;margin-bottom:8px;">${headerHint}</div>`
+      : '';
+
     root.innerHTML = `
       <h1 style="color:${headerColor};">${headerLabel}</h1>
+      ${headerHintHtml}
       <div class="setup-body" style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
         <div>
           <h2 style="font-size:14px;color:#9aa89a;margin-bottom:8px;">完成關卡</h2>
           <div style="font-size:32px;color:${headerColor};">${completed}/${totalMissions}</div>
+          ${bankedHtml}
           <div style="margin-top:14px;color:#7a9a7a;font-size:12px;">
             選擇的 boons:
           </div>

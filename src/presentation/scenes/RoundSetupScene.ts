@@ -33,10 +33,24 @@ const SCENARIO_LABEL: Readonly<Record<string, string>> = {
   elimination: '殲滅',
 };
 
-const FUZZY_LABEL: Readonly<Record<string, string>> = {
-  low: '低風險',
-  medium: '中等',
-  high: '高風險',
+const SCENARIO_ICON: Readonly<Record<string, string>> = {
+  'engage-reach': '⛳',
+  defend: '🛡',
+  extract: '🚁',
+  assassinate: '🎯',
+  elimination: '⚔',
+};
+
+const STAGE_LABEL: Readonly<Record<string, string>> = {
+  ELIM: '殲滅',
+  MAIN: '主任務',
+};
+
+// Internal 1-5 difficulty rolled up into 3 visible tiers (低/中/高).
+const difficultyBand = (d: number): { label: string; color: string } => {
+  if (d <= 2) return { label: '低', color: '#9af09a' };
+  if (d === 3) return { label: '中', color: '#f0d090' };
+  return { label: '高', color: '#ff8a6a' };
 };
 
 export class RoundSetupScene extends Phaser.Scene {
@@ -80,12 +94,39 @@ export class RoundSetupScene extends Phaser.Scene {
 
     const cardsHtml = this.round.options
       .map((opt, i) => {
-        // Stage 2: cards still render the main mission only — full
-        // operation chain UI lands in Stage 4. Picking the card commits
-        // the entire chain into RunState below.
+        const opDef = getOperationDef(opt.operation.operationId);
         const mainMissionId =
           opt.operation.missionIds[opt.operation.missionIds.length - 1]!;
-        const mission = getMissionById(mainMissionId);
+        const mainMission = getMissionById(mainMissionId);
+        const opBand = difficultyBand(opDef.difficulty);
+
+        // Per-stage chip preview: scenario icon + per-mission band.
+        const chainHtml = opt.operation.missionIds
+          .map((mid, stageIdx) => {
+            const m = getMissionById(mid);
+            const label = opt.operation.stageLabels[stageIdx] ?? 'ELIM';
+            const band = difficultyBand(m.difficulty);
+            const icon = SCENARIO_ICON[m.scenario] ?? '·';
+            return `
+              <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(10,20,10,0.5);border:1px solid #2a4a2a;font-size:11px;">
+                <span style="color:#7a9a7a;">${stageIdx + 1}.</span>
+                <span title="${SCENARIO_LABEL[m.scenario] ?? m.scenario}">${icon}</span>
+                <span style="color:#cfe8cf;">${STAGE_LABEL[label] ?? label}</span>
+                <span style="color:${band.color};margin-left:auto;">${band.label}</span>
+              </div>
+            `;
+          })
+          .join('');
+
+        // Total expected currencies = perStage × N + onComplete (if all stages clear).
+        const stages = opt.operation.stageLabels.length;
+        const r = opDef.rewards;
+        const total = {
+          tactical: r.perStage.tactical * stages + r.onComplete.tactical,
+          regional: r.perStage.regional * stages + r.onComplete.regional,
+          honor: r.perStage.honor * stages + r.onComplete.honor,
+        };
+
         const squadHtml = opt.squadIds
           .map((id) => {
             const member = this.campaign.pool.find((u) => u.id === id);
@@ -106,19 +147,29 @@ export class RoundSetupScene extends Phaser.Scene {
             </li>`;
           })
           .join('');
+
         return `
           <div data-card="${i}" style="padding:14px 16px;background:rgba(20,30,20,0.6);border:1px solid #3a5a3a;cursor:pointer;display:flex;flex-direction:column;gap:10px;transition:background 0.15s,border-color 0.15s;">
-            <div style="display:flex;justify-content:space-between;align-items:baseline;">
-              <strong style="color:#cfe8cf;font-size:15px;">${mission.displayName}</strong>
-              <span style="color:#7aa87a;font-size:11px;">${SCENARIO_LABEL[mission.scenario] ?? mission.scenario}</span>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
+              <strong style="color:#cfe8cf;font-size:15px;">${opDef.displayName}</strong>
+              <span style="color:${opBand.color};font-size:11px;font-weight:bold;">難度:${opBand.label}</span>
             </div>
-            <div style="color:#9aa89a;font-size:11px;line-height:1.5;">${mission.description}</div>
+            <div style="color:#7aa87a;font-size:11px;">
+              ${SCENARIO_ICON[mainMission.scenario] ?? ''} 主任務:${mainMission.displayName}
+              <span style="color:#7a9a7a;">(${SCENARIO_LABEL[mainMission.scenario] ?? mainMission.scenario})</span>
+            </div>
+            <div style="color:#9aa89a;font-size:11px;line-height:1.5;">${opDef.description}</div>
+            <div style="display:flex;flex-direction:column;gap:3px;border-top:1px solid #2a3a2a;padding-top:8px;">
+              ${chainHtml}
+            </div>
+            <div style="font-size:11px;color:#cfd1a1;border-top:1px solid #2a3a2a;padding-top:8px;">
+              預期總獎:作戰 ${total.tactical} · 區域 ${total.regional} · 榮譽 ${total.honor}
+            </div>
             <ul style="list-style:none;padding:0;margin:0;border-top:1px solid #2a3a2a;padding-top:8px;">
               ${squadHtml}
             </ul>
-            <div style="display:flex;justify-content:space-between;align-items:center;color:#7a9a7a;font-size:11px;">
-              <span>難度:${FUZZY_LABEL[opt.fuzzy] ?? opt.fuzzy}</span>
-              <span style="color:#cfe8cf;">點擊出擊 →</span>
+            <div style="display:flex;justify-content:flex-end;align-items:center;color:#cfe8cf;font-size:11px;">
+              <span>點擊出擊 →</span>
             </div>
           </div>
         `;
