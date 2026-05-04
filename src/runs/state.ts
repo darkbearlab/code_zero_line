@@ -58,6 +58,8 @@ export interface RunOperationContext {
   readonly onCompleteReward: CampaignCurrencies;
   /** Snapshot of `OperationDef.stealthEntry`. Drives `RunState.operationStealthAlive` init. */
   readonly stealthEntry?: boolean;
+  /** Snapshot of `OperationDef.noIntelEntry`. Drives `RunState.operationNoIntelAlive` init. */
+  readonly noIntelEntry?: boolean;
 }
 
 const ZERO_CURRENCIES: CampaignCurrencies = {
@@ -142,6 +144,16 @@ export interface RunState {
    * non-operation runs.
    */
   readonly operationStealthAlive?: boolean;
+  /**
+   * Chain-level no-intel (fog-of-war) state. Initialised from
+   * `operation?.noIntelEntry === true`. Persists across stages until a
+   * mission with `noIntelMode: 'force-off'` runs — that mission's
+   * advance flips this to false for all later stages. Unlike stealth,
+   * this isn't broken by in-mission events; it represents lack of
+   * mission briefing rather than active concealment. Undefined for
+   * sandbox / non-operation runs.
+   */
+  readonly operationNoIntelAlive?: boolean;
 }
 
 export const newRunState = (
@@ -160,6 +172,7 @@ export const newRunState = (
   history: [],
   ...(operation ? { operation, bankedRewards: ZERO_CURRENCIES } : {}),
   ...(operation?.stealthEntry === true ? { operationStealthAlive: true } : {}),
+  ...(operation?.noIntelEntry === true ? { operationNoIntelAlive: true } : {}),
 });
 
 /**
@@ -179,6 +192,20 @@ export const currentMissionStealthActive = (
   return run.operationStealthAlive === true;
 };
 
+/**
+ * Resolve whether a mission should launch under no-intel (fog-of-war),
+ * given current chain state. Per-mission `noIntelMode` override wins
+ * over chain inheritance. Independent of stealth — the two flags compose.
+ */
+export const currentMissionNoIntelActive = (
+  run: RunState,
+  mission: MissionDef,
+): boolean => {
+  if (mission.noIntelMode === 'force-on') return true;
+  if (mission.noIntelMode === 'force-off') return false;
+  return run.operationNoIntelAlive === true;
+};
+
 export const advanceAfterMission = (
   run: RunState,
   result: MissionResult,
@@ -190,6 +217,12 @@ export const advanceAfterMission = (
    * defaults to chain-write-back-eligible.
    */
   missionStealthMode?: 'force-on' | 'force-off',
+  /**
+   * The just-completed mission's `noIntelMode`. Only `force-off` writes
+   * back to chain state (clearing the fog for later stages — the
+   * intel-pickup mission). All other modes leave chain state untouched.
+   */
+  missionNoIntelMode?: 'force-on' | 'force-off',
 ): RunState => {
   let bankedRewards = run.bankedRewards;
   if (result.winner === 'A' && run.operation) {
@@ -217,6 +250,15 @@ export const advanceAfterMission = (
   ) {
     operationStealthAlive = false;
   }
+  // Chain no-intel: only `force-off` missions clear it (e.g. an
+  // intel-pickup stage that resolves the fog for the rest of the chain).
+  let operationNoIntelAlive = run.operationNoIntelAlive;
+  if (
+    operationNoIntelAlive === true &&
+    missionNoIntelMode === 'force-off'
+  ) {
+    operationNoIntelAlive = false;
+  }
   return {
     ...run,
     missionIndex: run.missionIndex + 1,
@@ -226,6 +268,9 @@ export const advanceAfterMission = (
     ...(bankedRewards ? { bankedRewards } : {}),
     ...(operationStealthAlive !== run.operationStealthAlive
       ? { operationStealthAlive }
+      : {}),
+    ...(operationNoIntelAlive !== run.operationNoIntelAlive
+      ? { operationNoIntelAlive }
       : {}),
   };
 };

@@ -1,7 +1,7 @@
 {
   "id": "night-evac",
   "displayName": "夜間撤離行動",
-  "description": "夜色掩護下,先清理巡邏線,再執行兩階段撤離。",
+  "description": "夜色掩護下深入未明區域,先清理巡邏線,再執行兩階段撤離。",
   "difficulty": 2,
   "chain": {
     "eliminations": 2,
@@ -12,5 +12,7 @@
   "rewards": {
     "perStage": { "tactical": 2, "regional": 1, "honor": 0 },
     "onComplete": { "tactical": 2, "regional": 1, "honor": 1 }
-  }
+  },
+  "stealthEntry": true,
+  "noIntelEntry": true
 }

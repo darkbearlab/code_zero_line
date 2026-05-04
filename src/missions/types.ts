@@ -74,4 +74,12 @@ export interface MissionDef {
    * the chain is still stealthly (typically the chain finale).
    */
   readonly stealthMode?: 'force-on' | 'force-off';
+  /**
+   * Per-mission no-intel override. Default = inherit from operation chain
+   * state (`RunState.operationNoIntelAlive`). 'force-on' = mission always
+   * starts under fog-of-war regardless of chain state. 'force-off' = clears
+   * the no-intel chain state (typically a recon/intel-pickup mission that
+   * resolves the fog for the rest of the chain).
+   */
+  readonly noIntelMode?: 'force-on' | 'force-off';
 }

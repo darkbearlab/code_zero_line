@@ -174,6 +174,7 @@ export const instantiateOperation = (
     difficulty: def.difficulty,
     rewards: def.rewards,
     ...(def.stealthEntry === true ? { stealthEntry: true } : {}),
+    ...(def.noIntelEntry === true ? { noIntelEntry: true } : {}),
   };
 };
 

@@ -77,6 +77,15 @@ export interface OperationDef {
    * over chain inheritance.
    */
   readonly stealthEntry?: boolean;
+  /**
+   * When true, the chain begins in "no intel" state — fog-of-war over the
+   * battlefield: anything outside friendly LOS rendered fully opaque black,
+   * enemies hidden until spotted. Independent of stealth (the two can
+   * coexist). Unlike stealth, no_intel is not "broken" mid-mission; it
+   * persists across stages until a mission with `noIntelMode: 'force-off'`
+   * clears it.
+   */
+  readonly noIntelEntry?: boolean;
 }
 
 /** Schema slot — not consumed yet. See OperationDef.optionalInterludes. */
@@ -109,4 +118,6 @@ export interface OperationInstance {
   readonly rewards: OperationRewards;
   /** Forwarded from `OperationDef.stealthEntry` (snapshot for run start). */
   readonly stealthEntry?: boolean;
+  /** Forwarded from `OperationDef.noIntelEntry` (snapshot for run start). */
+  readonly noIntelEntry?: boolean;
 }

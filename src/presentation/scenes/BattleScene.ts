@@ -78,6 +78,7 @@ import { getMissionById } from '../../missions/library';
 import {
   advanceAfterMission,
   currentMissionStealthActive,
+  currentMissionNoIntelActive,
   isRunOver,
   oneShotBoonsFor,
   type MissionResult,
@@ -200,6 +201,17 @@ export class BattleScene extends Phaser.Scene {
   private losLineLabels: Phaser.GameObjects.Text[] = [];
   /** Unit currently used to source the LOS preview overlay (hover state). */
   private losPreviewUnitId: string | null = null;
+  /**
+   * Fog-of-war overlay (no-intel missions). Opaque-black layer that fills
+   * the battlefield outside the union of friendly visibility polygons.
+   * Mask graphics is the union (drawn from each alive faction-A unit).
+   * `friendlyVisionPolys` caches the polygons for the per-enemy hit-test
+   * that hides their containers outside the union.
+   */
+  private fogOverlayGfx!: Phaser.GameObjects.Graphics;
+  private fogMaskGfx!: Phaser.GameObjects.Graphics;
+  private noIntelActive = false;
+  private friendlyVisionPolys: Vec2[][] = [];
   private boardEdgeGfx!: Phaser.GameObjects.Graphics;
   private aimGfx!: Phaser.GameObjects.Graphics;
   private unitLayer!: Phaser.GameObjects.Container;
@@ -300,11 +312,17 @@ export class BattleScene extends Phaser.Scene {
             stealthActive: currentMissionStealthActive(data.runState, mission),
           },
         );
+        this.noIntelActive = currentMissionNoIntelActive(
+          data.runState,
+          mission,
+        );
       }
     } else if (data?.initialState) {
       this.gameState = data.initialState;
+      this.noIntelActive = false;
     } else {
       this.gameState = setupDemoState();
+      this.noIntelActive = false;
     }
     this.missionInitialAlive = {
       A: this.gameState.units.filter((u) => u.faction === 'A' && isUnitAlive(u)).length,
@@ -372,6 +390,15 @@ export class BattleScene extends Phaser.Scene {
     // circles/labels so they don't obscure unit identity.
     this.losLinesGfx = this.add.graphics();
     this.unitLayer = this.add.container();
+    // Fog-of-war (no-intel): opaque black fill above units so enemy
+    // sprites outside the friendly LOS union are visually painted over.
+    // Mask is the union of every alive friendly unit's visibility
+    // polygon, drawn into an off-display Graphics with invertAlpha.
+    this.fogOverlayGfx = this.add.graphics();
+    this.fogMaskGfx = this.make.graphics({ x: 0, y: 0 }, false);
+    const fogMask = this.fogMaskGfx.createGeometryMask();
+    fogMask.invertAlpha = true;
+    this.fogOverlayGfx.setMask(fogMask);
     this.effectsLayer = this.add.container();
     this.effects = new CombatEffects(this, this.effectsLayer);
     this.aimGfx = this.add.graphics();
@@ -901,6 +928,9 @@ export class BattleScene extends Phaser.Scene {
     // POI markers track stealth state mutations one-for-one with command
     // dispatch, so refresh them on the same beat as units.
     this.renderPois();
+    // Recompute fog before per-unit visibility so the cached friendly
+    // vision polys are up to date. Cheap no-op when no_intel inactive.
+    this.renderFog();
     const aliveIds = new Set<string>();
     for (const u of this.gameState.units) {
       if (isUnitAlive(u)) aliveIds.add(u.id);
@@ -922,6 +952,66 @@ export class BattleScene extends Phaser.Scene {
         this.unitLayer.add(container);
       }
       this.updateUnitVisuals(container, u);
+      // Belt-and-suspenders: hide enemy containers entirely when their
+      // centre lies outside every friendly vision polygon. The fog
+      // overlay paints over them visually too, but flipping `visible`
+      // also masks any selection ring / labels and avoids interactive
+      // hit-tests on hidden enemies.
+      if (this.noIntelActive && u.faction !== 'A') {
+        const seen = this.friendlyVisionPolys.some((poly) =>
+          isPointInPolygon(u.position, { vertices: poly }),
+        );
+        container.setVisible(seen);
+      } else {
+        container.setVisible(true);
+      }
+    }
+  }
+
+  /**
+   * Paint the fog-of-war overlay used by no-intel missions: opaque
+   * black covering everything outside the union of friendly visibility
+   * polygons. Caches each polygon for the per-enemy hit-test in
+   * `renderUnits`. No-op when `noIntelActive` is false.
+   */
+  private renderFog(): void {
+    this.fogOverlayGfx.clear();
+    this.fogMaskGfx.clear();
+    this.friendlyVisionPolys = [];
+    if (!this.noIntelActive) return;
+    const bounds = {
+      width: BATTLEFIELD_SIZE_PIXELS,
+      height: BATTLEFIELD_SIZE_PIXELS,
+    };
+    // Use the same blocker set as the LOS overlay's hard tier (high
+    // walls + BLOCKER + OOB + low walls when prone) so the fog edge
+    // matches what the player perceives as "I can see this cell".
+    const hardHighPolys = this.gameState.terrain
+      .filter(
+        (t) =>
+          (t.kind === 'HARD' &&
+            !isLowWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS)) ||
+          t.kind === 'BLOCKER' ||
+          t.kind === 'OUT_OF_BOUNDS',
+      )
+      .map((t) => t.polygon);
+    const lowWallPolys = this.gameState.terrain
+      .filter(
+        (t) => t.kind === 'HARD' && isLowWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS),
+      )
+      .map((t) => t.polygon);
+    this.fogOverlayGfx.fillStyle(0x000000, 1.0);
+    this.fogOverlayGfx.fillRect(0, 0, bounds.width, bounds.height);
+    for (const u of this.gameState.units) {
+      if (u.faction !== 'A' || !isUnitAlive(u)) continue;
+      const blockers =
+        u.stance === 'PRONE'
+          ? [...hardHighPolys, ...lowWallPolys]
+          : hardHighPolys;
+      const poly = computeVisibilityPolygon(u.position, blockers, bounds);
+      if (poly.length < 3) continue;
+      this.friendlyVisionPolys.push(poly);
+      drawPolygonPath(this.fogMaskGfx, poly);
     }
   }
 
@@ -1528,6 +1618,7 @@ export class BattleScene extends Phaser.Scene {
         result,
         damageCarry,
         completedMissionDef.stealthMode,
+        completedMissionDef.noIntelMode,
       );
       // Persist post-mission run state so a tab close lands cleanly back
       // here on resume (either at Hub for next stage, or RunResult). The
@@ -1921,6 +2012,7 @@ export class BattleScene extends Phaser.Scene {
       movePreview: this.buildMovePreviewContext(),
       commandRally: this.buildCommandRallyContext(),
       commandMove: this.buildCommandMoveContext(),
+      noIntelActive: this.noIntelActive,
     };
     this.hud.update(this.gameState, this.selectedUnitId, this.aimMode, ctx);
     this.hud.setMissionInfo(this.formatMissionLabel());

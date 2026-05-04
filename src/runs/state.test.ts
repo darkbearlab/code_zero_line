@@ -235,3 +235,75 @@ describe('advanceAfterMission — chain stealth inheritance', () => {
     expect(run.operationStealthAlive).toBe(true);
   });
 });
+
+describe('advanceAfterMission — chain noIntel inheritance', () => {
+  const opNoIntel = (): RunOperationContext => ({
+    operationId: 'op-noIntel',
+    stageLabels: ['ELIM', 'ELIM', 'MAIN'],
+    perStageReward: { tactical: 0, regional: 0, honor: 0 },
+    onCompleteReward: { tactical: 0, regional: 0, honor: 0 },
+    noIntelEntry: true,
+  });
+  const winQuiet = (id: string): MissionResult =>
+    win(id, ['s1', 's2', 's3', 's4']);
+
+  it('chain alive + normal mission → stays true (no in-mission break)', () => {
+    let run = newRunState('seed', squad, ['m1', 'm2'], opNoIntel());
+    expect(run.operationNoIntelAlive).toBe(true);
+    run = advanceAfterMission(run, winQuiet('m1'), {});
+    expect(run.operationNoIntelAlive).toBe(true);
+  });
+
+  it("'force-off' mission flips chain false (intel-pickup stage)", () => {
+    let run = newRunState('seed', squad, ['m1', 'm2'], opNoIntel());
+    run = advanceAfterMission(
+      run,
+      winQuiet('m1'),
+      {},
+      undefined,
+      'force-off',
+    );
+    expect(run.operationNoIntelAlive).toBe(false);
+  });
+
+  it('once cleared by force-off, stays false on later stages', () => {
+    let run = newRunState('seed', squad, ['m1', 'm2', 'm3'], opNoIntel());
+    run = advanceAfterMission(
+      run,
+      winQuiet('m1'),
+      {},
+      undefined,
+      'force-off',
+    );
+    run = advanceAfterMission(run, winQuiet('m2'), {});
+    expect(run.operationNoIntelAlive).toBe(false);
+  });
+
+  it('non-operation runs leave operationNoIntelAlive undefined', () => {
+    let run = newRunState('seed', squad, ['m1']);
+    run = advanceAfterMission(run, winQuiet('m1'), {});
+    expect(run.operationNoIntelAlive).toBeUndefined();
+  });
+
+  it('stealth and noIntel chain state advance independently', () => {
+    const op: RunOperationContext = {
+      operationId: 'op-both',
+      stageLabels: ['ELIM', 'MAIN'],
+      perStageReward: { tactical: 0, regional: 0, honor: 0 },
+      onCompleteReward: { tactical: 0, regional: 0, honor: 0 },
+      stealthEntry: true,
+      noIntelEntry: true,
+    };
+    let run = newRunState('seed', squad, ['m1', 'm2'], op);
+    expect(run.operationStealthAlive).toBe(true);
+    expect(run.operationNoIntelAlive).toBe(true);
+    // Mission breaks stealth (in-mission) but not noIntel.
+    const result: MissionResult = {
+      ...winQuiet('m1'),
+      stealthBroken: true,
+    };
+    run = advanceAfterMission(run, result, {});
+    expect(run.operationStealthAlive).toBe(false);
+    expect(run.operationNoIntelAlive).toBe(true);
+  });
+});

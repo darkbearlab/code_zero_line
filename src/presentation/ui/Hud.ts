@@ -184,6 +184,8 @@ export interface HudContext {
   readonly movePreview?: MovePreviewContext;
   readonly commandRally?: CommandRallyContext;
   readonly commandMove?: CommandMoveContext;
+  /** Mission-level no-intel (fog-of-war) flag for the HUD indicator. */
+  readonly noIntelActive?: boolean;
 }
 
 export class Hud {
@@ -211,6 +213,7 @@ export class Hud {
   private logToggleEl: HTMLButtonElement;
   private missionEl: HTMLElement;
   private stealthEl: HTMLElement;
+  private noIntelEl: HTMLElement;
   private unitDetailsEl: HTMLElement;
   private unitDetailsCurrentId: string | null = null;
 
@@ -263,6 +266,8 @@ export class Hud {
     this.missionEl.hidden = true;
     this.stealthEl = mustElement('hud-stealth');
     this.stealthEl.hidden = true;
+    this.noIntelEl = mustElement('hud-no-intel');
+    this.noIntelEl.hidden = true;
     this.unitDetailsEl = mustElement('hud-unit-details');
     this.unitDetailsEl.hidden = true;
     this.logToggleEl.onclick = () => this.toggleLogCollapsed();
@@ -358,6 +363,13 @@ export class Hud {
       this.stealthEl.hidden = false;
     } else {
       this.stealthEl.hidden = true;
+    }
+    // No-intel indicator: independent of stealth, both can be visible.
+    if (ctx?.noIntelActive === true) {
+      this.noIntelEl.textContent = '🚫 情報不明';
+      this.noIntelEl.hidden = false;
+    } else {
+      this.noIntelEl.hidden = true;
     }
 
     const act = state.initiative.activeActivation;

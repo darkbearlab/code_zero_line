@@ -1,7 +1,7 @@
 {
   "id": "skirmish-recon",
   "displayName": "前哨踏查",
-  "description": "一場小規模交火後直取偵察點。適合熱身。",
+  "description": "敵情未明的陌生區域,僅能依靠視線範圍內的觀察推進。",
   "difficulty": 1,
   "chain": {
     "eliminations": 1,
@@ -15,5 +15,6 @@
   "rewards": {
     "perStage": { "tactical": 2, "regional": 0, "honor": 0 },
     "onComplete": { "tactical": 1, "regional": 1, "honor": 1 }
-  }
+  },
+  "noIntelEntry": true
 }
