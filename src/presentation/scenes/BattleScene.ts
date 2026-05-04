@@ -1338,13 +1338,27 @@ export class BattleScene extends Phaser.Scene {
       const losses = playerUnits
         .filter((u) => !isUnitAlive(u))
         .map((u) => u.id);
+      // Stealth break carry-over: only meaningful when the mission was
+      // launched in stealth (state.stealth present going in). The reducer
+      // flips state.stealth.active to false on break; we surface that into
+      // MissionResult so chain stealth can decay across the operation.
+      const stealthBroken =
+        this.gameState.stealth !== undefined &&
+        this.gameState.stealth.active === false;
+      const completedMissionDef = getMissionById(completedMission);
       const result: MissionResult = {
         missionId: completedMission,
         winner,
         survivorIds,
         losses,
+        ...(stealthBroken ? { stealthBroken: true } : {}),
       };
-      const advanced = advanceAfterMission(this.runState, result, damageCarry);
+      const advanced = advanceAfterMission(
+        this.runState,
+        result,
+        damageCarry,
+        completedMissionDef.stealthMode,
+      );
       // Persist post-mission run state so a tab close lands cleanly back
       // here on resume (either at Hub for next stage, or RunResult). The
       // RunResultScene clears this slot once the campaign-side advance

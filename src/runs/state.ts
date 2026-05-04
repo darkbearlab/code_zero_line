@@ -35,6 +35,15 @@ export interface MissionResult {
   readonly winner: 'A' | 'B' | 'DRAW';
   readonly survivorIds: ReadonlyArray<string>;
   readonly losses: ReadonlyArray<string>;
+  /**
+   * True iff the mission was launched in stealth (state.stealth started
+   * present + active) AND ended with `state.stealth.active === false` —
+   * i.e. the player triggered (and didn't defer-then-rescue) a break.
+   * `advanceAfterMission` reads this to flip `operationStealthAlive` to
+   * false for the rest of the chain. Absent / false on non-stealth or
+   * stealth-preserved missions.
+   */
+  readonly stealthBroken?: boolean;
 }
 
 /**
@@ -174,6 +183,13 @@ export const advanceAfterMission = (
   run: RunState,
   result: MissionResult,
   perUnitDamage: Readonly<Record<string, 'NONE' | 'IMPEDED' | 'SUPPRESSED'>>,
+  /**
+   * The just-completed mission's `stealthMode`. Force-off missions don't
+   * write back to chain stealth (their state isn't part of the operation
+   * stealth contract). Omit when caller has no mission def at hand —
+   * defaults to chain-write-back-eligible.
+   */
+  missionStealthMode?: 'force-on' | 'force-off',
 ): RunState => {
   let bankedRewards = run.bankedRewards;
   if (result.winner === 'A' && run.operation) {
@@ -189,6 +205,18 @@ export const advanceAfterMission = (
       );
     }
   }
+  // Chain stealth inheritance — only the alive→dead transition is writable
+  // (we never resurrect a dead chain, even if a stealth mission happened to
+  // preserve stealth). Force-off missions are excluded by design: their
+  // result is opaque to the operation chain.
+  let operationStealthAlive = run.operationStealthAlive;
+  if (
+    operationStealthAlive === true &&
+    result.stealthBroken === true &&
+    missionStealthMode !== 'force-off'
+  ) {
+    operationStealthAlive = false;
+  }
   return {
     ...run,
     missionIndex: run.missionIndex + 1,
@@ -196,6 +224,9 @@ export const advanceAfterMission = (
     damageCarry: perUnitDamage,
     history: [...run.history, result],
     ...(bankedRewards ? { bankedRewards } : {}),
+    ...(operationStealthAlive !== run.operationStealthAlive
+      ? { operationStealthAlive }
+      : {}),
   };
 };
 

@@ -152,3 +152,86 @@ describe('isRunOver / didRunSucceed', () => {
     expect(didRunSucceed(run)).toBe(false);
   });
 });
+
+describe('advanceAfterMission — chain stealth inheritance', () => {
+  const opStealth = (): RunOperationContext => ({
+    operationId: 'op-stealth',
+    stageLabels: ['ELIM', 'ELIM', 'MAIN'],
+    perStageReward: { tactical: 0, regional: 0, honor: 0 },
+    onCompleteReward: { tactical: 0, regional: 0, honor: 0 },
+    stealthEntry: true,
+  });
+  const winBroken = (id: string): MissionResult => ({
+    ...win(id, ['s1', 's2', 's3', 's4']),
+    stealthBroken: true,
+  });
+  const winQuiet = (id: string): MissionResult =>
+    win(id, ['s1', 's2', 's3', 's4']);
+
+  it('chain alive + stealthBroken → flips operationStealthAlive false', () => {
+    let run = newRunState('seed', squad, ['m1', 'm2'], opStealth());
+    expect(run.operationStealthAlive).toBe(true);
+    run = advanceAfterMission(run, winBroken('m1'), {});
+    expect(run.operationStealthAlive).toBe(false);
+  });
+
+  it('chain alive + stealth preserved → stays true', () => {
+    let run = newRunState('seed', squad, ['m1', 'm2'], opStealth());
+    run = advanceAfterMission(run, winQuiet('m1'), {});
+    expect(run.operationStealthAlive).toBe(true);
+  });
+
+  it('once dead, stays dead even on a quiet stage', () => {
+    let run = newRunState('seed', squad, ['m1', 'm2', 'm3'], opStealth());
+    run = advanceAfterMission(run, winBroken('m1'), {});
+    expect(run.operationStealthAlive).toBe(false);
+    run = advanceAfterMission(run, winQuiet('m2'), {});
+    expect(run.operationStealthAlive).toBe(false);
+  });
+
+  it('non-operation runs leave operationStealthAlive undefined', () => {
+    let run = newRunState('seed', squad, ['m1']);
+    run = advanceAfterMission(run, winBroken('m1'), {});
+    expect(run.operationStealthAlive).toBeUndefined();
+  });
+
+  it('operation without stealthEntry stays undefined regardless of break', () => {
+    const opNo: RunOperationContext = {
+      operationId: 'op-no',
+      stageLabels: ['ELIM'],
+      perStageReward: { tactical: 0, regional: 0, honor: 0 },
+      onCompleteReward: { tactical: 0, regional: 0, honor: 0 },
+    };
+    let run = newRunState('seed', squad, ['m1', 'm2'], opNo);
+    expect(run.operationStealthAlive).toBeUndefined();
+    run = advanceAfterMission(run, winBroken('m1'), {});
+    expect(run.operationStealthAlive).toBeUndefined();
+  });
+
+  it("force-off mission does NOT write back to chain even when broken", () => {
+    let run = newRunState('seed', squad, ['m1', 'm2'], opStealth());
+    run = advanceAfterMission(run, winBroken('m1'), {}, 'force-off');
+    expect(run.operationStealthAlive).toBe(true);
+  });
+
+  it("force-on mission DOES write back to chain when broken", () => {
+    let run = newRunState('seed', squad, ['m1', 'm2'], opStealth());
+    run = advanceAfterMission(run, winBroken('m1'), {}, 'force-on');
+    expect(run.operationStealthAlive).toBe(false);
+  });
+
+  it("force-on can decay even when chain was already dead — no-op", () => {
+    // Chain already false; broken force-on → still false.
+    let run = newRunState('seed', squad, ['m1', 'm2'], opStealth());
+    run = advanceAfterMission(run, winBroken('m1'), {});
+    run = advanceAfterMission(run, winBroken('m2'), {}, 'force-on');
+    expect(run.operationStealthAlive).toBe(false);
+  });
+
+  it('absent stealthBroken treated as false (no decay)', () => {
+    let run = newRunState('seed', squad, ['m1', 'm2'], opStealth());
+    const r1: MissionResult = win('m1', ['s1', 's2', 's3', 's4']);
+    run = advanceAfterMission(run, r1, {});
+    expect(run.operationStealthAlive).toBe(true);
+  });
+});
