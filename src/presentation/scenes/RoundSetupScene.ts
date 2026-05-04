@@ -148,12 +148,17 @@ export class RoundSetupScene extends Phaser.Scene {
           })
           .join('');
 
+        const stealthBadge = opDef.stealthEntry === true
+          ? `<div style="display:inline-flex;align-items:center;gap:4px;color:#b8c8ff;font-size:11px;font-weight:bold;background:rgba(20,30,80,0.4);border:1px solid #4a5a8a;padding:2px 8px;align-self:flex-start;">🌙 夜間隱密進入</div>`
+          : '';
+
         return `
           <div data-card="${i}" style="padding:14px 16px;background:rgba(20,30,20,0.6);border:1px solid #3a5a3a;cursor:pointer;display:flex;flex-direction:column;gap:10px;transition:background 0.15s,border-color 0.15s;">
             <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;">
               <strong style="color:#cfe8cf;font-size:15px;">${opDef.displayName}</strong>
               <span style="color:${opBand.color};font-size:11px;font-weight:bold;">難度:${opBand.label}</span>
             </div>
+            ${stealthBadge}
             <div style="color:#7aa87a;font-size:11px;">
               ${SCENARIO_ICON[mainMission.scenario] ?? ''} 主任務:${mainMission.displayName}
               <span style="color:#7a9a7a;">(${SCENARIO_LABEL[mainMission.scenario] ?? mainMission.scenario})</span>

@@ -210,6 +210,7 @@ export class Hud {
   private logWrapEl: HTMLElement;
   private logToggleEl: HTMLButtonElement;
   private missionEl: HTMLElement;
+  private stealthEl: HTMLElement;
   private unitDetailsEl: HTMLElement;
   private unitDetailsCurrentId: string | null = null;
 
@@ -260,6 +261,8 @@ export class Hud {
     this.missionEl = mustElement('hud-mission');
     this.missionEl.textContent = '';
     this.missionEl.hidden = true;
+    this.stealthEl = mustElement('hud-stealth');
+    this.stealthEl.hidden = true;
     this.unitDetailsEl = mustElement('hud-unit-details');
     this.unitDetailsEl.hidden = true;
     this.logToggleEl.onclick = () => this.toggleLogCollapsed();
@@ -345,6 +348,17 @@ export class Hud {
     this.holderEl.className = `holder-${state.initiative.holder}`;
     this.momentumAEl.textContent = String(state.initiative.momentum.A);
     this.momentumBEl.textContent = String(state.initiative.momentum.B);
+    // Stealth indicator: visible only while stealth is active. The pending
+    // suffix tells the player a break trigger has fired but is being held
+    // back (suppression-defer rule) — initiative swap will cash it in.
+    if (state.stealth?.active === true) {
+      this.stealthEl.textContent = state.stealth.pendingBreakReason
+        ? '🌙 夜間隱密 (暴露已延後)'
+        : '🌙 夜間隱密';
+      this.stealthEl.hidden = false;
+    } else {
+      this.stealthEl.hidden = true;
+    }
 
     const act = state.initiative.activeActivation;
     if (act) {

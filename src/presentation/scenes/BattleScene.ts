@@ -199,6 +199,7 @@ export class BattleScene extends Phaser.Scene {
   private terrainLabels: Phaser.GameObjects.Text[] = [];
   private objectivesGfx!: Phaser.GameObjects.Graphics;
   private objectiveLabels: Phaser.GameObjects.Text[] = [];
+  private poisGfx!: Phaser.GameObjects.Graphics;
   private losOverlayGfx!: Phaser.GameObjects.Graphics;
   /** Unit currently used to source the LOS preview overlay (hover state). */
   private losPreviewUnitId: string | null = null;
@@ -352,6 +353,9 @@ export class BattleScene extends Phaser.Scene {
     this.boardEdgeGfx = this.add.graphics();
     this.terrainGfx = this.add.graphics();
     this.objectivesGfx = this.add.graphics();
+    // POI markers (stealth) draw above objectives but under the LOS overlay
+    // so they don't interfere with sight-line debug viz.
+    this.poisGfx = this.add.graphics();
     // LOS overlay sits between objectives and units so unit circles and
     // their labels remain on top — the overlay is just visual hint
     // material, never selection-blocking.
@@ -371,6 +375,7 @@ export class BattleScene extends Phaser.Scene {
 
     this.renderTerrain();
     this.renderObjectives();
+    this.renderPois();
     this.renderUnits();
 
     this.input.mouse?.disableContextMenu();
@@ -774,7 +779,35 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Stealth POI markers — small yellow diamonds at each `state.stealth.pois`
+   * position. Cleared and redrawn from scratch each frame so creation +
+   * decay tracks the reducer state without per-event bookkeeping. No-op
+   * when stealth is absent or POI list is empty.
+   */
+  private renderPois(): void {
+    this.poisGfx.clear();
+    const pois = this.gameState.stealth?.pois ?? [];
+    if (pois.length === 0) return;
+    const size = 7;
+    for (const p of pois) {
+      this.poisGfx.fillStyle(0xffd166, 0.55);
+      this.poisGfx.lineStyle(1.5, 0xffd166, 0.95);
+      this.poisGfx.beginPath();
+      this.poisGfx.moveTo(p.position.x, p.position.y - size);
+      this.poisGfx.lineTo(p.position.x + size, p.position.y);
+      this.poisGfx.lineTo(p.position.x, p.position.y + size);
+      this.poisGfx.lineTo(p.position.x - size, p.position.y);
+      this.poisGfx.closePath();
+      this.poisGfx.fillPath();
+      this.poisGfx.strokePath();
+    }
+  }
+
   private renderUnits(): void {
+    // POI markers track stealth state mutations one-for-one with command
+    // dispatch, so refresh them on the same beat as units.
+    this.renderPois();
     const aliveIds = new Set<string>();
     for (const u of this.gameState.units) {
       if (isUnitAlive(u)) aliveIds.add(u.id);
@@ -1176,6 +1209,21 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Pick a screen anchor for stealth-state floaters that aren't tied to
+   * a specific unit (STEALTH_BROKEN, STEALTH_PENDING_BREAK). First alive
+   * player unit is "good enough" — keeps the toast inside the action area
+   * and avoids tying it to a dead unit's last known position.
+   */
+  private firstPlayerAnchor(): { x: number; y: number } | null {
+    for (const u of this.gameState.units) {
+      if (u.faction === 'A' && isUnitAlive(u)) {
+        return { x: u.position.x, y: u.position.y - u.radius - 18 };
+      }
+    }
+    return null;
+  }
+
   private currentOperatorFaction(): 'A' | 'B' {
     if (this.reaction) {
       return this.reaction.moverFaction === 'A' ? 'B' : 'A';
@@ -1253,6 +1301,35 @@ export class BattleScene extends Phaser.Scene {
               `⚡ 衝動 → ${actionLabel}`,
               '#ffd166',
             );
+          }
+        }
+        if (ev.type === 'PATROL_TRIGGERED') {
+          const u = this.gameState.units.find((x) => x.id === ev.unitId);
+          if (u) {
+            this.effects.hitFloater(
+              { x: u.position.x, y: u.position.y - u.radius - 6 },
+              '👁 巡邏',
+              '#b8c8ff',
+            );
+          }
+        }
+        if (ev.type === 'STEALTH_PENDING_BREAK') {
+          const anchor = this.firstPlayerAnchor();
+          if (anchor) {
+            this.effects.hitFloater(
+              anchor,
+              `🌙 暴露已延後 (${ev.reason === 'SHOT' ? '開火' : '視線'})`,
+              '#ffd166',
+            );
+          }
+        }
+        if (ev.type === 'STEALTH_BROKEN') {
+          const anchor = this.firstPlayerAnchor();
+          if (anchor) {
+            const label = ev.deferred
+              ? `⚠ 暴露 (延後兌現)`
+              : `⚠ 暴露！(${ev.reason === 'SHOT' ? '開火' : '視線'})`;
+            this.effects.hitFloater(anchor, label, '#ff5050');
           }
         }
         if (this.isRollEvent(ev)) {
