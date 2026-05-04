@@ -5,7 +5,11 @@ import { computeMovePath } from '../geometry/path';
 import { isPointInPolygon } from '../geometry/polygon';
 import { TRAITS } from '../traits/registry';
 import { getUnitTraits, isImpulsive, unitHasTrait } from '../traits/types';
-import { executeImpulsiveAction, type ImpulsiveDeps } from './impulsive';
+import {
+  executeImpulsiveAction,
+  executePatrolAction,
+  type ImpulsiveDeps,
+} from './impulsive';
 import { pathfindingStepToward } from '../../ai/navigation';
 import { planReactions } from '../../ai/reaction';
 
@@ -304,8 +308,35 @@ const turnover = (
       return out;
     }),
   };
+  // Stealth patrol: when initiative just swung from player → enemy AND
+  // stealth is still active, every non-activated B unit patrols toward
+  // the nearest POI. We run AFTER the holder swap so executePatrolAction
+  // operates with the new holder set. Patrol units that find no POI do
+  // nothing (and don't burn their round slot — see plan §4 design note).
+  let withPatrol = next;
+  const patrolEvents: GameEvent[] = [];
+  if (next.stealth?.active === true && to === 'B') {
+    const patrolIds = next.units
+      .filter(
+        (u) => u.faction === 'B' && !u.activatedThisRound && isUnitAlive(u),
+      )
+      .map((u) => u.id);
+    for (const id of patrolIds) {
+      const fresh = findUnit(withPatrol, id);
+      if (!fresh || !isUnitAlive(fresh) || fresh.activatedThisRound) continue;
+      const pat = executePatrolAction(
+        withPatrol,
+        id,
+        cmdIndex,
+        'TURNOVER',
+        IMPULSIVE_DEPS,
+      );
+      withPatrol = pat.state;
+      patrolEvents.push(...pat.events);
+    }
+  }
   return {
-    state: next,
+    state: withPatrol,
     events: [
       ...accumulatedEvents,
       {
@@ -315,6 +346,7 @@ const turnover = (
         reason,
         momentumGranted: granted,
       },
+      ...patrolEvents,
     ],
   };
 };
@@ -385,6 +417,20 @@ const activateCheck = (
         { type: 'ACTIVATION_BEGAN', unitId: u.id, kind: 'CHECK_SUCCESS' },
       ],
     };
+  }
+  // Stealth: enemy (B) failed check → patrol toward nearest POI instead of
+  // turnover. Mirrors IMPULSIVE in keeping initiative on the failing side
+  // (the unit "wastes" its slot but stealth posture stays). Player-side
+  // check failures fall through to normal IMPULSIVE / turnover handling.
+  if (bumped.stealth?.active === true && u.faction === 'B') {
+    const pat = executePatrolAction(
+      bumped,
+      u.id,
+      cmdIndex,
+      'CHECK_FAILED',
+      IMPULSIVE_DEPS,
+    );
+    return { state: pat.state, events: [checkEvent, ...pat.events] };
   }
   // Rule 5 (IMPULSIVE): a failed check on an IMPULSIVE unit forces the
   // variant-specific action and KEEPS initiative — no turnover, no momentum

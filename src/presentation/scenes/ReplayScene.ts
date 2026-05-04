@@ -399,5 +399,7 @@ const formatEvent = (e: GameEvent): string => {
       return `⚡ ${e.unitId} impulsive(${e.variant.toLowerCase()}) on ${e.reason} → ${e.action}`;
     case 'STEALTH_POI_CREATED':
       return `🌙 POI(${e.cause}) @${e.position.x.toFixed(0)},${e.position.y.toFixed(0)} ttl→${e.expiresAtCycle}`;
+    case 'PATROL_TRIGGERED':
+      return `👁 ${e.unitId} patrol on ${e.reason}`;
   }
 };

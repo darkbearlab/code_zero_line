@@ -149,6 +149,32 @@ export const pickAggressiveMove = (
 };
 
 /**
+ * Stealth-patrol target: 1-UD step toward the nearest active POI on the
+ * stealth state. Returns null when stealth is off, no POIs exist, or the
+ * mover is too damaged to move (matches `pickAggressiveMove`'s gates).
+ */
+export const pickPatrolMove = (
+  state: GameState,
+  mover: Unit,
+  deps: ImpulsiveDeps,
+): Vec2 | null => {
+  if (mover.damage === 'SUPPRESSED' || mover.damage === 'IMPEDED') return null;
+  const pois = state.stealth?.pois ?? [];
+  if (pois.length === 0) return null;
+  let nearest: Vec2 | null = null;
+  let nearestDist = Infinity;
+  for (const p of pois) {
+    const d = v2Dist(mover.position, p.position);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearest = p.position;
+    }
+  }
+  if (!nearest) return null;
+  return deps.pathfind(state, mover.position, nearest);
+};
+
+/**
  * Forced move: 1-UD step toward the picked target, going through the same
  * reaction-window + reaction-plan pipeline as a normal MOVE so opposing
  * units can react-shoot the impulse mover. We deliberately bypass
@@ -351,4 +377,41 @@ export const executeImpulsiveAction = (
   });
 
   return { state: working, events };
+};
+
+/**
+ * Stealth-patrol action for an enemy unit: 1-UD step toward the nearest
+ * POI. Unlike IMPULSIVE, patrol does NOT shoot — stealth-state enemies
+ * are unaware of the player's presence even when standing on the POI.
+ *
+ * No-op (and no activation consumed) when there are no POIs to chase.
+ * The plan calls this out explicitly: enemies should stand still, not
+ * burn their round-slot, when the player has made no noise.
+ */
+export const executePatrolAction = (
+  state: GameState,
+  unitId: string,
+  cmdIndex: number,
+  reason: 'CHECK_FAILED' | 'TURNOVER',
+  deps: ImpulsiveDeps,
+): CommandResult => {
+  const unit = findUnit(state, unitId);
+  if (!unit) throw new CommandError('UNIT_NOT_FOUND', `Unit ${unitId}`);
+  if (!isUnitAlive(unit)) return { state, events: [] };
+  if (unit.damage === 'SUPPRESSED') return { state, events: [] };
+  const moveTarget = pickPatrolMove(state, unit, deps);
+  if (!moveTarget) return { state, events: [] };
+  const out = forcedMove(state, unit, moveTarget, cmdIndex, deps);
+  const next = updateUnit(out.state, unit.id, { activatedThisRound: true });
+  return {
+    state: next,
+    events: [
+      ...out.events,
+      {
+        type: 'PATROL_TRIGGERED',
+        unitId: unit.id,
+        reason,
+      },
+    ],
+  };
 };

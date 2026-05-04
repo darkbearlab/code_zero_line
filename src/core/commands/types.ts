@@ -198,6 +198,11 @@ export type GameEvent =
       cause: 'SHOOT' | 'VAULT' | 'CLIMB' | 'CRAWL' | 'RALLY' | 'COMMAND';
       createdCycle: number;
       expiresAtCycle: number;
+    }
+  | {
+      type: 'PATROL_TRIGGERED';
+      unitId: string;
+      reason: 'CHECK_FAILED' | 'TURNOVER';
     };
 
 export class CommandError extends Error {
