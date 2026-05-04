@@ -1,4 +1,4 @@
-import { hasLOS } from '../core/geometry/los';
+import { effectiveLOS } from '../core/geometry/effective-los';
 import { isPointInPolygon } from '../core/geometry/polygon';
 import { targetHasCover } from '../core/resolution/cover';
 import { UNIT_DISTANCE_PIXELS } from '../core/rules/constants';
@@ -241,18 +241,14 @@ const factionScore = (
   // Asymmetric LOS: we see them, they don't see us → free shot opportunities.
   for (const o of ours) {
     for (const t of theirs) {
-      const oSeesT = hasLOS(
-        { center: o.position, radius: o.radius },
-        { center: t.position, radius: t.radius },
-        state.terrain,
-        { aProne: o.stance === 'PRONE', bProne: t.stance === 'PRONE' },
-      );
-      const tSeesO = hasLOS(
-        { center: t.position, radius: t.radius },
-        { center: o.position, radius: o.radius },
-        state.terrain,
-        { aProne: t.stance === 'PRONE', bProne: o.stance === 'PRONE' },
-      );
+      const oSeesT = effectiveLOS(o, t, state, state.terrain, {
+        aProne: o.stance === 'PRONE',
+        bProne: t.stance === 'PRONE',
+      });
+      const tSeesO = effectiveLOS(t, o, state, state.terrain, {
+        aProne: t.stance === 'PRONE',
+        bProne: o.stance === 'PRONE',
+      });
       if (oSeesT && !tSeesO) total += weights.oneSidedLosBonus;
     }
   }

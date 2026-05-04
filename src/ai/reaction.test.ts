@@ -125,4 +125,55 @@ describe('planReactions', () => {
     });
     expect(plan.markers.length).toBe(0);
   });
+
+  describe('stealth-aware short-circuit', () => {
+    it('returns empty plan for enemy defenders while stealth.active', () => {
+      const s: GameState = {
+        ...baseState([
+          makeUnit({ id: 'a1', faction: 'A', position: v2(0, 0) }),
+          makeUnit({ id: 'b1', faction: 'B', position: v2(100, 0) }),
+        ]),
+        stealth: { active: true, pois: [] },
+      };
+      const plan = planReactions(s, 'B', {
+        type: 'MOVE',
+        unitId: 'a1',
+        target: v2(50, 0),
+      });
+      expect(plan.markers.length).toBe(0);
+    });
+
+    it('still plans player-side reactions when stealth.active (defenderFaction A)', () => {
+      const s: GameState = {
+        ...baseState([
+          makeUnit({ id: 'a1', faction: 'A', position: v2(100, 0) }),
+          makeUnit({ id: 'b1', faction: 'B', position: v2(0, 0) }),
+        ]),
+        stealth: { active: true, pois: [] },
+      };
+      const plan = planReactions(s, 'A', {
+        type: 'MOVE',
+        unitId: 'b1',
+        target: v2(50, 0),
+      });
+      expect(plan.markers.length).toBe(1);
+      expect(plan.markers[0]!.shooterId).toBe('a1');
+    });
+
+    it('passes through to normal planning when stealth.active === false', () => {
+      const s: GameState = {
+        ...baseState([
+          makeUnit({ id: 'a1', faction: 'A', position: v2(0, 0) }),
+          makeUnit({ id: 'b1', faction: 'B', position: v2(100, 0) }),
+        ]),
+        stealth: { active: false, pois: [] },
+      };
+      const plan = planReactions(s, 'B', {
+        type: 'MOVE',
+        unitId: 'a1',
+        target: v2(50, 0),
+      });
+      expect(plan.markers.length).toBe(1);
+    });
+  });
 });

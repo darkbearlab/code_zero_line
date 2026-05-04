@@ -66,6 +66,12 @@ export const planReactions = (
   defenderFaction: Faction,
   cmd: Command,
 ): ReactionPlan => {
+  // Stealth: enemies do not react-fire at all while undetected (rule sets
+  // patrol as the sole stealth-side enemy behavior). Player-side reactions
+  // (defenderFaction === 'A') stay unchanged.
+  if (state.stealth?.active === true && defenderFaction === 'B') {
+    return { markers: [] };
+  }
   // RALLY / VAULT / CLIMB are also reactable per rule 4.4, but their path
   // shape differs (no real motion). Worth a follow-up; v1 covers MOVE/CRAWL
   // which is where exposure-vs-cover decisions matter most.

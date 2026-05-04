@@ -1,9 +1,8 @@
-import { hasLOS } from '../geometry/los';
+import { effectiveLOS } from '../geometry/effective-los';
 import { D6_SIDES } from '../rules/constants';
 import { deriveRng } from '../rng/sfc32';
 import {
   findUnit,
-  getUnitCircle,
   isUnitAlive,
   updateUnit,
 } from '../state/GameState';
@@ -162,12 +161,7 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
     bProne: b.stance === 'PRONE',
   });
   if (
-    !hasLOS(
-      getUnitCircle(shooter),
-      getUnitCircle(target),
-      losTerrain,
-      stanceOpts(shooter, target),
-    )
+    !effectiveLOS(shooter, target, s, losTerrain, stanceOpts(shooter, target))
   ) {
     throw new CommandError('NO_LOS', `${shooterId} has no LOS to ${targetId}`);
   }
@@ -185,12 +179,7 @@ export const resolveShot = (input: ResolveShotInput): ResolveShotOutput => {
       throw new CommandError('FRIENDLY_FIRE', `${pid} on different faction`);
     }
     if (
-      !hasLOS(
-        getUnitCircle(p),
-        getUnitCircle(target),
-        losTerrain,
-        stanceOpts(p, target),
-      )
+      !effectiveLOS(p, target, s, losTerrain, stanceOpts(p, target))
     ) {
       throw new CommandError('NO_LOS', `Participant ${pid} has no LOS`);
     }
