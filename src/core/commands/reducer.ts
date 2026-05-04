@@ -75,9 +75,12 @@ import {
   type ReactionResolveResult,
 } from './reactions';
 import {
+  anyEnemySpotsPlayer,
   applyDerivedPois,
   derivePoisFromCommand,
+  evaluateStealthBreak,
   prunePoisOnTurnover,
+  redeemPendingStealthBreak,
 } from './stealth';
 
 const opponent = (f: Faction): Faction => (f === 'A' ? 'B' : 'A');
@@ -237,6 +240,12 @@ const turnover = (
     accumulatedEvents.push(...imp.events);
   }
   s = working;
+  // Stealth pending-break redemption — a SHOT or SPOTTED trigger that was
+  // held back by the suppression-defer rule cashes in here, just before
+  // the holder swap, so the new initiative phase begins with stealth off.
+  const redeemed = redeemPendingStealthBreak(s);
+  s = redeemed.state;
+  const pendingRedeemEvents = redeemed.events;
   const to = opponent(from);
   const newMomentum: Record<Faction, number> = { A: 0, B: 0 };
   newMomentum[to] = granted;
@@ -308,15 +317,28 @@ const turnover = (
       return out;
     }),
   };
+  // Stealth-break LOS scan — runs once `next` reflects the post-swap
+  // state. If any alive enemy can see any alive player under the 1UD
+  // stealth cap, evaluate a SPOTTED break (subject to suppression-defer
+  // rule). Skipped when stealth is already off (e.g. just redeemed above
+  // or broken earlier this turn by a player SHOOT).
+  let withScan = next;
+  const scanEvents: GameEvent[] = [];
+  if (next.stealth?.active === true && anyEnemySpotsPlayer(next)) {
+    const br = evaluateStealthBreak(next, 'SPOTTED');
+    withScan = br.state;
+    scanEvents.push(...br.events);
+  }
   // Stealth patrol: when initiative just swung from player → enemy AND
   // stealth is still active, every non-activated B unit patrols toward
-  // the nearest POI. We run AFTER the holder swap so executePatrolAction
-  // operates with the new holder set. Patrol units that find no POI do
+  // the nearest POI. We run AFTER the holder swap and AFTER the LOS scan
+  // so a SPOTTED break suppresses patrol (the enemy now reverts to normal
+  // AI on their next activation). Patrol units that find no POI do
   // nothing (and don't burn their round slot — see plan §4 design note).
-  let withPatrol = next;
+  let withPatrol = withScan;
   const patrolEvents: GameEvent[] = [];
-  if (next.stealth?.active === true && to === 'B') {
-    const patrolIds = next.units
+  if (withScan.stealth?.active === true && to === 'B') {
+    const patrolIds = withScan.units
       .filter(
         (u) => u.faction === 'B' && !u.activatedThisRound && isUnitAlive(u),
       )
@@ -339,6 +361,7 @@ const turnover = (
     state: withPatrol,
     events: [
       ...accumulatedEvents,
+      ...pendingRedeemEvents,
       {
         type: 'INITIATIVE_TURNOVER',
         from,
@@ -346,6 +369,7 @@ const turnover = (
         reason,
         momentumGranted: granted,
       },
+      ...scanEvents,
       ...patrolEvents,
     ],
   };
@@ -2085,9 +2109,26 @@ const shootAction = (
     cmdIndex,
   });
 
+  // Stealth break: a player ('A') SHOOT always trips the break trigger.
+  // Suppression-defer rule (every enemy KILLED / SUPPRESSED at the moment
+  // of the shot — measured AFTER the shot resolves) holds the break until
+  // the next turnover. Apply BEFORE processPostAction so any subsequent
+  // turnover sees stealth correctly flipped (no patrol on incoming side
+  // when stealth just broke).
+  let postShot = shot.state;
+  const breakEvents: GameEvent[] = [];
+  if (postShot.stealth?.active === true && shooter.faction === 'A') {
+    const br = evaluateStealthBreak(postShot, 'SHOT');
+    postShot = br.state;
+    breakEvents.push(...br.events);
+  }
+
   const outcome = shot.causedSuppressOrKill ? 'SUCCESS' : 'FAILURE';
-  const post = processPostAction(shot.state, outcome, cmdIndex);
-  return { state: post.state, events: [...shot.events, ...post.events] };
+  const post = processPostAction(postShot, outcome, cmdIndex);
+  return {
+    state: post.state,
+    events: [...shot.events, ...breakEvents, ...post.events],
+  };
 };
 
 /**

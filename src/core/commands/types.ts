@@ -203,6 +203,29 @@ export type GameEvent =
       type: 'PATROL_TRIGGERED';
       unitId: string;
       reason: 'CHECK_FAILED' | 'TURNOVER';
+    }
+  | {
+      /**
+       * Stealth break trigger fired but is being deferred until the next
+       * INITIATIVE_TURNOVER because every enemy unit was KILLED or SUPPRESSED
+       * at the moment the trigger evaluated. While pending, stealth.active
+       * stays true; player benefits (1UD enemy LOS, no enemy reactions,
+       * patrol behaviour) remain in effect.
+       */
+      type: 'STEALTH_PENDING_BREAK';
+      reason: 'SHOT' | 'SPOTTED';
+    }
+  | {
+      /**
+       * Stealth permanently broken. `deferred: true` means the break came
+       * from an earlier trigger that was held back by the suppression-defer
+       * rule; the actual flip happens at the next turnover where this event
+       * fires. Subsequent player actions no longer create POIs and enemy
+       * reaction-fire / normal sight resume.
+       */
+      type: 'STEALTH_BROKEN';
+      reason: 'SHOT' | 'SPOTTED';
+      deferred: boolean;
     };
 
 export class CommandError extends Error {

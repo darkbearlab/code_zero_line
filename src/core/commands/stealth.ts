@@ -19,7 +19,8 @@ import type {
   PoiMark,
   StealthState,
 } from '../state/GameState';
-import { findUnit } from '../state/GameState';
+import { findUnit, isUnitAlive } from '../state/GameState';
+import { effectiveLOS } from '../geometry/effective-los';
 
 type PoiCause = PoiMark['cause'];
 
@@ -152,4 +153,97 @@ export const prunePoisOnTurnover = (
   const kept = stealth.pois.filter((p) => cycleBefore < p.expiresAtCycle);
   if (kept.length === stealth.pois.length) return stealth;
   return { ...stealth, pois: kept };
+};
+
+/**
+ * True iff every enemy ('B') unit is currently neutralised
+ * (KILLED or SUPPRESSED). Empty enemy roster also counts as neutralised
+ * so the deferral rule applies (player wiped the field).
+ */
+const allEnemiesNeutralised = (state: GameState): boolean => {
+  const enemies = state.units.filter((u) => u.faction === 'B');
+  if (enemies.length === 0) return true;
+  return enemies.every(
+    (u) => u.damage === 'KILLED' || u.damage === 'SUPPRESSED',
+  );
+};
+
+/**
+ * Evaluate a stealth-break trigger. If every enemy is currently
+ * neutralised the break is held back (pendingBreakReason set) so the
+ * player keeps stealth posture for the rest of the mission unless the
+ * enemy recovers; otherwise stealth flips off immediately.
+ *
+ * Idempotent against double-pending: if a previous trigger already set
+ * pendingBreakReason, calling this again is a no-op (returns the same
+ * state and no events). Callers don't need to dedupe.
+ *
+ * No-op when stealth is absent or already inactive.
+ */
+export const evaluateStealthBreak = (
+  state: GameState,
+  reason: 'SHOT' | 'SPOTTED',
+): { state: GameState; events: ReadonlyArray<GameEvent> } => {
+  const stealth = state.stealth;
+  if (!stealth || !stealth.active) return { state, events: [] };
+  if (allEnemiesNeutralised(state)) {
+    if (stealth.pendingBreakReason !== undefined) {
+      return { state, events: [] };
+    }
+    return {
+      state: {
+        ...state,
+        stealth: { ...stealth, pendingBreakReason: reason },
+      },
+      events: [{ type: 'STEALTH_PENDING_BREAK', reason }],
+    };
+  }
+  return {
+    state: {
+      ...state,
+      stealth: {
+        active: false,
+        pois: stealth.pois,
+      },
+    },
+    events: [{ type: 'STEALTH_BROKEN', reason, deferred: false }],
+  };
+};
+
+/**
+ * Redeem a pending stealth break (called inside turnover before the
+ * holder swap). When `pendingBreakReason` is set, flip stealth off and
+ * emit STEALTH_BROKEN { deferred: true }. No-op otherwise.
+ */
+export const redeemPendingStealthBreak = (
+  state: GameState,
+): { state: GameState; events: ReadonlyArray<GameEvent> } => {
+  const stealth = state.stealth;
+  if (!stealth || !stealth.active || stealth.pendingBreakReason === undefined) {
+    return { state, events: [] };
+  }
+  const reason = stealth.pendingBreakReason;
+  return {
+    state: {
+      ...state,
+      stealth: { active: false, pois: stealth.pois },
+    },
+    events: [{ type: 'STEALTH_BROKEN', reason, deferred: true }],
+  };
+};
+
+/**
+ * True iff any alive enemy can see any alive player unit under the
+ * stealth-aware LOS rule (effectiveLOS auto-applies the 1UD cap).
+ * Used by the turnover-time stealth-break scan.
+ */
+export const anyEnemySpotsPlayer = (state: GameState): boolean => {
+  for (const enemy of state.units) {
+    if (enemy.faction !== 'B' || !isUnitAlive(enemy)) continue;
+    for (const player of state.units) {
+      if (player.faction !== 'A' || !isUnitAlive(player)) continue;
+      if (effectiveLOS(enemy, player, state, state.terrain)) return true;
+    }
+  }
+  return false;
 };

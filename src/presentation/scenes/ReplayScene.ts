@@ -401,5 +401,9 @@ const formatEvent = (e: GameEvent): string => {
       return `🌙 POI(${e.cause}) @${e.position.x.toFixed(0)},${e.position.y.toFixed(0)} ttl→${e.expiresAtCycle}`;
     case 'PATROL_TRIGGERED':
       return `👁 ${e.unitId} patrol on ${e.reason}`;
+    case 'STEALTH_PENDING_BREAK':
+      return `🌙 stealth pending (${e.reason})`;
+    case 'STEALTH_BROKEN':
+      return `⚠ stealth broken (${e.reason}${e.deferred ? ', deferred' : ''})`;
   }
 };
