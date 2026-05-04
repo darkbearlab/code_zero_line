@@ -27,6 +27,39 @@ const polyArea = (verts: ReadonlyArray<Vec2>): number => {
   return Math.abs(s) / 2;
 };
 
+const segmentsIntersect = (
+  a: Vec2,
+  b: Vec2,
+  c: Vec2,
+  d: Vec2,
+): boolean => {
+  const cross = (o: Vec2, p: Vec2, q: Vec2): number =>
+    (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+  const d1 = cross(c, d, a);
+  const d2 = cross(c, d, b);
+  const d3 = cross(a, b, c);
+  const d4 = cross(a, b, d);
+  return (
+    ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+    ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+  );
+};
+
+const isSimplePolygon = (verts: ReadonlyArray<Vec2>): boolean => {
+  const n = verts.length;
+  for (let i = 0; i < n; i++) {
+    const a = verts[i]!;
+    const b = verts[(i + 1) % n]!;
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue; // adjacent across wraparound
+      const c = verts[j]!;
+      const d = verts[(j + 1) % n]!;
+      if (segmentsIntersect(a, b, c, d)) return false;
+    }
+  }
+  return true;
+};
+
 const pointInPoly = (p: Vec2, verts: ReadonlyArray<Vec2>): boolean => {
   let inside = false;
   const n = verts.length;
@@ -126,6 +159,39 @@ describe('computeVisibilityPolygon', () => {
     const v = computeVisibilityPolygon(origin, [wall], bounds);
     expect(pointInPoly({ x: 900, y: 500 }, v)).toBe(false);
     expect(pointInPoly({ x: 300, y: 500 }, v)).toBe(true);
+  });
+
+  it('cluster of walls with nearby angles: polygon is simple (no self-intersection)', () => {
+    // Regression: the old ±ε ray-per-vertex sort produced self-intersecting
+    // rings when nearby vertex angles let perturbed rays interleave.
+    // Earcut then triangulated the bad ring as crossed triangles, which
+    // showed up in-game as inverted shading and diagonal slashes across
+    // visible space. Angular sweep guarantees the ring is monotone by
+    // angle, hence simple.
+    const walls: Polygon[] = [
+      rect(700, 400, 30, 30),
+      rect(700, 460, 30, 30),
+      rect(700, 520, 30, 30),
+    ];
+    const origin = { x: 500, y: 500 };
+    const v = computeVisibilityPolygon(origin, walls, bounds);
+    expect(isSimplePolygon(v)).toBe(true);
+    // Sanity: behind the cluster is hidden, in front is visible.
+    expect(pointInPoly({ x: 900, y: 470 }, v)).toBe(false);
+    expect(pointInPoly({ x: 600, y: 700 }, v)).toBe(true);
+  });
+
+  it('wall vertex at exactly angle 0 (due east): polygon is simple', () => {
+    // Endpoint precisely east of origin lands on the 0/2π wraparound seam.
+    // Verify the polygon is simple and the wall is honoured.
+    const wall = rect(700, 495, 30, 10); // east, wall edge crosses y=500
+    const wall2 = rect(495, 200, 10, 30); // north
+    const origin = { x: 500, y: 500 };
+    const v = computeVisibilityPolygon(origin, [wall, wall2], bounds);
+    expect(isSimplePolygon(v)).toBe(true);
+    expect(pointInPoly({ x: 900, y: 500 }, v)).toBe(false);
+    expect(pointInPoly({ x: 500, y: 100 }, v)).toBe(false);
+    expect(pointInPoly({ x: 500, y: 900 }, v)).toBe(true); // south unobstructed
   });
 
   it('shadow area shrinks the visible polygon (less than full bounds)', () => {

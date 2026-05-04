@@ -1,14 +1,19 @@
 /**
- * Vector visibility polygon for LOS preview overlay. Replaces the old
- * grid-cell scan whose diagonal edges showed obvious staircase aliasing.
+ * Vector visibility polygon for LOS preview overlay.
  *
- * Algorithm: cast rays from origin to every blocker vertex (and ±ε to wrap
- * around corners), find each ray's nearest edge intersection, sort by
- * angle. The resulting point ring is the boundary of "everywhere the
- * origin can see". Render bounds-minus-this as the shadow.
+ * Algorithm: angular sweep. For each event angle (every blocker vertex +
+ * bounds corner), find the segment that's closest just-before and
+ * just-after the event. Emit polygon vertices on those segments.
  *
- * Cost: O((n*k)^2) where n = blocker count, k = avg vertices. Hover-rate
- * (only on selection change), so fine in practice.
+ * Output is parameterised by event angle in ascending order, so within
+ * each interval the boundary lies on a single segment (radially monotone)
+ * and at each event boundary the two emitted vertices share the same ray
+ * angle (a radial chord). The resulting ring is therefore a simple star
+ * polygon — Earcut triangulates it without artefacts.
+ *
+ * Cost: O(E^2) where E = total endpoints. Maps have a handful of
+ * blockers (E ≤ ~40), so well under a millisecond. Runs only on
+ * selection / blocker change, not per frame.
  *
  * Pure math — no Phaser dependency, so vitest can exercise it directly.
  */
@@ -26,8 +31,8 @@ interface Edge {
   readonly by: number;
 }
 
-const ANGLE_EPSILON = 0.00001;
 const TWO_PI = Math.PI * 2;
+const ANGLE_DEDUP_EPSILON = 1e-9;
 
 const normalizeAngle = (a: number): number => {
   const r = a - TWO_PI * Math.floor(a / TWO_PI);
@@ -59,7 +64,7 @@ const collectEdges = (
   return edges;
 };
 
-const collectVertexAngles = (
+const collectEventAngles = (
   origin: Vec2,
   blockers: ReadonlyArray<Polygon>,
   bounds: VisibilityBounds,
@@ -75,14 +80,17 @@ const collectVertexAngles = (
   }
   const angles: number[] = [];
   for (const p of points) {
-    const a = Math.atan2(p.y - origin.y, p.x - origin.x);
-    angles.push(
-      normalizeAngle(a),
-      normalizeAngle(a + ANGLE_EPSILON),
-      normalizeAngle(a - ANGLE_EPSILON),
-    );
+    angles.push(normalizeAngle(Math.atan2(p.y - origin.y, p.x - origin.x)));
   }
-  return angles;
+  angles.sort((a, b) => a - b);
+  // Dedupe within tolerance — duplicate event angles produce zero-area
+  // intervals whose midpoint is meaningless and bloat work for no benefit.
+  const dedup: number[] = [];
+  for (const a of angles) {
+    const last = dedup[dedup.length - 1];
+    if (last === undefined || a - last > ANGLE_DEDUP_EPSILON) dedup.push(a);
+  }
+  return dedup;
 };
 
 /** Smallest t > 0 along ray (origin + t*(dx,dy)) that hits segment ab. */
@@ -103,6 +111,45 @@ const raySegmentT = (
   return t;
 };
 
+interface ClosestHit {
+  readonly segIndex: number;
+  readonly t: number;
+}
+
+const closestSegmentAtAngle = (
+  ox: number,
+  oy: number,
+  angle: number,
+  edges: ReadonlyArray<Edge>,
+): ClosestHit | null => {
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  let bestT = Infinity;
+  let bestIdx = -1;
+  for (let i = 0; i < edges.length; i++) {
+    const t = raySegmentT(ox, oy, dx, dy, edges[i]!);
+    if (t < bestT) {
+      bestT = t;
+      bestIdx = i;
+    }
+  }
+  if (bestIdx < 0) return null;
+  return { segIndex: bestIdx, t: bestT };
+};
+
+const intersectRayWithSegment = (
+  ox: number,
+  oy: number,
+  angle: number,
+  edge: Edge,
+): Vec2 | null => {
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  const t = raySegmentT(ox, oy, dx, dy, edge);
+  if (!Number.isFinite(t)) return null;
+  return { x: ox + dx * t, y: oy + dy * t };
+};
+
 /**
  * Compute the polygon of points visible from `origin`, treating each
  * `blocker` as opaque and clipping to `bounds`. Returns a ring of points
@@ -118,48 +165,67 @@ export const computeVisibilityPolygon = (
   bounds: VisibilityBounds,
 ): Vec2[] => {
   const edges = collectEdges(blockers, bounds);
-  const angles = collectVertexAngles(origin, blockers, bounds);
-  const hits: { angle: number; x: number; y: number }[] = [];
-  for (const angle of angles) {
-    const dx = Math.cos(angle);
-    const dy = Math.sin(angle);
-    let nearest = Infinity;
-    for (const e of edges) {
-      const t = raySegmentT(origin.x, origin.y, dx, dy, e);
-      if (t < nearest) nearest = t;
-    }
-    if (nearest === Infinity) continue;
-    hits.push({
-      angle,
-      x: origin.x + dx * nearest,
-      y: origin.y + dy * nearest,
-    });
-  }
-  hits.sort((a, b) => a.angle - b.angle);
-  if (hits.length === 0) return [];
+  const events = collectEventAngles(origin, blockers, bounds);
+  const N = events.length;
+  if (N === 0) return [];
 
-  // After normalisation the wraparound boundary sits at angle 0/2π, but a
-  // wall vertex landing near angle 0 (eastward) would still split that
-  // vertex's ±ε rays to opposite ends of the sorted array — a near hit
-  // (wall) at one end, a far hit (bounds) at the other, drawn as a long
-  // chord across visible space. Find the largest angular gap between
-  // consecutive hits and rotate so that gap sits at the array boundary;
-  // the polygon's close-the-ring edge then falls in geometry-free space.
-  const N = hits.length;
-  let maxGap = -Infinity;
-  let maxGapEnd = 0;
+  // For each interval [events[i], events[i+1 mod N]) find the closest
+  // segment by sampling at the interval's midpoint angle.
+  const closestForInterval: (ClosestHit | null)[] = new Array(N).fill(null);
   for (let i = 0; i < N; i++) {
+    const a = events[i]!;
     const next = (i + 1) % N;
-    let gap = hits[next]!.angle - hits[i]!.angle;
-    if (next === 0) gap += TWO_PI;
-    if (gap > maxGap) {
-      maxGap = gap;
-      maxGapEnd = next;
+    const b = events[next]!;
+    const midAngle =
+      next === 0
+        ? normalizeAngle((a + b + TWO_PI) / 2)
+        : (a + b) / 2;
+    closestForInterval[i] = closestSegmentAtAngle(
+      origin.x,
+      origin.y,
+      midAngle,
+      edges,
+    );
+  }
+
+  // At each event boundary, the polygon may have up to 2 vertices: one on
+  // the segment that was closest just-before this event, one on the segment
+  // closest just-after. Both share the event's ray angle, so they form a
+  // radial chord (zero angular span) — preserves angular monotonicity.
+  const out: Vec2[] = [];
+  for (let i = 0; i < N; i++) {
+    const angle = events[i]!;
+    const before = closestForInterval[(i - 1 + N) % N];
+    const after = closestForInterval[i];
+    if (!before && !after) continue;
+    if (before && after && before.segIndex === after.segIndex) {
+      const p = intersectRayWithSegment(
+        origin.x,
+        origin.y,
+        angle,
+        edges[after.segIndex]!,
+      );
+      if (p) out.push(p);
+      continue;
+    }
+    if (before) {
+      const p = intersectRayWithSegment(
+        origin.x,
+        origin.y,
+        angle,
+        edges[before.segIndex]!,
+      );
+      if (p) out.push(p);
+    }
+    if (after) {
+      const p = intersectRayWithSegment(
+        origin.x,
+        origin.y,
+        angle,
+        edges[after.segIndex]!,
+      );
+      if (p) out.push(p);
     }
   }
-  const rotated =
-    maxGapEnd === 0
-      ? hits
-      : hits.slice(maxGapEnd).concat(hits.slice(0, maxGapEnd));
-  return rotated.map((h) => ({ x: h.x, y: h.y }));
+  return out;
 };
