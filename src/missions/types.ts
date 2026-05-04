@@ -66,4 +66,12 @@ export interface MissionDef {
    * the editor should keep around without throwing them into the random draw.
    */
   readonly includeInCampaignPool?: boolean;
+  /**
+   * Per-mission stealth override. Default = inherit from operation chain
+   * state (`RunState.operationStealthAlive`). 'force-on' = mission always
+   * starts in stealth regardless of chain state (e.g. authored stealth
+   * set-pieces). 'force-off' = mission always starts non-stealth even if
+   * the chain is still stealthly (typically the chain finale).
+   */
+  readonly stealthMode?: 'force-on' | 'force-off';
 }

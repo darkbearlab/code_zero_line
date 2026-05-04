@@ -25,7 +25,7 @@ import { buildFixtureState, namedFixtures } from './fixtures';
 import { simulateMatch, type MatchOutcome } from './runMatch';
 import { buildMissionState } from '../missions/buildState';
 import { getMissionById } from '../missions/library';
-import { newRunState } from '../runs/state';
+import { currentMissionStealthActive, newRunState } from '../runs/state';
 import type { ScenarioMode, ScenarioParams } from '../core/scenario/victory';
 import type { RosterEntry } from '../core/setup/types';
 
@@ -274,7 +274,9 @@ const run = (): void => {
     scenarioParams = mission.scenarioParams ?? {};
     buildInitial = (seed: string) => {
       const synthRun = newRunState(seed, DEFAULT_SIM_SQUAD, [args.mission!]);
-      return buildMissionState(mission, synthRun, seed);
+      return buildMissionState(mission, synthRun, seed, {
+        stealthActive: currentMissionStealthActive(synthRun, mission),
+      });
     };
     contextLabel = `mission=${args.mission} (${scenario}) map=${mission.mapId}`;
   } else {

@@ -173,6 +173,7 @@ export const instantiateOperation = (
     stageLabels,
     difficulty: def.difficulty,
     rewards: def.rewards,
+    ...(def.stealthEntry === true ? { stealthEntry: true } : {}),
   };
 };
 

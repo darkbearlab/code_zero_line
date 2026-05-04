@@ -41,6 +41,13 @@ export interface MissionBuildOptions {
   readonly oneShotBoons?: ReadonlyArray<RunBoon>;
   /** Persistent run boons (BONUS_DICE etc) currently in effect. */
   readonly runBoons?: ReadonlyArray<RunBoon>;
+  /**
+   * Launch this mission in stealth state. Caller (BattleScene / sim) is
+   * expected to compute via `currentMissionStealthActive(run, mission)`
+   * — that helper folds in the per-mission `stealthMode` override and
+   * the run-level chain inheritance.
+   */
+  readonly stealthActive?: boolean;
 }
 
 const cloneEnemy = (mission: MissionDef): Array<Unit> => {
@@ -247,5 +254,6 @@ export const buildMissionState = (
     ...(hasIntel ? { combatIntel } : {}),
     initiative,
     scenarioInfo,
+    ...(opts.stealthActive ? { stealth: { active: true, pois: [] } } : {}),
   };
 };

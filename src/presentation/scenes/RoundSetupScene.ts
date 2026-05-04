@@ -263,6 +263,7 @@ export class RoundSetupScene extends Phaser.Scene {
       stageLabels: option.operation.stageLabels,
       perStageReward: opDef.rewards.perStage,
       onCompleteReward: opDef.rewards.onComplete,
+      ...(opDef.stealthEntry === true ? { stealthEntry: true } : {}),
     };
     const run = newRunState(
       runSeed,

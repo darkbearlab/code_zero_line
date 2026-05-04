@@ -15,6 +15,7 @@
 import type { RosterEntry } from '../core/setup/types';
 import type { UnpickedOptionOutcome, CampaignCurrencies } from '../campaign/state';
 import type { StageLabel } from '../operations/types';
+import type { MissionDef } from '../missions/types';
 
 /** Single applied effect that only lives for the current run. */
 export type RunBoonEffect =
@@ -46,6 +47,8 @@ export interface RunOperationContext {
   readonly stageLabels: ReadonlyArray<StageLabel>;
   readonly perStageReward: CampaignCurrencies;
   readonly onCompleteReward: CampaignCurrencies;
+  /** Snapshot of `OperationDef.stealthEntry`. Drives `RunState.operationStealthAlive` init. */
+  readonly stealthEntry?: boolean;
 }
 
 const ZERO_CURRENCIES: CampaignCurrencies = {
@@ -121,6 +124,15 @@ export interface RunState {
    * skip KIA for the surviving squad.
    */
   readonly retreated?: boolean;
+  /**
+   * Chain-level stealth state. Initialised from
+   * `operation?.stealthEntry === true`. Flips to false (and sticks) when
+   * any mission ends with its `state.stealth.active === false` while it
+   * was launched in stealth. Subsequent missions then inherit non-stealth
+   * unless they carry `stealthMode: 'force-on'`. Undefined for sandbox /
+   * non-operation runs.
+   */
+  readonly operationStealthAlive?: boolean;
 }
 
 export const newRunState = (
@@ -138,7 +150,25 @@ export const newRunState = (
   damageCarry: Object.fromEntries(squad.map((s) => [s.id, 'NONE' as const])),
   history: [],
   ...(operation ? { operation, bankedRewards: ZERO_CURRENCIES } : {}),
+  ...(operation?.stealthEntry === true ? { operationStealthAlive: true } : {}),
 });
+
+/**
+ * Resolve whether a mission should launch in stealth state, given the
+ * current run-level chain state. Per-mission `stealthMode` override wins
+ * over chain inheritance:
+ *   - 'force-on'  → always stealth
+ *   - 'force-off' → never stealth
+ *   - undefined   → inherit `run.operationStealthAlive` (true/false/undefined)
+ */
+export const currentMissionStealthActive = (
+  run: RunState,
+  mission: MissionDef,
+): boolean => {
+  if (mission.stealthMode === 'force-on') return true;
+  if (mission.stealthMode === 'force-off') return false;
+  return run.operationStealthAlive === true;
+};
 
 export const advanceAfterMission = (
   run: RunState,

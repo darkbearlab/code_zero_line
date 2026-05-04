@@ -201,6 +201,45 @@ export interface GameStateScenarioInfo {
   readonly params: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * Point of interest dropped by a player non-MOVE action while stealth is
+ * active. Enemy patrol picks the nearest POI as its move target.
+ * `expiresAtCycle` is the first cycle index at which the POI should be
+ * culled (turnover() compares against `state.cycleIndex`).
+ */
+export interface PoiMark {
+  readonly position: Vec2;
+  readonly createdCycle: number;
+  readonly cause:
+    | 'SHOOT'
+    | 'VAULT'
+    | 'CLIMB'
+    | 'CRAWL'
+    | 'RALLY'
+    | 'COMMAND';
+  readonly expiresAtCycle: number;
+}
+
+/**
+ * Mission-level stealth state. Present only when the mission was launched
+ * with stealth (operation chain inheritance or per-mission `stealthMode:
+ * 'force-on'`). When `active === true` enemies have a 1UD effective sight
+ * cap, react-fire is disabled, and patrol behavior fires at IMPULSIVE
+ * trigger windows. Once broken (`active === false`) the field stays on
+ * the state but observers treat it as "stealth was a thing once" — the
+ * chain-side `RunState.operationStealthAlive` is what actually propagates.
+ */
+export interface StealthState {
+  readonly active: boolean;
+  /**
+   * Set when a stealth-break trigger fires while every enemy unit is
+   * KILLED or SUPPRESSED — the actual break is deferred to the next
+   * INITIATIVE_TURNOVER. Cleared when broken or when no longer relevant.
+   */
+  readonly pendingBreakReason?: 'SHOT' | 'SPOTTED';
+  readonly pois: ReadonlyArray<PoiMark>;
+}
+
 export interface GameState {
   /** Master seed; combined with `commandCount` to derive per-command RNG. */
   readonly seed: string;
@@ -214,6 +253,12 @@ export interface GameState {
   /** Scenario type + tunables used by the AI evaluator. Optional. */
   readonly scenarioInfo?: GameStateScenarioInfo;
   readonly initiative: Initiative;
+  /**
+   * Stealth-mission state. Absent for normal missions; populated when the
+   * mission is launched with stealth (see `buildMissionState`). Reducer
+   * mutates `pois` and `pendingBreakReason` over the course of the match.
+   */
+  readonly stealth?: StealthState;
 }
 
 export const getUnitCircle = (u: Unit): Circle => ({

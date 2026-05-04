@@ -69,6 +69,14 @@ export interface OperationDef {
    * the picker skips this op (story / tutorial / WIP). Default = in pool.
    */
   readonly includeInCampaignPool?: boolean;
+  /**
+   * When true, the chain's first mission begins in stealth state. Stealth
+   * propagates across stages until broken (any mission ending with stealth
+   * cleared flips `RunState.operationStealthAlive` to false for all later
+   * stages). Per-mission `stealthMode` override (force-on / force-off) wins
+   * over chain inheritance.
+   */
+  readonly stealthEntry?: boolean;
 }
 
 /** Schema slot — not consumed yet. See OperationDef.optionalInterludes. */
@@ -99,4 +107,6 @@ export interface OperationInstance {
   readonly stageLabels: ReadonlyArray<StageLabel>;
   readonly difficulty: 1 | 2 | 3 | 4 | 5;
   readonly rewards: OperationRewards;
+  /** Forwarded from `OperationDef.stealthEntry` (snapshot for run start). */
+  readonly stealthEntry?: boolean;
 }

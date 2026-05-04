@@ -75,6 +75,7 @@ import { buildMissionState } from '../../missions/buildState';
 import { getMissionById } from '../../missions/library';
 import {
   advanceAfterMission,
+  currentMissionStealthActive,
   isRunOver,
   oneShotBoonsFor,
   type MissionResult,
@@ -298,6 +299,7 @@ export class BattleScene extends Phaser.Scene {
             damageCarry: data.runState.damageCarry,
             oneShotBoons: oneShot,
             runBoons: data.runState.pickedBoons,
+            stealthActive: currentMissionStealthActive(data.runState, mission),
           },
         );
       }
