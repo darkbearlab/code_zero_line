@@ -191,6 +191,13 @@ export type GameEvent =
       variant: 'AGGRESSIVE';
       reason: 'CHECK_FAILED' | 'TURNOVER';
       action: 'SHOOT' | 'MOVE' | 'NONE';
+    }
+  | {
+      type: 'STEALTH_POI_CREATED';
+      position: Vec2;
+      cause: 'SHOOT' | 'VAULT' | 'CLIMB' | 'CRAWL' | 'RALLY' | 'COMMAND';
+      createdCycle: number;
+      expiresAtCycle: number;
     };
 
 export class CommandError extends Error {

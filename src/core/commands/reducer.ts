@@ -70,6 +70,11 @@ import {
   resolveReactionPlan,
   type ReactionResolveResult,
 } from './reactions';
+import {
+  applyDerivedPois,
+  derivePoisFromCommand,
+  prunePoisOnTurnover,
+} from './stealth';
 
 const opponent = (f: Faction): Faction => (f === 'A' ? 'B' : 'A');
 
@@ -259,6 +264,11 @@ const turnover = (
         B: prevScores.B + delta.B,
       }
     : prevScores;
+  // Stealth POI pruning — drops POIs whose `expiresAtCycle` has been
+  // reached. Fires only on A→B turnovers (player just released
+  // initiative); enemy→player turnovers leave POIs alone so the enemy
+  // patrol next round can still see them.
+  const prunedStealth = prunePoisOnTurnover(s.stealth, s.initiative.cycle, from);
   const next: GameState = {
     ...s,
     initiative: {
@@ -276,6 +286,7 @@ const turnover = (
           }
         : {}),
     },
+    ...(prunedStealth !== s.stealth ? { stealth: prunedStealth } : {}),
     // lockedThisInitiative is per-initiative-phase: any turnover clears
     // it across all units regardless of cycle bump. Round-scoped flags
     // (activatedThisRound + cannotReactThisRound) only reset on bump.
@@ -2055,7 +2066,16 @@ export const applyCommand = (state: GameState, cmd: Command): CommandResult => {
   const s = bumpCommandCount(state);
   const cmdIndex = s.commandCount;
   const result = applyCommandInner(s, cmd, cmdIndex);
-  return { state: enforceNoProne(result.state), events: result.events };
+  // Stealth-side POI emission. We fold it AFTER the action resolves so we
+  // see post-state positions (VAULT/CLIMB/CRAWL/COMMAND_MOVE end-points)
+  // and only fire when stealth was active going in (commands themselves
+  // never flip stealth.active in this layer — that's Stage 5).
+  const derived = derivePoisFromCommand(s, result.state, cmd);
+  const withPois = applyDerivedPois(result.state, derived);
+  return {
+    state: enforceNoProne(withPois.state),
+    events: [...result.events, ...withPois.events],
+  };
 };
 
 const applyCommandInner = (

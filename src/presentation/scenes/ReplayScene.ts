@@ -397,5 +397,7 @@ const formatEvent = (e: GameEvent): string => {
       return `🎯 ${e.unitId} ${e.threshold}+ → ${e.roll} ${e.success ? `${e.beforeDamage}→${e.afterDamage}` : '✗'}`;
     case 'IMPULSIVE_TRIGGERED':
       return `⚡ ${e.unitId} impulsive(${e.variant.toLowerCase()}) on ${e.reason} → ${e.action}`;
+    case 'STEALTH_POI_CREATED':
+      return `🌙 POI(${e.cause}) @${e.position.x.toFixed(0)},${e.position.y.toFixed(0)} ttl→${e.expiresAtCycle}`;
   }
 };
