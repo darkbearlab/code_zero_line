@@ -27,6 +27,12 @@ interface Edge {
 }
 
 const ANGLE_EPSILON = 0.00001;
+const TWO_PI = Math.PI * 2;
+
+const normalizeAngle = (a: number): number => {
+  const r = a - TWO_PI * Math.floor(a / TWO_PI);
+  return r === TWO_PI ? 0 : r;
+};
 
 const collectEdges = (
   blockers: ReadonlyArray<Polygon>,
@@ -70,7 +76,11 @@ const collectVertexAngles = (
   const angles: number[] = [];
   for (const p of points) {
     const a = Math.atan2(p.y - origin.y, p.x - origin.x);
-    angles.push(a, a + ANGLE_EPSILON, a - ANGLE_EPSILON);
+    angles.push(
+      normalizeAngle(a),
+      normalizeAngle(a + ANGLE_EPSILON),
+      normalizeAngle(a - ANGLE_EPSILON),
+    );
   }
   return angles;
 };
@@ -126,5 +136,30 @@ export const computeVisibilityPolygon = (
     });
   }
   hits.sort((a, b) => a.angle - b.angle);
-  return hits.map((h) => ({ x: h.x, y: h.y }));
+  if (hits.length === 0) return [];
+
+  // After normalisation the wraparound boundary sits at angle 0/2π, but a
+  // wall vertex landing near angle 0 (eastward) would still split that
+  // vertex's ±ε rays to opposite ends of the sorted array — a near hit
+  // (wall) at one end, a far hit (bounds) at the other, drawn as a long
+  // chord across visible space. Find the largest angular gap between
+  // consecutive hits and rotate so that gap sits at the array boundary;
+  // the polygon's close-the-ring edge then falls in geometry-free space.
+  const N = hits.length;
+  let maxGap = -Infinity;
+  let maxGapEnd = 0;
+  for (let i = 0; i < N; i++) {
+    const next = (i + 1) % N;
+    let gap = hits[next]!.angle - hits[i]!.angle;
+    if (next === 0) gap += TWO_PI;
+    if (gap > maxGap) {
+      maxGap = gap;
+      maxGapEnd = next;
+    }
+  }
+  const rotated =
+    maxGapEnd === 0
+      ? hits
+      : hits.slice(maxGapEnd).concat(hits.slice(0, maxGapEnd));
+  return rotated.map((h) => ({ x: h.x, y: h.y }));
 };
