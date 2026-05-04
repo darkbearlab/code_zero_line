@@ -30,6 +30,8 @@ import type {
 } from '../../core/commands/types';
 import { CommandError } from '../../core/commands/types';
 import { hasLOS } from '../../core/geometry/los';
+import { effectiveLOS } from '../../core/geometry/effective-los';
+import { coverDetail } from '../../core/resolution/cover';
 import { VAULT_HEIGHT_THRESHOLD_PIXELS } from '../../core/rules/constants';
 import { isLowWall } from '../../core/state/GameState';
 import { unitHasTrait } from '../../core/traits/types';
@@ -87,40 +89,23 @@ const FACTION_COLOR: Readonly<Record<'A' | 'B', number>> = {
 };
 
 /**
- * Triangulate `outer` (with optional `hole` cut out) via Earcut and stroke
- * the triangles into `g`. Used by the LOS overlay to fill `bounds-minus-
- * visibility-polygon` as a single solid colour without overlap artifacts.
+ * Fill a simple polygon ring into mask Graphics `g` at white alpha 1. Used
+ * for LOS overlay masks: the visible layer is masked by these polygons with
+ * invertAlpha, so only the alpha (not the colour) of the mask matters.
  */
-const fillRingWithHole = (
+const drawPolygonPath = (
   g: Phaser.GameObjects.Graphics,
-  outer: ReadonlyArray<Vec2>,
-  hole: ReadonlyArray<Vec2> | null,
-  color: number,
-  alpha: number,
+  verts: ReadonlyArray<Vec2>,
 ): void => {
-  if (outer.length < 3) return;
-  const data: number[] = [];
-  for (const v of outer) data.push(v.x, v.y);
-  let holeIndices: number[] | undefined;
-  if (hole && hole.length >= 3) {
-    holeIndices = [outer.length];
-    for (const v of hole) data.push(v.x, v.y);
+  if (verts.length < 3) return;
+  g.fillStyle(0xffffff, 1);
+  g.beginPath();
+  g.moveTo(verts[0]!.x, verts[0]!.y);
+  for (let i = 1; i < verts.length; i++) {
+    g.lineTo(verts[i]!.x, verts[i]!.y);
   }
-  const tris = Phaser.Geom.Polygon.Earcut(data, holeIndices, 2);
-  g.fillStyle(color, alpha);
-  for (let i = 0; i < tris.length; i += 3) {
-    const ai = tris[i]! * 2;
-    const bi = tris[i + 1]! * 2;
-    const ci = tris[i + 2]! * 2;
-    g.fillTriangle(
-      data[ai]!,
-      data[ai + 1]!,
-      data[bi]!,
-      data[bi + 1]!,
-      data[ci]!,
-      data[ci + 1]!,
-    );
-  }
+  g.closePath();
+  g.fillPath();
 };
 
 // Translucent overlay alpha for faction tint on sprites. ~0.4 reads clearly
@@ -200,7 +185,19 @@ export class BattleScene extends Phaser.Scene {
   private objectivesGfx!: Phaser.GameObjects.Graphics;
   private objectiveLabels: Phaser.GameObjects.Text[] = [];
   private poisGfx!: Phaser.GameObjects.Graphics;
-  private losOverlayGfx!: Phaser.GameObjects.Graphics;
+  // LOS overlay uses two visible Graphics layers + two off-display mask
+  // Graphics. Each layer is masked by the corresponding visibility polygon
+  // with `invertAlpha = true`, so the layer fills exactly where the mask
+  // is *empty* — yielding "bounds minus polygon" without polygon-with-hole
+  // triangulation (which fails when the inner polygon touches bounds).
+  private losOverlayBgGfx!: Phaser.GameObjects.Graphics;
+  private losOverlayFgGfx!: Phaser.GameObjects.Graphics;
+  private losMaskBlockGfx!: Phaser.GameObjects.Graphics;
+  private losMaskClearGfx!: Phaser.GameObjects.Graphics;
+  /** Lines from the previewed unit to every visible ally/enemy. */
+  private losLinesGfx!: Phaser.GameObjects.Graphics;
+  /** Cover-source labels at midpoint of each enemy LOS line. */
+  private losLineLabels: Phaser.GameObjects.Text[] = [];
   /** Unit currently used to source the LOS preview overlay (hover state). */
   private losPreviewUnitId: string | null = null;
   private boardEdgeGfx!: Phaser.GameObjects.Graphics;
@@ -358,8 +355,22 @@ export class BattleScene extends Phaser.Scene {
     this.poisGfx = this.add.graphics();
     // LOS overlay sits between objectives and units so unit circles and
     // their labels remain on top — the overlay is just visual hint
-    // material, never selection-blocking.
-    this.losOverlayGfx = this.add.graphics();
+    // material, never selection-blocking. Two layers stacked: bg (0.55,
+    // outside vBlock) and fg (0.25, inside vBlock minus vClear). Masks
+    // are off-display Graphics whose polygons are redrawn each frame.
+    this.losOverlayBgGfx = this.add.graphics();
+    this.losOverlayFgGfx = this.add.graphics();
+    this.losMaskBlockGfx = this.make.graphics({ x: 0, y: 0 }, false);
+    this.losMaskClearGfx = this.make.graphics({ x: 0, y: 0 }, false);
+    const blockMask = this.losMaskBlockGfx.createGeometryMask();
+    blockMask.invertAlpha = true;
+    const clearMask = this.losMaskClearGfx.createGeometryMask();
+    clearMask.invertAlpha = true;
+    this.losOverlayBgGfx.setMask(blockMask);
+    this.losOverlayFgGfx.setMask(clearMask);
+    // LOS preview lines sit above the shaded overlay but under unit
+    // circles/labels so they don't obscure unit identity.
+    this.losLinesGfx = this.add.graphics();
     this.unitLayer = this.add.container();
     this.effectsLayer = this.add.container();
     this.effects = new CombatEffects(this, this.effectsLayer);
@@ -603,7 +614,13 @@ export class BattleScene extends Phaser.Scene {
    * resolution.
    */
   private renderLosOverlay(unitId: string | null): void {
-    this.losOverlayGfx.clear();
+    this.losOverlayBgGfx.clear();
+    this.losOverlayFgGfx.clear();
+    this.losMaskBlockGfx.clear();
+    this.losMaskClearGfx.clear();
+    this.losLinesGfx.clear();
+    for (const t of this.losLineLabels) t.destroy();
+    this.losLineLabels = [];
     if (!unitId) return;
     const unit = this.gameState.units.find((u) => u.id === unitId);
     if (!unit || !isUnitAlive(unit)) return;
@@ -663,22 +680,98 @@ export class BattleScene extends Phaser.Scene {
         ? vBlock
         : computeVisibilityPolygon(unit.position, partialBlockers, bounds);
 
-    // Shadow: bounds rect minus V_block.
-    const boundsRing: Vec2[] = [
-      { x: 0, y: 0 },
-      { x: bounds.width, y: 0 },
-      { x: bounds.width, y: bounds.height },
-      { x: 0, y: bounds.height },
-    ];
-    fillRingWithHole(this.losOverlayGfx, boundsRing, vBlock, 0x000000, 0.55);
-
-    // Partial: visible-but-covered region.
+    // Shadow tier (0.55): full bounds rect, masked by vBlock with
+    // invertAlpha — paints everything OUTSIDE the visibility polygon.
     if (vBlock.length >= 3) {
-      if (originInsideSoft || vClear.length < 3) {
-        fillRingWithHole(this.losOverlayGfx, vBlock, null, 0x000000, 0.25);
-      } else if (vClear !== vBlock) {
-        fillRingWithHole(this.losOverlayGfx, vBlock, vClear, 0x000000, 0.25);
+      drawPolygonPath(this.losMaskBlockGfx, vBlock);
+    }
+    this.losOverlayBgGfx.fillStyle(0x000000, 0.55);
+    this.losOverlayBgGfx.fillRect(0, 0, bounds.width, bounds.height);
+
+    // Partial tier (0.25): fill vBlock interior, masked by vClear with
+    // invertAlpha — paints the vBlock-minus-vClear "covered" region.
+    if (vBlock.length >= 3) {
+      this.losOverlayFgGfx.fillStyle(0x000000, 0.25);
+      this.losOverlayFgGfx.beginPath();
+      this.losOverlayFgGfx.moveTo(vBlock[0]!.x, vBlock[0]!.y);
+      for (let i = 1; i < vBlock.length; i++) {
+        this.losOverlayFgGfx.lineTo(vBlock[i]!.x, vBlock[i]!.y);
       }
+      this.losOverlayFgGfx.closePath();
+      this.losOverlayFgGfx.fillPath();
+      // When the shooter is inside soft, or vClear is degenerate, leave the
+      // clear mask empty — the whole vBlock interior reads as partial cover.
+      if (!originInsideSoft && vClear.length >= 3 && vClear !== vBlock) {
+        drawPolygonPath(this.losMaskClearGfx, vClear);
+      }
+    }
+
+    this.drawLosPreviewLines(unit);
+  }
+
+  /**
+   * Draw a line from the previewed unit to every other alive unit it can
+   * actually shoot (per `effectiveLOS`, the same predicate shooting uses).
+   * Allies get a thin cyan line; enemies get a thicker red line plus a
+   * label listing the cover sources that would apply on a shot.
+   */
+  private drawLosPreviewLines(observer: Unit): void {
+    const observerOnHigh = isOnHighGround(observer, this.gameState.terrain);
+    const observerProne = observer.stance === 'PRONE';
+    for (const other of this.gameState.units) {
+      if (other.id === observer.id) continue;
+      if (!isUnitAlive(other)) continue;
+      if (
+        observer.position.x === other.position.x &&
+        observer.position.y === other.position.y
+      ) {
+        continue;
+      }
+      const otherOnHigh = isOnHighGround(other, this.gameState.terrain);
+      const otherProne = other.stance === 'PRONE';
+      const visible = effectiveLOS(
+        observer,
+        other,
+        this.gameState,
+        this.gameState.terrain,
+        {
+          aProne: observerProne,
+          bProne: otherProne,
+          aOnHighGround: observerOnHigh,
+          bOnHighGround: otherOnHigh,
+        },
+      );
+      if (!visible) continue;
+
+      const ally = other.faction === observer.faction;
+      const color = ally ? 0x66ccff : 0xff5e4a;
+      const alpha = ally ? 0.7 : 0.85;
+      this.losLinesGfx.lineStyle(1, color, alpha);
+      this.losLinesGfx.beginPath();
+      this.losLinesGfx.moveTo(observer.position.x, observer.position.y);
+      this.losLinesGfx.lineTo(other.position.x, other.position.y);
+      this.losLinesGfx.strokePath();
+
+      if (ally) continue;
+      const detail = coverDetail(observer, other, this.gameState.terrain);
+      const sources: string[] = [];
+      if (detail.prone) sources.push('趴地');
+      if (detail.highGround) sources.push('高地');
+      if (detail.difficult) sources.push('困難地形');
+      if (detail.soft) sources.push('煙霧');
+      if (detail.hardWall) sources.push('矮牆');
+      const label = sources.length === 0 ? '無掩體' : sources.join(', ');
+      const mx = (observer.position.x + other.position.x) / 2;
+      const my = (observer.position.y + other.position.y) / 2;
+      const text = this.add.text(mx, my, label, {
+        fontFamily: 'sans-serif',
+        fontSize: '10px',
+        color: '#ffffff',
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        padding: { left: 3, right: 3, top: 1, bottom: 1 },
+      });
+      text.setOrigin(0.5);
+      this.losLineLabels.push(text);
     }
   }
 

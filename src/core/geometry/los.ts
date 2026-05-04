@@ -1,7 +1,6 @@
 import type { Circle, Polygon, Vec2 } from './types';
 import { segmentBlockedByPolygons } from './segment';
 import { isPointInPolygon } from './polygon';
-import { v2Sub } from './vec2';
 import {
   isHighWall,
   isLowWall,
@@ -11,8 +10,6 @@ import {
   STANDARD_BASE_RADIUS_PIXELS,
   VAULT_HEIGHT_THRESHOLD_PIXELS,
 } from '../rules/constants';
-
-const SAMPLE_COUNT = 16;
 
 export interface LOSOptions {
   /** Endpoint A's unit is prone — low walls then block LOS from A's side. */
@@ -151,9 +148,10 @@ const segmentEntersPolygon = (
 };
 
 /**
- * Test LOS between two circles. Samples perimeter points on the half facing
- * the other circle; LOS exists if any pair of opposing surface points is
- * unblocked.
+ * Test LOS between two circles. Center-to-center only — units have no
+ * "peek around the corner" via base width. This matches the LOS preview
+ * overlay (`computeVisibilityPolygon`) so what you see on screen is
+ * exactly what you can shoot.
  *
  * The set of effective blockers depends on terrain types and per-endpoint
  * stance — see `buildLosBlockers`.
@@ -165,28 +163,5 @@ export const hasLOS = (
   options?: LOSOptions,
 ): boolean => {
   const blockers = buildLosBlockers(a.center, b.center, terrains, options);
-  if (!segmentBlockedByPolygons(a.center, b.center, blockers)) return true;
-
-  const dir = v2Sub(b.center, a.center);
-  const baseA = Math.atan2(dir.y, dir.x);
-  const baseB = baseA + Math.PI;
-
-  for (let i = 0; i < SAMPLE_COUNT; i++) {
-    const tA = i / (SAMPLE_COUNT - 1) - 0.5;
-    const angA = baseA + tA * Math.PI;
-    const pA: Vec2 = {
-      x: a.center.x + Math.cos(angA) * a.radius,
-      y: a.center.y + Math.sin(angA) * a.radius,
-    };
-    for (let j = 0; j < SAMPLE_COUNT; j++) {
-      const tB = j / (SAMPLE_COUNT - 1) - 0.5;
-      const angB = baseB + tB * Math.PI;
-      const pB: Vec2 = {
-        x: b.center.x + Math.cos(angB) * b.radius,
-        y: b.center.y + Math.sin(angB) * b.radius,
-      };
-      if (!segmentBlockedByPolygons(pA, pB, blockers)) return true;
-    }
-  }
-  return false;
+  return !segmentBlockedByPolygons(a.center, b.center, blockers);
 };

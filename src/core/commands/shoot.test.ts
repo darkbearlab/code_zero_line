@@ -282,10 +282,15 @@ describe('SHOOT command', () => {
     ).toThrow(/SUPPRESSED/);
   });
 
-  it('cover applied when HARD obstacle blocks center-to-center', () => {
+  it('cover applied when LOS line crosses a low HARD wall', () => {
+    // Low wall (height ≤ vault threshold) sits on the LOS line between two
+    // standing shooters. buildLosBlockers excludes it (rule 4.5: low walls
+    // only block prone), so hasLOS is true; cover.ts hard-poly cross-check
+    // still includes it, so the -1 die cover penalty applies.
     const wall = {
       id: 'w',
       kind: 'HARD' as const,
+      height: 30,
       polygon: {
         vertices: [v2(80, -3), v2(120, -3), v2(120, 3), v2(80, 3)],
       },
@@ -293,7 +298,6 @@ describe('SHOOT command', () => {
     const s0: GameState = {
       ...makeState(),
       terrain: [wall],
-      // Make B big enough that LOS from A's perimeter still works.
       units: [
         makeUnit({ id: 'a1', faction: 'A', position: v2(0, 0), radius: 20 }),
         makeUnit({
