@@ -44,6 +44,12 @@ const SECTIONS = [
     typeName: 'MissionDef',
   },
   {
+    dir: 'operations',
+    exportName: 'BUNDLED_OPERATIONS',
+    typeImport: "import type { OperationDef } from '../operations/types';",
+    typeName: 'OperationDef',
+  },
+  {
     dir: 'factions',
     exportName: 'BUNDLED_FACTIONS',
     typeImport: "import type { Faction } from './loader';",

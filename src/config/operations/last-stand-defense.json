@@ -1,0 +1,16 @@
+{
+  "id": "last-stand-defense",
+  "displayName": "孤軍死守",
+  "description": "連續三場硬仗削弱敵預備兵力,最後死守指揮所。地獄級。",
+  "difficulty": 5,
+  "chain": {
+    "eliminations": 3,
+    "elimDifficultyBand": [3, 5],
+    "elimModeFilter": ["engage-reach"],
+    "mainMissionId": "last-stand"
+  },
+  "rewards": {
+    "perStage": { "tactical": 4, "regional": 2, "honor": 0 },
+    "onComplete": { "tactical": 5, "regional": 3, "honor": 3 }
+  }
+}

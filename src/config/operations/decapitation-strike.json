@@ -1,0 +1,16 @@
+{
+  "id": "decapitation-strike",
+  "displayName": "斬首突襲",
+  "description": "三層巡哨層層削減,終局直取敵指揮官。",
+  "difficulty": 4,
+  "chain": {
+    "eliminations": 3,
+    "elimDifficultyBand": [2, 4],
+    "elimModeFilter": ["engage-reach"],
+    "mainMissionId": "decapitation"
+  },
+  "rewards": {
+    "perStage": { "tactical": 3, "regional": 1, "honor": 0 },
+    "onComplete": { "tactical": 4, "regional": 2, "honor": 2 }
+  }
+}

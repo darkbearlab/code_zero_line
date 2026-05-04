@@ -5,12 +5,14 @@ import type { Weapon } from '../core/state/GameState';
 import type { UnitTemplate } from './loader';
 import type { MapDef } from '../core/setup/types';
 import type { MissionDef } from '../missions/types';
+import type { OperationDef } from '../operations/types';
 import type { Faction } from './loader';
 
 import weapons_blade from './weapons/blade.json';
 import weapons_heavy_rifle from './weapons/heavy_rifle.json';
 import weapons_rifle from './weapons/rifle.json';
 import weapons_rpg from './weapons/rpg.json';
+import weapons_sharp_shooter_rifle from './weapons/sharp_shooter_rifle.json';
 import weapons_smg from './weapons/smg.json';
 import units_Blue_Squadee from './units/Blue_Squadee.json';
 import units_Blue_squad_leader from './units/Blue_squad_leader.json';
@@ -20,6 +22,7 @@ import units_heavy_gunner from './units/heavy_gunner.json';
 import units_squad_lead from './units/squad_lead.json';
 import units_trooper from './units/trooper.json';
 import units_veteran from './units/veteran.json';
+import units_war_dog from './units/war_dog.json';
 import maps_demo from './maps/demo.json';
 import maps_indoor_map_test from './maps/indoor_map_test.json';
 import maps_testmap1 from './maps/testmap1.json';
@@ -32,6 +35,11 @@ import missions_holdout from './missions/holdout.json';
 import missions_last_stand from './missions/last-stand.json';
 import missions_night_extraction from './missions/night-extraction.json';
 import missions_reconnaissance from './missions/reconnaissance.json';
+import operations_decapitation_strike from './operations/decapitation-strike.json';
+import operations_last_stand_defense from './operations/last-stand-defense.json';
+import operations_night_evac from './operations/night-evac.json';
+import operations_sector_cleanup from './operations/sector-cleanup.json';
+import operations_skirmish_recon from './operations/skirmish-recon.json';
 import factions_Blue from './factions/Blue.json';
 import factions_Red from './factions/Red.json';
 import factions_neutral from './factions/neutral.json';
@@ -41,6 +49,7 @@ export const BUNDLED_WEAPONS: ReadonlyArray<Weapon> = [
   weapons_heavy_rifle as unknown as Weapon,
   weapons_rifle as unknown as Weapon,
   weapons_rpg as unknown as Weapon,
+  weapons_sharp_shooter_rifle as unknown as Weapon,
   weapons_smg as unknown as Weapon,
 ];
 export const BUNDLED_TEMPLATES: ReadonlyArray<UnitTemplate> = [
@@ -52,6 +61,7 @@ export const BUNDLED_TEMPLATES: ReadonlyArray<UnitTemplate> = [
   units_squad_lead as unknown as UnitTemplate,
   units_trooper as unknown as UnitTemplate,
   units_veteran as unknown as UnitTemplate,
+  units_war_dog as unknown as UnitTemplate,
 ];
 export const BUNDLED_MAPS: ReadonlyArray<MapDef> = [
   maps_demo as unknown as MapDef,
@@ -68,6 +78,13 @@ export const BUNDLED_MISSIONS: ReadonlyArray<MissionDef> = [
   missions_last_stand as unknown as MissionDef,
   missions_night_extraction as unknown as MissionDef,
   missions_reconnaissance as unknown as MissionDef,
+];
+export const BUNDLED_OPERATIONS: ReadonlyArray<OperationDef> = [
+  operations_decapitation_strike as unknown as OperationDef,
+  operations_last_stand_defense as unknown as OperationDef,
+  operations_night_evac as unknown as OperationDef,
+  operations_sector_cleanup as unknown as OperationDef,
+  operations_skirmish_recon as unknown as OperationDef,
 ];
 export const BUNDLED_FACTIONS: ReadonlyArray<Faction> = [
   factions_Blue as unknown as Faction,

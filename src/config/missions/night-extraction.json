@@ -2,6 +2,7 @@
   "id": "night-extraction",
   "displayName": "夜間撤離",
   "description": "左翼煙幕掩護,兩人抵達西側陰影下的撤離點。",
+  "difficulty": 1,
   "mapId": "demo",
   "scenario": "extract",
   "scenarioParams": { "extractCount": 2, "extractActivations": 999 },

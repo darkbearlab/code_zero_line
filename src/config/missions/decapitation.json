@@ -2,6 +2,7 @@
   "id": "decapitation",
   "displayName": "斬首行動",
   "description": "幹掉敵方指揮官 — 其他人怎樣都好。",
+  "difficulty": 3,
   "mapId": "demo",
   "scenario": "assassinate",
   "scenarioParams": { "vipUnitId": "vip-1", "assassinateActivations": 999 },

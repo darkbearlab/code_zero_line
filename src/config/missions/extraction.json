@@ -2,6 +2,7 @@
   "id": "extraction",
   "displayName": "緊急撤離",
   "description": "突破敵線,讓兩名以上隊員抵達北側撤離點。",
+  "difficulty": 4,
   "mapId": "demo",
   "scenario": "extract",
   "scenarioParams": { "extractCount": 2, "extractActivations": 999 },

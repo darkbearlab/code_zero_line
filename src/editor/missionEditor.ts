@@ -48,6 +48,7 @@ interface MissionDraft {
   id: string;
   displayName: string;
   description: string;
+  difficulty: 1 | 2 | 3 | 4 | 5;
   mapId: string;
   scenario: ScenarioMode;
   scenarioParams: Record<string, unknown>;
@@ -71,6 +72,7 @@ const toDraft = (m: MissionDef): MissionDraft => ({
   id: m.id,
   displayName: m.displayName,
   description: m.description,
+  difficulty: m.difficulty,
   mapId: m.mapId,
   scenario: m.scenario,
   scenarioParams: { ...(m.scenarioParams ?? {}) },
@@ -89,6 +91,7 @@ const fromDraft = (d: MissionDraft): MissionDef => {
     id: d.id,
     displayName: d.displayName,
     description: d.description,
+    difficulty: d.difficulty,
     mapId: d.mapId,
     scenario: d.scenario,
     enemies: d.enemies.map((e) => ({
@@ -214,6 +217,7 @@ export const mountMissionEditor = (root: HTMLElement): void => {
           id,
           displayName: id,
           description: '',
+          difficulty: 2,
           mapId: listBundledMaps()[0]?.id ?? 'demo',
           scenario: 'engage-reach',
           enemies: [],
@@ -379,6 +383,20 @@ export const mountMissionEditor = (root: HTMLElement): void => {
     mapSelect.addEventListener('change', () => {
       draft.mapId = mapSelect.value;
       redrawCanvas();
+    });
+
+    const difficultySelect = el('select') as HTMLSelectElement;
+    for (const d of [1, 2, 3, 4, 5] as const) {
+      const opt = el('option', {
+        value: String(d),
+        text: String(d),
+      }) as HTMLOptionElement;
+      if (d === draft.difficulty) opt.selected = true;
+      difficultySelect.appendChild(opt);
+    }
+    difficultySelect.addEventListener('change', () => {
+      const n = Number(difficultySelect.value);
+      if (n >= 1 && n <= 5) draft.difficulty = n as 1 | 2 | 3 | 4 | 5;
     });
 
     const factionSelect = el('select') as HTMLSelectElement;
@@ -1372,6 +1390,9 @@ export const mountMissionEditor = (root: HTMLElement): void => {
     formPanel.appendChild(row('displayName', nameInput));
     formPanel.appendChild(row('description', descInput));
     formPanel.appendChild(row('mapId', mapSelect));
+    formPanel.appendChild(
+      row('difficulty', difficultySelect, '1 (易) – 5 (爆難); operation picker 用此值篩選候選與限制 round cap.'),
+    );
     formPanel.appendChild(row('enemyFaction', factionSelect));
     formPanel.appendChild(row('campaign pool', poolWrap));
     formPanel.appendChild(row('scenario', scenarioBox));

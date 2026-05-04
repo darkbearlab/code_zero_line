@@ -2,6 +2,7 @@
   "id": "reconnaissance",
   "displayName": "前進偵察",
   "description": "佔領敵方前哨,並至少擊倒一名敵兵。",
+  "difficulty": 1,
   "mapId": "demo",
   "scenario": "engage-reach",
   "objectives": [

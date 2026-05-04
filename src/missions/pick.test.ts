@@ -7,6 +7,7 @@ const m = (id: string, scenario: MissionDef['scenario']): MissionDef => ({
   id,
   displayName: id,
   description: '',
+  difficulty: 2,
   mapId: 'demo',
   scenario,
   enemyFaction: 'B',

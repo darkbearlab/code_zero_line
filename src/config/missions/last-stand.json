@@ -2,6 +2,7 @@
   "id": "last-stand",
   "displayName": "最後死守",
   "description": "更猛的攻勢 — 撐住別讓對方踏入指揮所。",
+  "difficulty": 5,
   "mapId": "demo",
   "scenario": "defend",
   "scenarioParams": { "defendActivations": 999 },

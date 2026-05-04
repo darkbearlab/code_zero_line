@@ -29,6 +29,14 @@ export interface MissionDef {
   readonly displayName: string;
   /** One-line flavor description shown on RunSetupScene + HubScene. */
   readonly description: string;
+  /**
+   * Designer-assigned difficulty band 1 (trivial) – 5 (brutal). Drives
+   * operation chain assembly: `pickOperations` filters elim/main candidates
+   * by this band and gates which operations a campaign round may surface
+   * (cap rises with `roundIndex`). Distinct from the emergent quality ratio
+   * `classifyFuzzy` reports — that one stays as a sanity-display sidecar.
+   */
+  readonly difficulty: 1 | 2 | 3 | 4 | 5;
   /** Map id (looked up via config/loader getMap). */
   readonly mapId: string;
   /** Win condition. */

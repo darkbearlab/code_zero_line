@@ -2,6 +2,7 @@ import type { Unit, Weapon } from '../core/state/GameState';
 import type { Vec2 } from '../core/geometry/types';
 import type { MapDef } from '../core/setup/types';
 import type { MissionDef } from '../missions/types';
+import type { OperationDef } from '../operations/types';
 import { v2 } from '../core/geometry/vec2';
 import { STANDARD_BASE_RADIUS_PIXELS } from '../core/rules/constants';
 import { docToMapDef, type EditorMapDoc } from './mapDoc';
@@ -10,6 +11,7 @@ import {
   BUNDLED_TEMPLATES,
   BUNDLED_MAPS,
   BUNDLED_MISSIONS,
+  BUNDLED_OPERATIONS,
   BUNDLED_FACTIONS,
 } from './bundles.gen';
 
@@ -265,3 +267,33 @@ export const listMissionDefs = (): ReadonlyArray<MissionDef> => mergedMissions()
 
 export const listBundledMissionDefs = (): ReadonlyArray<MissionDef> =>
   BUNDLED_MISSIONS;
+
+// ── Operations ────────────────────────────────────────────────────────────
+//
+// Mirror of the missions section: bundled JSON → custom localStorage overlays
+// keyed by `czl.editor.operations.v1`. Operations chain mission ids together
+// (see `src/operations/types.ts`); the picker `pickOperations` reads this
+// pool to draft the round.
+
+const EDITOR_OPERATION_KEY = 'czl.editor.operations.v1';
+
+const mergedOperations = (): ReadonlyArray<OperationDef> => {
+  const custom = safeReadLocal<OperationDef>(EDITOR_OPERATION_KEY);
+  if (custom.length === 0) return BUNDLED_OPERATIONS;
+  const byId = new Map<string, OperationDef>();
+  for (const o of BUNDLED_OPERATIONS) byId.set(o.id, o);
+  for (const o of custom) byId.set(o.id, o);
+  return [...byId.values()];
+};
+
+export const getOperationDef = (id: string): OperationDef => {
+  const o = mergedOperations().find((x) => x.id === id);
+  if (!o) throw new Error(`Unknown operation id: ${id}`);
+  return o;
+};
+
+export const listOperationDefs = (): ReadonlyArray<OperationDef> =>
+  mergedOperations();
+
+export const listBundledOperationDefs = (): ReadonlyArray<OperationDef> =>
+  BUNDLED_OPERATIONS;

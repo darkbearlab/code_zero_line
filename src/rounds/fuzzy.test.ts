@@ -18,6 +18,7 @@ const buildMission = (
   id: 'test-mission',
   displayName: 'Test',
   description: '',
+  difficulty: 2,
   mapId: 'demo',
   scenario: 'engage-reach',
   enemyFaction: 'B',

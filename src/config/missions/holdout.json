@@ -2,6 +2,7 @@
   "id": "holdout",
   "displayName": "陣地堅守",
   "description": "守住中央哨點,別讓敵人踏入半步。",
+  "difficulty": 3,
   "mapId": "demo",
   "scenario": "defend",
   "scenarioParams": { "defendActivations": 999 },

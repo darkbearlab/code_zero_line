@@ -2,6 +2,7 @@
   "id": "conquest",
   "displayName": "據點爭奪",
   "description": "三個據點散布全圖。每個 cycle 結束結算分數，先達 5 分且領先對方 2 分者勝。佔領後即使離開仍持續控制,對方需親身踏點才能翻轉。",
+  "difficulty": 3,
   "mapId": "demo",
   "scenario": "control-points",
   "scenarioParams": {

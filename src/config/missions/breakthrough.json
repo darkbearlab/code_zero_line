@@ -2,6 +2,7 @@
   "id": "breakthrough",
   "displayName": "突破前線",
   "description": "從正面碾過敵陣,搶下西側中繼點。",
+  "difficulty": 2,
   "mapId": "demo",
   "scenario": "engage-reach",
   "objectives": [

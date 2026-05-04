@@ -1,0 +1,99 @@
+{
+  "id": "conquest-copy",
+  "displayName": "據點爭奪",
+  "description": "三個據點散布全圖。每個 cycle 結束結算分數，先達 5 分且領先對方 2 分者勝。佔領後即使離開仍持續控制,對方需親身踏點才能翻轉。",
+  "difficulty": 3,
+  "mapId": "demo",
+  "scenario": "control-points",
+  "enemies": [
+    {
+      "id": "cq1",
+      "templateId": "trooper",
+      "position": {
+        "x": 200,
+        "y": 120
+      }
+    },
+    {
+      "id": "cq2",
+      "templateId": "trooper",
+      "position": {
+        "x": 568,
+        "y": 120
+      }
+    },
+    {
+      "id": "cq3",
+      "templateId": "conscript",
+      "position": {
+        "x": 384,
+        "y": 80
+      }
+    },
+    {
+      "id": "cq4",
+      "templateId": "conscript",
+      "position": {
+        "x": 100,
+        "y": 200
+      }
+    }
+  ],
+  "playerSpawnPositions": [
+    {
+      "x": 160,
+      "y": 660
+    },
+    {
+      "x": 384,
+      "y": 660
+    },
+    {
+      "x": 608,
+      "y": 660
+    },
+    {
+      "x": 280,
+      "y": 700
+    }
+  ],
+  "enemyFaction": "B",
+  "scenarioParams": {
+    "winScore": 5,
+    "winLead": 2,
+    "objectiveWeights": {
+      "cp-west": 1,
+      "cp-center": 1,
+      "cp-east": 1
+    }
+  },
+  "objectives": [
+    {
+      "id": "cp-west",
+      "position": {
+        "x": 160,
+        "y": 384
+      },
+      "radius": 36,
+      "displayName": "西據點"
+    },
+    {
+      "id": "cp-center",
+      "position": {
+        "x": 384,
+        "y": 300
+      },
+      "radius": 36,
+      "displayName": "中央據點"
+    },
+    {
+      "id": "cp-east",
+      "position": {
+        "x": 608,
+        "y": 384
+      },
+      "radius": 36,
+      "displayName": "東據點"
+    }
+  ]
+}

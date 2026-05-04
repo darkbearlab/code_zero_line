@@ -1,0 +1,19 @@
+{
+  "id": "sector-cleanup",
+  "displayName": "區段肅清",
+  "description": "兩波殲滅鋪路,以據點爭奪戰收尾。",
+  "difficulty": 3,
+  "chain": {
+    "eliminations": 2,
+    "elimDifficultyBand": [2, 3],
+    "elimModeFilter": ["engage-reach"],
+    "mainConstraints": {
+      "modes": ["control-points", "defend"],
+      "difficultyBand": [3, 4]
+    }
+  },
+  "rewards": {
+    "perStage": { "tactical": 3, "regional": 1, "honor": 0 },
+    "onComplete": { "tactical": 3, "regional": 2, "honor": 1 }
+  }
+}
