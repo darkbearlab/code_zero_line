@@ -27,6 +27,7 @@ import type {
   ReactionMarker,
   ReactionPlan,
   ShootMode,
+  TurnoverReason,
 } from '../../core/commands/types';
 import { CommandError } from '../../core/commands/types';
 import { hasLOS } from '../../core/geometry/los';
@@ -1229,6 +1230,14 @@ export class BattleScene extends Phaser.Scene {
     }
     arc.setStrokeStyle(strokeWidth, strokeColor);
 
+    // Active-unit glow: faction-colored preFX glow on the currently activated
+    // unit's arc. Clear first so re-renders don't stack additional FX layers.
+    // preFX requires WebGL (Phaser config uses Phaser.AUTO which prefers WebGL).
+    arc.preFX?.clear();
+    if (isActive) {
+      arc.preFX?.addGlow(FACTION_COLOR[u.faction], 6, 0);
+    }
+
     // Prone visual: dim fill + show "PRONE" stance tag. Chevron also dims so
     // the unit reads as low-profile from above. When a dedicated prone
     // sprite exists, swap to it (no dim — the sprite itself signals prone);
@@ -1523,6 +1532,9 @@ export class BattleScene extends Phaser.Scene {
               : `⚠ 暴露！(${ev.reason === 'SHOT' ? '開火' : '視線'})`;
             this.effects.hitFloater(anchor, label, '#ff5050');
           }
+        }
+        if (ev.type === 'INITIATIVE_TURNOVER') {
+          this.showTurnoverBanner(ev.to, ev.reason);
         }
         if (this.isRollEvent(ev)) {
           this.showRollOverlay(ev, overlayIndex++);
@@ -2010,6 +2022,83 @@ export class BattleScene extends Phaser.Scene {
       duration: 1500,
       ease: 'Cubic.Out',
       onComplete: () => txt.destroy(),
+    });
+  }
+
+  /**
+   * Center-screen banner shown whenever initiative changes hands. Main line
+   * names which side now holds initiative; subtitle (only for dramatic
+   * reasons) explains the trigger. Color tracks the new initiative holder's
+   * faction. Anchored to the camera viewport with high depth so it stays
+   * legible above the battlefield. Total duration ~800ms.
+   */
+  private showTurnoverBanner(
+    to: 'A' | 'B',
+    reason: TurnoverReason,
+  ): void {
+    const cam = this.cameras.main;
+    const cx = cam.centerX;
+    const cy = cam.centerY;
+    const colorHex = `#${FACTION_COLOR[to].toString(16).padStart(6, '0')}`;
+    const mainLabel = to === 'A' ? '我方主動' : '敵方主動';
+    const subtitleMap: Partial<Record<TurnoverReason, string>> = {
+      REACTION_HIT: '反應命中',
+      MELEE_LOSS: '近戰敗北',
+      ACTION_FAILED: '行動失敗',
+    };
+    const subLabel = subtitleMap[reason];
+
+    const main = this.add.text(cx, cy, mainLabel, {
+      fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      fontSize: '64px',
+      color: colorHex,
+      stroke: '#000000',
+      strokeThickness: 4,
+      fontStyle: 'bold',
+    });
+    main.setOrigin(0.5);
+    main.setScrollFactor(0);
+    main.setDepth(10000);
+    main.setAlpha(0);
+    main.setScale(0.8);
+
+    const sub: Phaser.GameObjects.Text | null = subLabel
+      ? this.add.text(cx, cy + 50, subLabel, {
+          fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+          fontSize: '28px',
+          color: colorHex,
+          stroke: '#000000',
+          strokeThickness: 4,
+        })
+      : null;
+    if (sub) {
+      sub.setOrigin(0.5);
+      sub.setScrollFactor(0);
+      sub.setDepth(10000);
+      sub.setAlpha(0);
+      sub.setScale(0.8);
+    }
+
+    const targets: Phaser.GameObjects.Text[] = sub ? [main, sub] : [main];
+    this.tweens.add({
+      targets,
+      alpha: 1,
+      scale: 1,
+      duration: 200,
+      ease: 'Cubic.Out',
+      onComplete: () => {
+        this.tweens.add({
+          targets,
+          alpha: 0,
+          duration: 200,
+          delay: 400,
+          ease: 'Cubic.In',
+          onComplete: () => {
+            main.destroy();
+            sub?.destroy();
+          },
+        });
+      },
     });
   }
 
