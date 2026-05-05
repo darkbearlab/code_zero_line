@@ -1458,8 +1458,23 @@ export class BattleScene extends Phaser.Scene {
       this.renderUnits();
       // Animate any moves and overlay any dice rolls.
       let overlayIndex = 0;
+      // Track the longest animation tail so the turnover banner can wait
+      // until all unit motion / shot effects / melee clash visuals have
+      // played out before taking over the screen.
+      let animTailMs = 0;
+      let pendingTurnover:
+        | { to: 'A' | 'B'; reason: TurnoverReason }
+        | null = null;
       for (const ev of result.events) {
         if (ev.type === 'MOVE_RESOLVED') {
+          const dx = ev.to.x - ev.from.x;
+          const dy = ev.to.y - ev.from.y;
+          const dist = Math.hypot(dx, dy);
+          const dur = Math.max(
+            MOVEMENT_TWEEN_MIN_MS,
+            (dist / UNIT_DISTANCE_PIXELS) * MOVEMENT_MS_PER_UD,
+          );
+          animTailMs = Math.max(animTailMs, dur);
           this.animateMove(ev.unitId, ev.from, ev.to, ev.reactionWindows);
         }
         if (ev.type === 'SHOT_RESOLVED') {
@@ -1475,6 +1490,9 @@ export class BattleScene extends Phaser.Scene {
               this.faceUnitTowardPoint(pid, target.position);
             }
             this.playShotEffects(ev, shooter, target);
+            // Shot tail: arrival ~130ms + per-extra-shooter 35ms + worst-case
+            // kill-marker chain ~400ms. 700ms covers the typical case.
+            animTailMs = Math.max(animTailMs, 700);
           }
         }
         if (ev.type === 'MELEE_RESOLVED') {
@@ -1486,7 +1504,10 @@ export class BattleScene extends Phaser.Scene {
           );
           if (att) this.faceUnitTowardPoint(ev.attackerId, def?.position ?? att.position);
           if (def) this.faceUnitTowardPoint(ev.defenderId, att?.position ?? def.position);
-          if (att && def) this.playMeleeEffects(ev, att, def);
+          if (att && def) {
+            this.playMeleeEffects(ev, att, def);
+            animTailMs = Math.max(animTailMs, 500);
+          }
         }
         if (ev.type === 'IMPULSIVE_TRIGGERED') {
           const u = this.gameState.units.find((x) => x.id === ev.unitId);
@@ -1534,10 +1555,22 @@ export class BattleScene extends Phaser.Scene {
           }
         }
         if (ev.type === 'INITIATIVE_TURNOVER') {
-          this.showTurnoverBanner(ev.to, ev.reason);
+          // Defer to after all unit-motion / shot / melee animations so the
+          // banner doesn't cover up the action that caused the turnover.
+          pendingTurnover = { to: ev.to, reason: ev.reason };
         }
         if (this.isRollEvent(ev)) {
           this.showRollOverlay(ev, overlayIndex++);
+        }
+      }
+      if (pendingTurnover !== null) {
+        const t = pendingTurnover;
+        if (animTailMs <= 0) {
+          this.showTurnoverBanner(t.to, t.reason);
+        } else {
+          this.time.delayedCall(animTailMs, () => {
+            this.showTurnoverBanner(t.to, t.reason);
+          });
         }
       }
       this.maybeScheduleAiTick();
@@ -2026,11 +2059,11 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /**
-   * Center-screen banner shown whenever initiative changes hands. Main line
-   * names which side now holds initiative; subtitle (only for dramatic
-   * reasons) explains the trigger. Color tracks the new initiative holder's
-   * faction. Anchored to the camera viewport with high depth so it stays
-   * legible above the battlefield. Total duration ~800ms.
+   * Center-screen banner shown whenever initiative changes hands. Renders as
+   * a full-width semi-transparent black bar across the camera midline with
+   * the side-label (and dramatic subtitle when relevant) on top. Anchored to
+   * the camera viewport with high depth so it stays legible above the
+   * battlefield. Quick in/out fade — total ~700ms.
    */
   private showTurnoverBanner(
     to: 'A' | 'B',
@@ -2039,6 +2072,7 @@ export class BattleScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const cx = cam.centerX;
     const cy = cam.centerY;
+    const barHeight = 110;
     const colorHex = `#${FACTION_COLOR[to].toString(16).padStart(6, '0')}`;
     const mainLabel = to === 'A' ? '我方主動' : '敵方主動';
     const subtitleMap: Partial<Record<TurnoverReason, string>> = {
@@ -2048,52 +2082,55 @@ export class BattleScene extends Phaser.Scene {
     };
     const subLabel = subtitleMap[reason];
 
-    const main = this.add.text(cx, cy, mainLabel, {
+    const bar = this.add.rectangle(cx, cy, cam.width, barHeight, 0x000000, 0.7);
+    bar.setOrigin(0.5);
+    bar.setScrollFactor(0);
+    bar.setDepth(10000);
+    bar.setAlpha(0);
+
+    const mainY = subLabel ? cy - 16 : cy;
+    const main = this.add.text(cx, mainY, mainLabel, {
       fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-      fontSize: '64px',
+      fontSize: '52px',
       color: colorHex,
-      stroke: '#000000',
-      strokeThickness: 4,
       fontStyle: 'bold',
     });
     main.setOrigin(0.5);
     main.setScrollFactor(0);
-    main.setDepth(10000);
+    main.setDepth(10001);
     main.setAlpha(0);
-    main.setScale(0.8);
 
     const sub: Phaser.GameObjects.Text | null = subLabel
-      ? this.add.text(cx, cy + 50, subLabel, {
+      ? this.add.text(cx, cy + 28, subLabel, {
           fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-          fontSize: '28px',
-          color: colorHex,
-          stroke: '#000000',
-          strokeThickness: 4,
+          fontSize: '22px',
+          color: '#dddddd',
         })
       : null;
     if (sub) {
       sub.setOrigin(0.5);
       sub.setScrollFactor(0);
-      sub.setDepth(10000);
+      sub.setDepth(10001);
       sub.setAlpha(0);
-      sub.setScale(0.8);
     }
 
-    const targets: Phaser.GameObjects.Text[] = sub ? [main, sub] : [main];
+    const targets: Phaser.GameObjects.GameObject[] = sub
+      ? [bar, main, sub]
+      : [bar, main];
     this.tweens.add({
       targets,
       alpha: 1,
-      scale: 1,
-      duration: 200,
+      duration: 120,
       ease: 'Cubic.Out',
       onComplete: () => {
         this.tweens.add({
           targets,
           alpha: 0,
-          duration: 200,
+          duration: 180,
           delay: 400,
           ease: 'Cubic.In',
           onComplete: () => {
+            bar.destroy();
             main.destroy();
             sub?.destroy();
           },
