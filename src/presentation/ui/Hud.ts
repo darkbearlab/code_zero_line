@@ -208,6 +208,8 @@ export class Hud {
   private frameRectEl: SVGRectElement;
   private frameGlowEl: HTMLElement;
   private frameLength = 0;
+  private frameGlowFaction: 'A' | 'B' | null = null;
+  private frameGlowSwapTimeoutId: number | null = null;
   private logLines: string[] = [];
   private logWrapEl: HTMLElement;
   private logToggleEl: HTMLButtonElement;
@@ -467,15 +469,16 @@ export class Hud {
    */
   setFrame(faction: 'A' | 'B' | null, fraction?: number): void {
     if (!faction) {
+      this.cancelFrameGlowSwap();
       this.frameSvgEl.setAttribute('hidden', '');
       this.frameGlowEl.setAttribute('hidden', '');
       this.frameGlowEl.classList.remove('faction-A', 'faction-B');
+      this.frameGlowEl.style.transition = 'none';
+      this.frameGlowEl.style.transform = '';
+      this.frameGlowFaction = null;
       return;
     }
     this.frameSvgEl.removeAttribute('hidden');
-    this.frameGlowEl.removeAttribute('hidden');
-    this.frameGlowEl.classList.remove('faction-A', 'faction-B');
-    this.frameGlowEl.classList.add(`faction-${faction}`);
     this.frameRectEl.style.stroke =
       faction === 'A'
         ? 'rgba(106, 176, 255, 0.85)'
@@ -490,6 +493,59 @@ export class Hud {
         (1 - f) * this.frameLength,
       );
     }
+    this.frameGlowEl.removeAttribute('hidden');
+    const prev = this.frameGlowFaction;
+    if (prev === faction) return;
+    this.frameGlowFaction = faction;
+    if (prev === null) {
+      this.startFrameGlowSlideIn(faction);
+    } else {
+      this.startFrameGlowSwap(prev, faction);
+    }
+  }
+
+  private cancelFrameGlowSwap(): void {
+    if (this.frameGlowSwapTimeoutId !== null) {
+      window.clearTimeout(this.frameGlowSwapTimeoutId);
+      this.frameGlowSwapTimeoutId = null;
+    }
+  }
+
+  private startFrameGlowSlideIn(faction: 'A' | 'B'): void {
+    this.cancelFrameGlowSwap();
+    const dur = 260;
+    const inDir = faction === 'A' ? -1 : 1;
+    this.frameGlowEl.classList.remove('faction-A', 'faction-B');
+    this.frameGlowEl.classList.add(`faction-${faction}`);
+    this.frameGlowEl.style.transition = 'none';
+    this.frameGlowEl.style.transform = `translateX(${inDir * 100}%)`;
+    void this.frameGlowEl.offsetWidth;
+    this.frameGlowEl.style.transition = `transform ${dur}ms cubic-bezier(0.4, 0, 0.2, 1)`;
+    this.frameGlowEl.style.transform = 'translateX(0)';
+    this.frameGlowSwapTimeoutId = window.setTimeout(() => {
+      this.frameGlowSwapTimeoutId = null;
+    }, dur);
+  }
+
+  private startFrameGlowSwap(from: 'A' | 'B', to: 'A' | 'B'): void {
+    this.cancelFrameGlowSwap();
+    const dur = 220;
+    const outDir = from === 'A' ? -1 : 1;
+    const inDir = to === 'A' ? -1 : 1;
+    this.frameGlowEl.style.transition = `transform ${dur}ms cubic-bezier(0.4, 0, 0.2, 1)`;
+    this.frameGlowEl.style.transform = `translateX(${outDir * 100}%)`;
+    this.frameGlowSwapTimeoutId = window.setTimeout(() => {
+      this.frameGlowEl.classList.remove('faction-A', 'faction-B');
+      this.frameGlowEl.classList.add(`faction-${to}`);
+      this.frameGlowEl.style.transition = 'none';
+      this.frameGlowEl.style.transform = `translateX(${inDir * 100}%)`;
+      void this.frameGlowEl.offsetWidth;
+      this.frameGlowEl.style.transition = `transform ${dur}ms cubic-bezier(0.4, 0, 0.2, 1)`;
+      this.frameGlowEl.style.transform = 'translateX(0)';
+      this.frameGlowSwapTimeoutId = window.setTimeout(() => {
+        this.frameGlowSwapTimeoutId = null;
+      }, dur);
+    }, dur);
   }
 
   pushEvents(events: ReadonlyArray<GameEvent>): void {
