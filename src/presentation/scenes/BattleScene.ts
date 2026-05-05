@@ -4096,4 +4096,6 @@ const showBattleHud = (): void => {
   if (hud) hud.style.display = '';
   const frame = document.getElementById('hud-frame');
   if (frame) (frame as HTMLElement).style.display = '';
+  const glow = document.getElementById('hud-frame-glow');
+  if (glow) (glow as HTMLElement).style.display = '';
 };
