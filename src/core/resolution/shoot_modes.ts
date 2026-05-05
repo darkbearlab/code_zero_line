@@ -1,4 +1,4 @@
-import { hasLOS } from '../geometry/los';
+import { effectiveLOS } from '../geometry/effective-los';
 import { v2Dist } from '../geometry/vec2';
 import { UNIT_DISTANCE_PIXELS } from '../rules/constants';
 import type {
@@ -7,7 +7,7 @@ import type {
   Weapon,
   WeaponMode,
 } from '../state/GameState';
-import { findUnit, getUnitCircle, isOnHighGround, isUnitAlive } from '../state/GameState';
+import { findUnit, isOnHighGround, isUnitAlive } from '../state/GameState';
 import { unitHasTrait } from '../traits/types';
 import {
   buildDiceProfile,
@@ -116,7 +116,7 @@ export const listAvailableShootModes = (
   if (weaponMode === 'REACTION' && shooter.cannotReactThisRound) return [];
 
   const losTo = (from: Unit, to: Unit): boolean =>
-    hasLOS(getUnitCircle(from), getUnitCircle(to), state.terrain, {
+    effectiveLOS(from, to, state, state.terrain, {
       aProne: from.stance === 'PRONE',
       bProne: to.stance === 'PRONE',
       aOnHighGround: isOnHighGround(from, state.terrain),
