@@ -1578,6 +1578,35 @@ export class BattleScene extends Phaser.Scene {
     } catch (e) {
       const message = e instanceof CommandError ? e.message : String(e);
       this.hud.pushError(message);
+      // Defensive AI recovery: if the AI side dispatched a bad command we
+      // would otherwise sit forever — the next tick would just produce the
+      // same broken plan and re-throw. Gracefully fold the activation (or
+      // pass initiative) so play advances, then reschedule. Skipped when
+      // the failing command was already a recovery primitive — nothing
+      // safer to fall back to.
+      const holder = this.gameState.initiative.holder;
+      const isRecoveryCmd =
+        cmd.type === 'END_ACTIVATION' || cmd.type === 'PASS_INITIATIVE';
+      if (this.aiControlled[holder] && !isRecoveryCmd) {
+        const recovery: Command = this.gameState.initiative.activeActivation
+          ? { type: 'END_ACTIVATION' }
+          : { type: 'PASS_INITIATIVE' };
+        try {
+          const result = applyCommand(this.gameState, recovery);
+          this.gameState = result.state;
+          this.replayLog = appendCommand(this.replayLog, recovery);
+          this.hud.pushEvents(result.events);
+          this.refreshHud();
+          this.renderUnits();
+          this.maybeScheduleAiTick();
+        } catch (recoveryErr) {
+          const rmsg =
+            recoveryErr instanceof CommandError
+              ? recoveryErr.message
+              : String(recoveryErr);
+          this.hud.pushError(`AI 復原失敗: ${rmsg}`);
+        }
+      }
     }
   }
 

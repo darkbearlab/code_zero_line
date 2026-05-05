@@ -219,7 +219,8 @@ export interface PoiMark {
     | 'CLIMB'
     | 'CRAWL'
     | 'RALLY'
-    | 'COMMAND';
+    | 'COMMAND'
+    | 'CHECK_FAILED';
   readonly expiresAtCycle: number;
 }
 

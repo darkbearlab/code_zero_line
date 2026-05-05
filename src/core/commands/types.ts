@@ -195,7 +195,14 @@ export type GameEvent =
   | {
       type: 'STEALTH_POI_CREATED';
       position: Vec2;
-      cause: 'SHOOT' | 'VAULT' | 'CLIMB' | 'CRAWL' | 'RALLY' | 'COMMAND';
+      cause:
+        | 'SHOOT'
+        | 'VAULT'
+        | 'CLIMB'
+        | 'CRAWL'
+        | 'RALLY'
+        | 'COMMAND'
+        | 'CHECK_FAILED';
       createdCycle: number;
       expiresAtCycle: number;
     }

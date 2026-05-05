@@ -462,21 +462,45 @@ const activateCheck = (
     );
     return { state: pat.state, events: [checkEvent, ...pat.events] };
   }
+  // Stealth: player (A) check failure drops a POI at the failing unit's
+  // position — the fumble "makes noise" the enemy patrol AI then steers
+  // toward, just like a SHOOT/CRAWL/etc. POI. Falls through to IMPULSIVE
+  // or turnover as normal.
+  let postState = bumped;
+  const failExtraEvents: GameEvent[] = [];
+  if (bumped.stealth?.active === true && u.faction === 'A') {
+    const dropped = applyDerivedPois(bumped, [
+      { position: u.position, cause: 'CHECK_FAILED' },
+    ]);
+    postState = dropped.state;
+    failExtraEvents.push(...dropped.events);
+  }
   // Rule 5 (IMPULSIVE): a failed check on an IMPULSIVE unit forces the
   // variant-specific action and KEEPS initiative — no turnover, no momentum
   // grant. The unit's slot is consumed (executor sets activatedThisRound).
   if (isImpulsive(u)) {
     const imp = executeImpulsiveAction(
-      bumped,
+      postState,
       u.id,
       cmdIndex,
       'CHECK_FAILED',
       IMPULSIVE_DEPS,
     );
-    return { state: imp.state, events: [checkEvent, ...imp.events] };
+    return {
+      state: imp.state,
+      events: [checkEvent, ...failExtraEvents, ...imp.events],
+    };
   }
-  const t = turnover(bumped, 'CHECK_FAILED', TURNOVER_MOMENTUM_GRANT, cmdIndex);
-  return { state: t.state, events: [checkEvent, ...t.events] };
+  const t = turnover(
+    postState,
+    'CHECK_FAILED',
+    TURNOVER_MOMENTUM_GRANT,
+    cmdIndex,
+  );
+  return {
+    state: t.state,
+    events: [checkEvent, ...failExtraEvents, ...t.events],
+  };
 };
 
 const activateOverdraft = (s: GameState, unitId: string): CommandResult => {
