@@ -208,6 +208,12 @@ export class Hud {
   private frameRectEl: SVGRectElement;
   private frameGlowEl: HTMLElement;
   private frameLength = 0;
+  private frameGlowEdges!: {
+    left: HTMLElement;
+    right: HTMLElement;
+    top: HTMLElement;
+    bottom: HTMLElement;
+  };
   private frameGlowFaction: 'A' | 'B' | null = null;
   private frameGlowSwapTimeoutId: number | null = null;
   private logLines: string[] = [];
@@ -261,6 +267,20 @@ export class Hud {
     this.frameSvgEl = mustElement('hud-frame') as unknown as SVGSVGElement;
     this.frameRectEl = mustElement('hud-frame-rect') as unknown as SVGRectElement;
     this.frameGlowEl = mustElement('hud-frame-glow');
+    this.frameGlowEdges = {
+      left: this.frameGlowEl.querySelector(
+        '.edge-left',
+      ) as HTMLElement | null ?? this.frameGlowEl,
+      right: this.frameGlowEl.querySelector(
+        '.edge-right',
+      ) as HTMLElement | null ?? this.frameGlowEl,
+      top: this.frameGlowEl.querySelector(
+        '.edge-top',
+      ) as HTMLElement | null ?? this.frameGlowEl,
+      bottom: this.frameGlowEl.querySelector(
+        '.edge-bottom',
+      ) as HTMLElement | null ?? this.frameGlowEl,
+    };
     this.logWrapEl = mustElement('hud-log-wrap');
     this.logToggleEl = mustElement('hud-log-toggle') as HTMLButtonElement;
     this.missionEl = mustElement('hud-mission');
@@ -473,8 +493,7 @@ export class Hud {
       this.frameSvgEl.setAttribute('hidden', '');
       this.frameGlowEl.setAttribute('hidden', '');
       this.frameGlowEl.classList.remove('faction-A', 'faction-B');
-      this.frameGlowEl.style.transition = 'none';
-      this.frameGlowEl.style.transform = '';
+      this.resetEdgeTransforms();
       this.frameGlowFaction = null;
       return;
     }
@@ -500,7 +519,7 @@ export class Hud {
     if (prev === null) {
       this.startFrameGlowSlideIn(faction);
     } else {
-      this.startFrameGlowSwap(prev, faction);
+      this.startFrameGlowSwap(faction);
     }
   }
 
@@ -511,37 +530,61 @@ export class Hud {
     }
   }
 
+  private resetEdgeTransforms(): void {
+    for (const e of Object.values(this.frameGlowEdges)) {
+      e.style.transition = 'none';
+      e.style.transform = '';
+    }
+  }
+
+  private setEdgesOffscreen(): void {
+    this.frameGlowEdges.left.style.transform = 'translateX(-100%)';
+    this.frameGlowEdges.right.style.transform = 'translateX(100%)';
+    this.frameGlowEdges.top.style.transform = 'translateY(-100%)';
+    this.frameGlowEdges.bottom.style.transform = 'translateY(100%)';
+  }
+
+  private setEdgesOnscreen(): void {
+    for (const e of Object.values(this.frameGlowEdges)) {
+      e.style.transform = 'translate(0, 0)';
+    }
+  }
+
+  private setEdgesTransition(dur: number): void {
+    const t = `transform ${dur}ms cubic-bezier(0.4, 0, 0.2, 1)`;
+    for (const e of Object.values(this.frameGlowEdges)) {
+      e.style.transition = t;
+    }
+  }
+
   private startFrameGlowSlideIn(faction: 'A' | 'B'): void {
     this.cancelFrameGlowSwap();
     const dur = 260;
-    const inDir = faction === 'A' ? -1 : 1;
     this.frameGlowEl.classList.remove('faction-A', 'faction-B');
     this.frameGlowEl.classList.add(`faction-${faction}`);
-    this.frameGlowEl.style.transition = 'none';
-    this.frameGlowEl.style.transform = `translateX(${inDir * 100}%)`;
+    for (const e of Object.values(this.frameGlowEdges)) {
+      e.style.transition = 'none';
+    }
+    this.setEdgesOffscreen();
     void this.frameGlowEl.offsetWidth;
-    this.frameGlowEl.style.transition = `transform ${dur}ms cubic-bezier(0.4, 0, 0.2, 1)`;
-    this.frameGlowEl.style.transform = 'translateX(0)';
+    this.setEdgesTransition(dur);
+    this.setEdgesOnscreen();
     this.frameGlowSwapTimeoutId = window.setTimeout(() => {
       this.frameGlowSwapTimeoutId = null;
     }, dur);
   }
 
-  private startFrameGlowSwap(from: 'A' | 'B', to: 'A' | 'B'): void {
+  private startFrameGlowSwap(to: 'A' | 'B'): void {
     this.cancelFrameGlowSwap();
     const dur = 220;
-    const outDir = from === 'A' ? -1 : 1;
-    const inDir = to === 'A' ? -1 : 1;
-    this.frameGlowEl.style.transition = `transform ${dur}ms cubic-bezier(0.4, 0, 0.2, 1)`;
-    this.frameGlowEl.style.transform = `translateX(${outDir * 100}%)`;
+    this.setEdgesTransition(dur);
+    this.setEdgesOffscreen();
     this.frameGlowSwapTimeoutId = window.setTimeout(() => {
       this.frameGlowEl.classList.remove('faction-A', 'faction-B');
       this.frameGlowEl.classList.add(`faction-${to}`);
-      this.frameGlowEl.style.transition = 'none';
-      this.frameGlowEl.style.transform = `translateX(${inDir * 100}%)`;
       void this.frameGlowEl.offsetWidth;
-      this.frameGlowEl.style.transition = `transform ${dur}ms cubic-bezier(0.4, 0, 0.2, 1)`;
-      this.frameGlowEl.style.transform = 'translateX(0)';
+      this.setEdgesTransition(dur);
+      this.setEdgesOnscreen();
       this.frameGlowSwapTimeoutId = window.setTimeout(() => {
         this.frameGlowSwapTimeoutId = null;
       }, dur);
