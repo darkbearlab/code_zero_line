@@ -89,6 +89,28 @@ describe('CRAWL command', () => {
     expect(r.state.initiative.holder).toBe('A');
     expect(r.state.initiative.activeActivation).toBeNull();
   });
+
+  it('sets lockedThisInitiative and refuses re-activation this initiative', () => {
+    const s0 = baseState([
+      makeUnit({
+        id: 'a1',
+        faction: 'A',
+        position: v2(0, 0),
+        quality: 1,
+        stance: 'PRONE',
+      }),
+      makeUnit({ id: 'b1', faction: 'B', position: v2(1000, 0) }),
+    ]);
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'CRAWL', unitId: 'a1', target: v2(50, 0) },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    expect(a1.lockedThisInitiative).toBe(true);
+    expect(() =>
+      applyCommands(r.state, [{ type: 'ACTIVATE_SPEND', unitId: 'a1' }]),
+    ).toThrow(/UNIT_LOCKED/);
+  });
 });
 
 describe('VAULT command', () => {
@@ -228,6 +250,30 @@ describe('CLIMB command', () => {
     const a1 = r.state.units.find((u) => u.id === 'a1')!;
     expect(a1.position.y).toBeCloseTo(0, 0);
     expect(a1.position.x).toBeCloseTo(90, 0);
+  });
+
+  it('sets lockedThisInitiative and refuses re-activation this initiative', () => {
+    const s0 = baseState(
+      [
+        makeUnit({
+          id: 'a1',
+          faction: 'A',
+          position: v2(40, 0),
+          quality: 1,
+        }),
+        makeUnit({ id: 'b1', faction: 'B', position: v2(1000, 0) }),
+      ],
+      [highWall('hw', 50, -50, 60, 50)],
+    );
+    const r = applyCommands(s0, [
+      { type: 'ACTIVATE_SPEND', unitId: 'a1' },
+      { type: 'CLIMB', unitId: 'a1' },
+    ]);
+    const a1 = r.state.units.find((u) => u.id === 'a1')!;
+    expect(a1.lockedThisInitiative).toBe(true);
+    expect(() =>
+      applyCommands(r.state, [{ type: 'ACTIVATE_SPEND', unitId: 'a1' }]),
+    ).toThrow(/UNIT_LOCKED/);
   });
 });
 

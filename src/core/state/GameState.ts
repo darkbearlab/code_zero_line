@@ -44,11 +44,14 @@ export interface Unit {
   /**
    * Per-initiative lockout. Set when an action ends the unit's activation
    * via FORCED_END (CRAWL / CLIMB / MOVE-from-DIFFICULT — rule 4.5 / 4.2C
-   * "該輪次不可再行動"). Blocks FOCUSED / COMBINED / COMMAND_* participation
-   * for the rest of the active side's initiative phase. Cleared on every
-   * INITIATIVE_TURNOVER so once the opposing side takes over, the unit
-   * may react-fire again (including via FOCUSED / COMBINED reactions).
-   * Untouched units omit the field; treat undefined === false.
+   * "該輪次不可再行動"). Blocks ALL re-activation paths for the rest of the
+   * active side's initiative phase: primary activation (ACTIVATE_PAY /
+   * CHECK / OVERDRAFT) AND FOCUSED / COMBINED / COMMAND_MOVE / COMMAND_RALLY
+   * participation (a locked unit can be neither activator nor command-tag-
+   * along). Cleared on every INITIATIVE_TURNOVER so once the opposing side
+   * takes over, the unit may react-fire again (including via FOCUSED /
+   * COMBINED reactions). Untouched units omit the field; treat undefined
+   * === false.
    */
   readonly lockedThisInitiative?: boolean;
   /**

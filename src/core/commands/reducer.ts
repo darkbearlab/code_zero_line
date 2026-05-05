@@ -194,6 +194,12 @@ const requireFreshHolderUnit = (s: GameState, unitId: string): Unit => {
       `Activation ${s.initiative.activeActivation.unitId} already in progress`,
     );
   }
+  if (u.lockedThisInitiative === true) {
+    throw new CommandError(
+      'UNIT_LOCKED',
+      `Unit ${unitId} already FORCED_END this initiative — can't be activated again`,
+    );
+  }
   return u;
 };
 

@@ -380,6 +380,10 @@ describe('MOVE command', () => {
     // Reactions stay open — only the per-initiative participation lock fires.
     expect(a1.cannotReactThisRound).toBe(false);
     expect(r.state.initiative.activeActivation).toBeNull();
+    // Primary re-activation also blocked while lock holds.
+    expect(() =>
+      applyCommands(r.state, [{ type: 'ACTIVATE_SPEND', unitId: 'a1' }]),
+    ).toThrow(/UNIT_LOCKED/);
   });
 
   it('lockedThisInitiative clears on initiative turnover', () => {
