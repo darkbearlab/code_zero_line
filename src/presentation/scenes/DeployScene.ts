@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { buildUnit, getMap, listUnitTemplates } from '../../config/loader';
+import { buildUnit, getMap, getMissionDef, listUnitTemplates } from '../../config/loader';
 import { drawTerrain, polygonCentroid } from '../rendering/terrain';
 import { paintBoardFloorPhaser } from '../rendering/boardFloor';
 import type { Vec2 } from '../../core/geometry/types';
@@ -9,18 +9,52 @@ import { buildInitialState } from '../../core/setup/buildState';
 import { pointInPolygon } from '../../core/setup/geometry';
 import type {
   DeploymentPlacement,
+  DeploymentZone,
   MapDef,
   RostersBySide,
 } from '../../core/setup/types';
 import type { Faction } from '../../core/state/GameState';
 import { DEFAULT_MAP_ID } from '../state/setupBattleState';
+import {
+  currentMissionDeploymentSlotsActive,
+  type RunState,
+} from '../../runs/state';
 
-interface InitData {
+/**
+ * DeployScene operates in two modes:
+ *
+ *  - **VS mode** (default, legacy): both factions place their squads
+ *    alternately, then we hand `buildInitialState`'s GameState to BattleScene.
+ *
+ *  - **Campaign mode**: caller passes `runState`. Only the player (faction A)
+ *    deploys; AI enemies are spawned at the mission's authored
+ *    `enemies[].position`. We hand `{ runState, manualPlayerDeployment }`
+ *    to BattleScene which routes through `buildMissionState`.
+ *
+ * Multi-zone faction-A maps are supported in both modes — `canPlaceAt` checks
+ * against the union of Zone-A polygons. Multi-zone faction-B is intentionally
+ * not exposed (campaign maps don't deploy AI; sandbox VS maps haven't
+ * historically had multi-B layouts).
+ *
+ * Slot enforcement (when active in campaign mode): the first
+ * min(squadSize, slotCount) Zone-A slots must each receive ≥1 unit. The
+ * Start button stays disabled until both this constraint and "all squad
+ * deployed" hold.
+ */
+
+interface VsInitData {
   rosters: RostersBySide;
   firstHolder: Faction;
   deployFirst: Faction;
   mapId?: string;
+  runState?: undefined;
 }
+
+interface CampaignInitData {
+  runState: RunState;
+}
+
+type InitData = VsInitData | CampaignInitData;
 
 const FACTION_COLOR: Readonly<Record<Faction, number>> = {
   A: 0x4a8acf,
@@ -48,20 +82,50 @@ export class DeployScene extends Phaser.Scene {
   private rootEl!: HTMLElement;
   private terrainGfx!: Phaser.GameObjects.Graphics;
   private terrainLabels: Phaser.GameObjects.Text[] = [];
+  private zoneLabels: Phaser.GameObjects.Text[] = [];
   private boardEdgeGfx!: Phaser.GameObjects.Graphics;
   private zonesGfx!: Phaser.GameObjects.Graphics;
   private placementsGfx!: Phaser.GameObjects.Graphics;
   private hoverGfx!: Phaser.GameObjects.Graphics;
+
+  // Campaign-mode fields
+  private runState: RunState | null = null;
+  /** True when the active mission demands strict slot occupancy. */
+  private slotsEnforced = false;
 
   constructor() {
     super({ key: 'Deploy' });
   }
 
   init(data: InitData): void {
-    this.rosters = data.rosters;
-    this.firstHolder = data.firstHolder;
-    this.deployFirst = data.deployFirst;
-    this.mapId = data.mapId ?? DEFAULT_MAP_ID;
+    if ('runState' in data && data.runState) {
+      this.runState = data.runState;
+      const idx = data.runState.missionIndex;
+      const mid = data.runState.missionIds[idx];
+      // Fall back to demo if route's gone off the rails — defensive.
+      if (!mid) throw new Error('DeployScene: runState has no current mission');
+      const mission = getMissionDef(mid);
+      this.mapId = mission.mapId;
+      // In campaign mode the player-only roster is the live squad
+      // (survivors of prior stages).
+      const aliveSet = new Set(data.runState.survivorIds);
+      const liveSquad = data.runState.squad.filter((s) => aliveSet.has(s.id));
+      this.rosters = { A: liveSquad, B: [] };
+      this.firstHolder = 'A';
+      this.deployFirst = 'A';
+      this.slotsEnforced = currentMissionDeploymentSlotsActive(
+        data.runState,
+        mission,
+      );
+    } else {
+      const vs = data as VsInitData;
+      this.runState = null;
+      this.rosters = vs.rosters;
+      this.firstHolder = vs.firstHolder;
+      this.deployFirst = vs.deployFirst;
+      this.mapId = vs.mapId ?? DEFAULT_MAP_ID;
+      this.slotsEnforced = false;
+    }
   }
 
   create(): void {
@@ -69,6 +133,7 @@ export class DeployScene extends Phaser.Scene {
     this.placements = { A: [], B: [] };
     this.currentSide = null;
     this.terrainLabels = [];
+    this.zoneLabels = [];
     this.map = getMap(this.mapId);
     this.cameras.main.setBackgroundColor('#0a0c0a');
     this.boardEdgeGfx = this.add.graphics();
@@ -127,8 +192,34 @@ export class DeployScene extends Phaser.Scene {
     }
   }
 
+  private zoneOccupancyCounts(): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const z of this.map.deploymentZones) counts.set(z.id, 0);
+    for (const p of this.placements.A) {
+      for (const z of this.map.deploymentZones) {
+        if (z.faction === 'A' && pointInPolygon(p.position, z.polygon)) {
+          counts.set(z.id, (counts.get(z.id) ?? 0) + 1);
+          break;
+        }
+      }
+    }
+    return counts;
+  }
+
+  private requiredZoneACount(): number {
+    if (!this.slotsEnforced) return 0;
+    const slotCount = this.map.deploymentZones.filter(
+      (z) => z.faction === 'A' && typeof z.slotIndex === 'number',
+    ).length;
+    return Math.min(this.rosters.A.length, slotCount);
+  }
+
   private renderZones(): void {
     this.zonesGfx.clear();
+    for (const lbl of this.zoneLabels) lbl.destroy();
+    this.zoneLabels = [];
+    const counts = this.zoneOccupancyCounts();
+    const reqCount = this.requiredZoneACount();
     for (const z of this.map.deploymentZones) {
       const isActive = z.faction === this.currentSide;
       this.zonesGfx.fillStyle(ZONE_FILL[z.faction], isActive ? 0.18 : 0.08);
@@ -141,6 +232,30 @@ export class DeployScene extends Phaser.Scene {
       this.zonesGfx.closePath();
       this.zonesGfx.fillPath();
       this.zonesGfx.strokePath();
+      // Slot-number badge for Zone-A. Show even when enforcement is off
+      // so the designer can see the layout's intent; tint the required
+      // slots when enforcement is on and they're empty (warning red).
+      if (z.faction === 'A' && typeof z.slotIndex === 'number') {
+        const c = polygonCentroid(verts);
+        const occ = counts.get(z.id) ?? 0;
+        const required = z.slotIndex <= reqCount;
+        const empty = occ === 0;
+        const tint =
+          required && empty ? '#ff8a6a' : occ > 0 ? '#9af09a' : '#9aa89a';
+        const badge = this.add.text(
+          c.x,
+          c.y,
+          `#${z.slotIndex}${occ > 0 ? ` · ${occ}` : ''}`,
+          {
+            fontFamily: 'ui-monospace, monospace',
+            fontSize: '11px',
+            color: tint,
+            fontStyle: 'bold',
+          },
+        );
+        badge.setOrigin(0.5);
+        this.zoneLabels.push(badge);
+      }
     }
   }
 
@@ -196,8 +311,18 @@ export class DeployScene extends Phaser.Scene {
     this.refresh();
   }
 
-  /** Alternate sides; if one side is fully deployed, the other finishes. */
+  /**
+   * Campaign mode: only A deploys, so we just stay until A is done.
+   * VS mode: alternate sides; if one side is fully deployed, the other
+   * finishes.
+   */
   private advanceTurn(): void {
+    if (this.runState) {
+      // Player-only flow.
+      const aRemaining = this.rosters.A.length - this.placements.A.length;
+      this.currentSide = aRemaining > 0 ? 'A' : null;
+      return;
+    }
     const otherSide: Faction = this.currentSide === 'A' ? 'B' : 'A';
     const otherRemaining =
       this.rosters[otherSide].length - this.placements[otherSide].length;
@@ -216,6 +341,16 @@ export class DeployScene extends Phaser.Scene {
   }
 
   private undo(): void {
+    if (this.runState) {
+      // Campaign mode: only A has placements; pop the last one.
+      if (this.placements.A.length === 0) return;
+      this.placements.A = this.placements.A.slice(0, -1);
+      this.currentSide = 'A';
+      this.renderPlacements();
+      this.renderZones();
+      this.refresh();
+      return;
+    }
     if (!this.currentSide && this.placements.A.length === 0 && this.placements.B.length === 0) return;
     // Pop the most recent placement across both sides; resume that side.
     const lastSide: Faction =
@@ -239,15 +374,18 @@ export class DeployScene extends Phaser.Scene {
     return this.rosters[faction].find((r) => !placed.has(r.id));
   }
 
+  private zonesForFaction(faction: Faction): DeploymentZone[] {
+    return this.map.deploymentZones.filter((z) => z.faction === faction);
+  }
+
   private canPlaceAt(pos: Vec2, faction: Faction): boolean {
-    const zone = this.map.deploymentZones.find(
-      (z) => z.faction === faction,
+    const zones = this.zonesForFaction(faction);
+    if (zones.length === 0) return false;
+    // Multi-zone: pos must fit fully inside *any* of the zones.
+    const insideAny = zones.some((z) =>
+      this.circleInsidePolygon(pos, STANDARD_BASE_RADIUS_PIXELS, z.polygon),
     );
-    if (!zone) return false;
-    // 規則：底盤整圈都必須落在部署區內，不能超過邊緣。
-    if (!this.circleInsidePolygon(pos, STANDARD_BASE_RADIUS_PIXELS, zone.polygon)) {
-      return false;
-    }
+    if (!insideAny) return false;
     // Don't overlap existing units.
     for (const f of ['A', 'B'] as const) {
       for (const p of this.placements[f]) {
@@ -316,6 +454,24 @@ export class DeployScene extends Phaser.Scene {
     return true;
   }
 
+  private slotsConstraintSatisfied(): { ok: boolean; reason: string } {
+    if (!this.slotsEnforced) return { ok: true, reason: '' };
+    const counts = this.zoneOccupancyCounts();
+    const required = this.requiredZoneACount();
+    const missing: number[] = [];
+    for (const z of this.map.deploymentZones) {
+      if (z.faction !== 'A' || typeof z.slotIndex !== 'number') continue;
+      if (z.slotIndex <= required && (counts.get(z.id) ?? 0) === 0) {
+        missing.push(z.slotIndex);
+      }
+    }
+    if (missing.length === 0) return { ok: true, reason: '' };
+    return {
+      ok: false,
+      reason: `部署位 ${missing.join(', ')} 必須各有至少一人`,
+    };
+  }
+
   private makeRoot(): HTMLElement {
     const root = document.createElement('div');
     root.style.position = 'absolute';
@@ -334,6 +490,7 @@ export class DeployScene extends Phaser.Scene {
     root.innerHTML = `
       <strong>Deploy</strong>
       <span data-status></span>
+      <span data-warn style="color:#ff8a6a;font-size:11px;"></span>
       <span style="margin-left:auto;font-size:11px;color:#7a9a7a;">Z = undo · click in highlighted zone to place</span>
       <button data-action="undo" style="padding:4px 10px;background:#1a2a1a;color:#cfe8cf;border:1px solid #3a5a3a;cursor:pointer;font:inherit;">Undo</button>
       <button data-action="continue" disabled style="padding:4px 14px;background:#1a2a1a;color:#cfe8cf;border:1px solid #3a5a3a;cursor:pointer;font:inherit;">Start Battle →</button>
@@ -348,6 +505,7 @@ export class DeployScene extends Phaser.Scene {
 
   private refresh(): void {
     const status = this.rootEl.querySelector<HTMLElement>('[data-status]')!;
+    const warn = this.rootEl.querySelector<HTMLElement>('[data-warn]')!;
     if (this.currentSide) {
       const next = this.nextRosterEntry(this.currentSide);
       const tplName = next
@@ -357,15 +515,33 @@ export class DeployScene extends Phaser.Scene {
       const color = this.currentSide === 'A' ? '#6ab0ff' : '#ff8a6a';
       status.innerHTML = `<strong style="color:${color};">${this.currentSide}</strong> places <strong>${next?.id}</strong> (${tplName})`;
     } else {
-      status.textContent = 'Both sides deployed. Press Start Battle.';
+      status.textContent = this.runState
+        ? '隊伍已部署。按下 Start Battle 開戰。'
+        : 'Both sides deployed. Press Start Battle.';
     }
+    const slots = this.slotsConstraintSatisfied();
+    warn.textContent = slots.ok ? '' : slots.reason;
     const cont =
       this.rootEl.querySelector<HTMLButtonElement>('[data-action="continue"]')!;
-    cont.disabled = this.currentSide !== null;
+    cont.disabled = this.currentSide !== null || !slots.ok;
   }
 
   private startBattle(): void {
     if (this.currentSide !== null) return;
+    if (!this.slotsConstraintSatisfied().ok) return;
+    if (this.runState) {
+      // Campaign hand-off — BattleScene routes through buildMissionState
+      // with the placements we collected.
+      const manualPlayerDeployment: DeploymentPlacement[] = [
+        ...this.placements.A,
+      ];
+      this.rootEl.remove();
+      this.scene.start('Battle', {
+        runState: this.runState,
+        manualPlayerDeployment,
+      });
+      return;
+    }
     const initialState = buildInitialState({
       seed: `match-${Date.now()}`,
       map: this.map,

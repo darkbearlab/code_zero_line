@@ -13,6 +13,7 @@ import Phaser from 'phaser';
 import { listUnitTemplates } from '../../config/loader';
 import { getMissionById } from '../../missions/library';
 import { newRunState, type RunOperationContext } from '../../runs/state';
+import { nextMissionNeedsDeployScene } from '../../runs/launchMission';
 import { saveRun, clearRun } from '../../runs/persist';
 import {
   isCampaignOver,
@@ -154,6 +155,9 @@ export class RoundSetupScene extends Phaser.Scene {
         const noIntelBadge = opDef.noIntelEntry === true
           ? `<div style="display:inline-flex;align-items:center;gap:4px;color:#ffd6a8;font-size:11px;font-weight:bold;background:rgba(60,30,10,0.4);border:1px solid #8a5a3a;padding:2px 8px;align-self:flex-start;">🚫 情報不明</div>`
           : '';
+        const slotsBadge = opDef.enforceDeploymentSlotsEntry === true
+          ? `<div style="display:inline-flex;align-items:center;gap:4px;color:#a8ffd6;font-size:11px;font-weight:bold;background:rgba(10,40,30,0.4);border:1px solid #3a8a6a;padding:2px 8px;align-self:flex-start;">⚓ 部署位指定</div>`
+          : '';
 
         return `
           <div data-card="${i}" style="padding:14px 16px;background:rgba(20,30,20,0.6);border:1px solid #3a5a3a;cursor:pointer;display:flex;flex-direction:column;gap:10px;transition:background 0.15s,border-color 0.15s;">
@@ -161,7 +165,7 @@ export class RoundSetupScene extends Phaser.Scene {
               <strong style="color:#cfe8cf;font-size:15px;">${opDef.displayName}</strong>
               <span style="color:${opBand.color};font-size:11px;font-weight:bold;">難度:${opBand.label}</span>
             </div>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;">${stealthBadge}${noIntelBadge}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">${stealthBadge}${noIntelBadge}${slotsBadge}</div>
             <div style="color:#7aa87a;font-size:11px;">
               ${SCENARIO_ICON[mainMission.scenario] ?? ''} 主任務:${mainMission.displayName}
               <span style="color:#7a9a7a;">(${SCENARIO_LABEL[mainMission.scenario] ?? mainMission.scenario})</span>
@@ -273,6 +277,9 @@ export class RoundSetupScene extends Phaser.Scene {
       onCompleteReward: opDef.rewards.onComplete,
       ...(opDef.stealthEntry === true ? { stealthEntry: true } : {}),
       ...(opDef.noIntelEntry === true ? { noIntelEntry: true } : {}),
+      ...(opDef.enforceDeploymentSlotsEntry === true
+        ? { enforceDeploymentSlotsEntry: true }
+        : {}),
     };
     const run = newRunState(
       runSeed,
@@ -300,7 +307,11 @@ export class RoundSetupScene extends Phaser.Scene {
     // Snapshot the fresh run so a tab-close mid-operation can resume.
     saveRun(campaignRun);
     this.rootEl.remove();
-    this.scene.start('Battle', { runState: campaignRun });
+    if (nextMissionNeedsDeployScene(campaignRun)) {
+      this.scene.start('Deploy', { runState: campaignRun });
+    } else {
+      this.scene.start('Battle', { runState: campaignRun });
+    }
   }
 
   private renderCampaignOver(): string {

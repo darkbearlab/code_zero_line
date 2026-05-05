@@ -40,6 +40,13 @@ export interface EditorMapShape {
   readonly h: number;
   /** Rotation in radians, around the centre. */
   readonly angle: number;
+  /**
+   * Strict serial slot index for `tool === 'zone-a'` shapes only. The
+   * editor maintains the no-gap, no-duplicate invariant by auto-assigning
+   * the next free index on creation and repacking on delete / reorder.
+   * Loaded docs that lack the field get repacked on first open.
+   */
+  readonly slotIndex?: number;
 }
 
 export interface EditorMapDoc {
@@ -69,6 +76,62 @@ const TOOL_LABEL: Readonly<Record<EditorShapeTool, string>> = {
 
 export const editorToolLabel = (tool: EditorShapeTool): string =>
   TOOL_LABEL[tool];
+
+/**
+ * Re-stamp slotIndex on every `zone-a` shape so the indices form a strict
+ * 1-based serial (1, 2, 3, …) with no gaps and no duplicates. Order is
+ * preserved from the input array (caller controls reordering by reordering
+ * the array itself). Non-zone-a shapes pass through unchanged. Existing
+ * slotIndex values on zone-a shapes act as a stable sort key when present;
+ * unstamped shapes drift to the end. Always returns a fresh array.
+ */
+export const repackZoneASlots = (
+  shapes: ReadonlyArray<EditorMapShape>,
+): EditorMapShape[] => {
+  const zoneAIdxs: number[] = [];
+  shapes.forEach((s, i) => {
+    if (s.tool === 'zone-a') zoneAIdxs.push(i);
+  });
+  // Stable sort by current slotIndex (undefined → +∞ pushes new shapes to end)
+  zoneAIdxs.sort((a, b) => {
+    const sa = shapes[a]!.slotIndex ?? Number.POSITIVE_INFINITY;
+    const sb = shapes[b]!.slotIndex ?? Number.POSITIVE_INFINITY;
+    if (sa !== sb) return sa - sb;
+    return a - b;
+  });
+  const newSlot = new Map<number, number>();
+  zoneAIdxs.forEach((origIdx, i) => newSlot.set(origIdx, i + 1));
+  return shapes.map((s, i) =>
+    s.tool === 'zone-a' ? { ...s, slotIndex: newSlot.get(i) } : s,
+  );
+};
+
+/**
+ * Move a zone-a shape one position earlier or later in the slot order.
+ * No-op at boundaries. Repacks afterward so indices stay strict-serial.
+ */
+export const moveZoneASlot = (
+  shapes: ReadonlyArray<EditorMapShape>,
+  shapeId: string,
+  direction: 'up' | 'down',
+): EditorMapShape[] => {
+  const target = shapes.find((s) => s.id === shapeId && s.tool === 'zone-a');
+  if (!target) return shapes.map((s) => ({ ...s }));
+  const packed = repackZoneASlots(shapes);
+  const targetSlot = packed.find((s) => s.id === shapeId)?.slotIndex;
+  if (typeof targetSlot !== 'number') return packed;
+  const swapSlot = direction === 'up' ? targetSlot - 1 : targetSlot + 1;
+  if (swapSlot < 1) return packed;
+  const swapPartner = packed.find(
+    (s) => s.tool === 'zone-a' && s.slotIndex === swapSlot,
+  );
+  if (!swapPartner) return packed;
+  return packed.map((s) => {
+    if (s.id === target.id) return { ...s, slotIndex: swapSlot };
+    if (s.id === swapPartner.id) return { ...s, slotIndex: targetSlot };
+    return s;
+  });
+};
 
 export const shapeVertices = (s: EditorMapShape): Vec2[] => {
   const hw = s.w / 2;
@@ -125,7 +188,14 @@ export const docToMapDef = (doc: EditorMapDoc): MapDef => {
     const verts = shapeVertices(s);
     if (s.tool === 'zone-a' || s.tool === 'zone-b') {
       const faction: Faction = s.tool === 'zone-a' ? 'A' : 'B';
-      zones.push({ id: s.id, faction, polygon: { vertices: verts } });
+      zones.push({
+        id: s.id,
+        faction,
+        polygon: { vertices: verts },
+        ...(s.tool === 'zone-a' && typeof s.slotIndex === 'number'
+          ? { slotIndex: s.slotIndex }
+          : {}),
+      });
       continue;
     }
     const kind =
@@ -217,6 +287,9 @@ export const mapDefToDoc = (map: MapDef): EditorMapDoc => {
       tool: z.faction === 'A' ? 'zone-a' : 'zone-b',
       ...box,
       angle: 0,
+      ...(z.faction === 'A' && typeof z.slotIndex === 'number'
+        ? { slotIndex: z.slotIndex }
+        : {}),
     });
   }
   for (const o of map.objectives ?? []) {

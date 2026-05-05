@@ -278,7 +278,13 @@ export class BattleScene extends Phaser.Scene {
     super({ key: 'Battle' });
   }
 
-  init(data: { initialState?: GameState; runState?: import('../../runs/state').RunState }): void {
+  init(data: {
+    initialState?: GameState;
+    runState?: import('../../runs/state').RunState;
+    manualPlayerDeployment?: ReadonlyArray<
+      import('../../core/setup/types').DeploymentPlacement
+    >;
+  }): void {
     // When invoked from the roguelite layer, derive both initialState and
     // runContext from the RunState. When invoked from the legacy 1v1
     // sandbox flow (Roster → Initiative → Deploy), only initialState is
@@ -310,6 +316,9 @@ export class BattleScene extends Phaser.Scene {
             oneShotBoons: oneShot,
             runBoons: data.runState.pickedBoons,
             stealthActive: currentMissionStealthActive(data.runState, mission),
+            ...(data.manualPlayerDeployment
+              ? { manualPlayerDeployment: data.manualPlayerDeployment }
+              : {}),
           },
         );
         this.noIntelActive = currentMissionNoIntelActive(
@@ -1619,6 +1628,7 @@ export class BattleScene extends Phaser.Scene {
         damageCarry,
         completedMissionDef.stealthMode,
         completedMissionDef.noIntelMode,
+        completedMissionDef.deploymentSlotsMode,
       );
       // Persist post-mission run state so a tab close lands cleanly back
       // here on resume (either at Hub for next stage, or RunResult). The

@@ -10,6 +10,15 @@ export interface DeploymentZone {
   readonly id: string;
   readonly faction: Faction;
   readonly polygon: Polygon;
+  /**
+   * Strict serial number (1-based, no gaps, no duplicates) used by the
+   * "enforce deployment slots" mission flag: when active, the first
+   * min(squadSize, slotCount) slots must each contain at least one unit.
+   * Only meaningful for faction A (player) zones; the editor enforces the
+   * invariant by auto-assigning the next free index on creation and
+   * repacking on deletion. Faction B zones may omit this field.
+   */
+  readonly slotIndex?: number;
 }
 
 export interface MapTerrainDef {

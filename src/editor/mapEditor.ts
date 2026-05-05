@@ -1,6 +1,8 @@
 import {
   docToMapDef,
   mapDefToDoc,
+  moveZoneASlot,
+  repackZoneASlots,
   shapeVertices,
   editorToolLabel,
   type EditorMapDoc,
@@ -116,7 +118,21 @@ const TOOL_STROKE: Record<EditorShapeTool, string> = {
 /** Objectives are circles, not rotatable rects. */
 const isCircleTool = (tool: EditorShapeTool): boolean => tool === 'objective';
 
-export const mountMapEditor = (root: HTMLElement): void => {
+export interface MapEditorOptions {
+  /**
+   * When true, hide controls that talk to the dev-server bundle endpoint
+   * (the "Save to bundle" button). Use for standalone builds that have no
+   * Vite dev middleware backing them. Other features — localStorage save,
+   * JSON import/export — work the same.
+   */
+  readonly hideServerActions?: boolean;
+}
+
+export const mountMapEditor = (
+  root: HTMLElement,
+  options: MapEditorOptions = {},
+): void => {
+  const { hideServerActions = false } = options;
   let doc: EditorMapDoc = newDoc();
   let selectedShapeId: string | null = null;
   let activeTool: Tool = 'low';
@@ -436,6 +452,11 @@ export const mountMapEditor = (root: HTMLElement): void => {
   };
 
   const renderForm = (): void => {
+    // Re-stamp Zone-A slot indices (strict-serial invariant) on every
+    // render. Mutation paths don't have to call repack themselves —
+    // they just reorder/insert/delete the array and the next render
+    // picks up the canonical numbering.
+    doc = { ...doc, shapes: repackZoneASlots(doc.shapes) };
     formPanel.innerHTML = '';
     formPanel.classList.add('map-form');
 
@@ -989,6 +1010,50 @@ export const mountMapEditor = (root: HTMLElement): void => {
       );
       info.appendChild(actionRow);
 
+      // Zone A only: slot-order controls. Strict-serial invariant
+      // means there's no manual number entry — only swap-with-neighbor.
+      if (s.tool === 'zone-a') {
+        const slotCount = doc.shapes.filter((x) => x.tool === 'zone-a').length;
+        const cur = s.slotIndex ?? 0;
+        const slotRow = el('div', {
+          style: {
+            display: 'flex',
+            gap: '4px',
+            marginTop: '6px',
+            alignItems: 'center',
+          },
+        });
+        slotRow.appendChild(
+          el('span', {
+            text: `部署位 #${cur} / ${slotCount}`,
+            style: { fontSize: '11px', color: '#9af09a', marginRight: '4px' },
+          }),
+        );
+        const upBtn = el('button', {
+          text: '↑ 上移',
+          style: actionBtnStyle,
+          onclick: () => {
+            pushHistory();
+            doc = { ...doc, shapes: moveZoneASlot(doc.shapes, s.id, 'up') };
+            renderForm();
+          },
+        }) as HTMLButtonElement;
+        upBtn.disabled = cur <= 1;
+        const downBtn = el('button', {
+          text: '↓ 下移',
+          style: actionBtnStyle,
+          onclick: () => {
+            pushHistory();
+            doc = { ...doc, shapes: moveZoneASlot(doc.shapes, s.id, 'down') };
+            renderForm();
+          },
+        }) as HTMLButtonElement;
+        downBtn.disabled = cur >= slotCount;
+        slotRow.appendChild(upBtn);
+        slotRow.appendChild(downBtn);
+        info.appendChild(slotRow);
+      }
+
       redraw();
     };
 
@@ -1126,7 +1191,7 @@ export const mountMapEditor = (root: HTMLElement): void => {
       }),
     );
 
-    if (import.meta.env.DEV) {
+    if (import.meta.env.DEV && !hideServerActions) {
       const saveToBundleBtn = el('button', {
         text: '⤒ Save to bundle',
         onclick: async () => {
@@ -1617,7 +1682,20 @@ const drawShape = (
   ctx.font = `${10 / scale}px ui-monospace, monospace`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(editorToolLabel(s.tool), cx, cy);
+  // Zone A shapes get a big slot-number badge above the kind label so the
+  // designer can see the strict-serial order at a glance. Falls back to
+  // "?" if the slot wasn't repacked yet (defensive — repack runs every
+  // render so this should be unreachable in steady state).
+  if (s.tool === 'zone-a' && typeof s.slotIndex === 'number') {
+    ctx.fillStyle = '#9af09a';
+    ctx.font = `bold ${16 / scale}px ui-monospace, monospace`;
+    ctx.fillText(`#${s.slotIndex}`, cx, cy - 11 / scale);
+    ctx.fillStyle = 'rgba(207, 232, 207, 0.7)';
+    ctx.font = `${10 / scale}px ui-monospace, monospace`;
+    ctx.fillText(editorToolLabel(s.tool), cx, cy + 5 / scale);
+  } else {
+    ctx.fillText(editorToolLabel(s.tool), cx, cy);
+  }
   ctx.restore();
 };
 

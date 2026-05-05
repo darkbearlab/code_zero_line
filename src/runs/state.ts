@@ -60,6 +60,8 @@ export interface RunOperationContext {
   readonly stealthEntry?: boolean;
   /** Snapshot of `OperationDef.noIntelEntry`. Drives `RunState.operationNoIntelAlive` init. */
   readonly noIntelEntry?: boolean;
+  /** Snapshot of `OperationDef.enforceDeploymentSlotsEntry`. */
+  readonly enforceDeploymentSlotsEntry?: boolean;
 }
 
 const ZERO_CURRENCIES: CampaignCurrencies = {
@@ -154,6 +156,15 @@ export interface RunState {
    * sandbox / non-operation runs.
    */
   readonly operationNoIntelAlive?: boolean;
+  /**
+   * Chain-level "enforce deployment slots" state. Initialised from
+   * `operation?.enforceDeploymentSlotsEntry === true`. Persists across
+   * stages until a mission with `deploymentSlotsMode: 'force-off'` runs —
+   * that mission's advance flips this to false for all later stages.
+   * Independent of stealth / no-intel. Undefined for sandbox / non-
+   * operation runs.
+   */
+  readonly operationDeploymentSlotsAlive?: boolean;
 }
 
 export const newRunState = (
@@ -173,6 +184,9 @@ export const newRunState = (
   ...(operation ? { operation, bankedRewards: ZERO_CURRENCIES } : {}),
   ...(operation?.stealthEntry === true ? { operationStealthAlive: true } : {}),
   ...(operation?.noIntelEntry === true ? { operationNoIntelAlive: true } : {}),
+  ...(operation?.enforceDeploymentSlotsEntry === true
+    ? { operationDeploymentSlotsAlive: true }
+    : {}),
 });
 
 /**
@@ -206,6 +220,20 @@ export const currentMissionNoIntelActive = (
   return run.operationNoIntelAlive === true;
 };
 
+/**
+ * Resolve whether a mission should enforce deployment slot occupancy at
+ * pre-battle deploy time. Per-mission `deploymentSlotsMode` override wins
+ * over chain inheritance. Independent of stealth / no-intel.
+ */
+export const currentMissionDeploymentSlotsActive = (
+  run: RunState,
+  mission: MissionDef,
+): boolean => {
+  if (mission.deploymentSlotsMode === 'force-on') return true;
+  if (mission.deploymentSlotsMode === 'force-off') return false;
+  return run.operationDeploymentSlotsAlive === true;
+};
+
 export const advanceAfterMission = (
   run: RunState,
   result: MissionResult,
@@ -223,6 +251,12 @@ export const advanceAfterMission = (
    * intel-pickup mission). All other modes leave chain state untouched.
    */
   missionNoIntelMode?: 'force-on' | 'force-off',
+  /**
+   * The just-completed mission's `deploymentSlotsMode`. Only `force-off`
+   * writes back to chain state (clearing the slot enforcement for later
+   * stages). All other modes leave chain state untouched.
+   */
+  missionDeploymentSlotsMode?: 'force-on' | 'force-off',
 ): RunState => {
   let bankedRewards = run.bankedRewards;
   if (result.winner === 'A' && run.operation) {
@@ -259,6 +293,14 @@ export const advanceAfterMission = (
   ) {
     operationNoIntelAlive = false;
   }
+  // Chain deployment-slot enforcement: only `force-off` clears it.
+  let operationDeploymentSlotsAlive = run.operationDeploymentSlotsAlive;
+  if (
+    operationDeploymentSlotsAlive === true &&
+    missionDeploymentSlotsMode === 'force-off'
+  ) {
+    operationDeploymentSlotsAlive = false;
+  }
   return {
     ...run,
     missionIndex: run.missionIndex + 1,
@@ -271,6 +313,9 @@ export const advanceAfterMission = (
       : {}),
     ...(operationNoIntelAlive !== run.operationNoIntelAlive
       ? { operationNoIntelAlive }
+      : {}),
+    ...(operationDeploymentSlotsAlive !== run.operationDeploymentSlotsAlive
+      ? { operationDeploymentSlotsAlive }
       : {}),
   };
 };

@@ -86,6 +86,14 @@ export interface OperationDef {
    * clears it.
    */
   readonly noIntelEntry?: boolean;
+  /**
+   * When true, the chain begins under "enforce deployment slots" — the
+   * player's pre-battle deploy must fill the first min(squadSize, slotCount)
+   * Zone-A slots on each map, ≥1 unit per slot. Persists across stages
+   * until a mission with `deploymentSlotsMode: 'force-off'` clears it.
+   * Independent of stealth / no-intel.
+   */
+  readonly enforceDeploymentSlotsEntry?: boolean;
 }
 
 /** Schema slot — not consumed yet. See OperationDef.optionalInterludes. */
@@ -120,4 +128,6 @@ export interface OperationInstance {
   readonly stealthEntry?: boolean;
   /** Forwarded from `OperationDef.noIntelEntry` (snapshot for run start). */
   readonly noIntelEntry?: boolean;
+  /** Forwarded from `OperationDef.enforceDeploymentSlotsEntry` snapshot. */
+  readonly enforceDeploymentSlotsEntry?: boolean;
 }

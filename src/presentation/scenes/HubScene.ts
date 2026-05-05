@@ -18,6 +18,7 @@ import {
   type RunState,
 } from '../../runs/state';
 import { saveRun } from '../../runs/persist';
+import { nextMissionNeedsDeployScene } from '../../runs/launchMission';
 import { getMissionById } from '../../missions/library';
 
 interface InitData {
@@ -150,7 +151,11 @@ export class HubScene extends Phaser.Scene {
           const next = applyBoon(this.runState, b);
           if (next.inCampaign) saveRun(next);
           this.rootEl.remove();
-          this.scene.start('Battle', { runState: next });
+          if (nextMissionNeedsDeployScene(next)) {
+            this.scene.start('Deploy', { runState: next });
+          } else {
+            this.scene.start('Battle', { runState: next });
+          }
         });
     }
 

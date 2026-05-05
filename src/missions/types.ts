@@ -82,4 +82,13 @@ export interface MissionDef {
    * resolves the fog for the rest of the chain).
    */
   readonly noIntelMode?: 'force-on' | 'force-off';
+  /**
+   * Per-mission deployment-slot enforcement override. Default = inherit from
+   * operation chain state (`RunState.operationDeploymentSlotsAlive`).
+   * 'force-on' = mission demands the player's squad fill the first
+   * min(squadSize, slotCount) Zone-A slots (≥1 unit each) regardless of
+   * chain state. 'force-off' = mission allows free placement inside any
+   * Zone-A polygon and clears the chain flag for later stages.
+   */
+  readonly deploymentSlotsMode?: 'force-on' | 'force-off';
 }

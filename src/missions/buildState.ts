@@ -11,6 +11,7 @@ import { buildUnit, getMap } from '../config/loader';
 import { buildInitialState } from '../core/setup/buildState';
 import type {
   DeploymentBySide,
+  DeploymentPlacement,
   RostersBySide,
 } from '../core/setup/types';
 import type { DamageState, GameState, Unit } from '../core/state/GameState';
@@ -48,6 +49,15 @@ export interface MissionBuildOptions {
    * the run-level chain inheritance.
    */
   readonly stealthActive?: boolean;
+  /**
+   * When present, overrides `mission.playerSpawnPositions` for the
+   * faction-A spawn. The placements come from the pre-battle DeployScene
+   * (campaign mode, map has Zone A). Each placement's `rosterId` must
+   * match a live squad entry; entries without a placement are dropped
+   * from the mission. Caller is responsible for ensuring it satisfies
+   * the slot-enforcement constraint when active.
+   */
+  readonly manualPlayerDeployment?: ReadonlyArray<DeploymentPlacement>;
 }
 
 const cloneEnemy = (mission: MissionDef): Array<Unit> => {
@@ -127,12 +137,31 @@ export const buildMissionState = (
   const liveSquad = run.squad.filter((s) =>
     aliveSet === null ? true : aliveSet.has(s.id),
   );
-  const positions = mission.playerSpawnPositions;
-  const playerRoster = liveSquad;
-  const playerDeployment = playerRoster.map((entry, i) => ({
-    rosterId: entry.id,
-    position: positions[Math.min(i, positions.length - 1)]!,
-  }));
+  let playerRoster = liveSquad;
+  let playerDeployment: DeploymentPlacement[];
+  if (opts.manualPlayerDeployment && opts.manualPlayerDeployment.length > 0) {
+    // Honour the pre-battle DeployScene placement: only spawn squad members
+    // that received a placement, in placement order. Defends against stale
+    // placements pointing at killed roster entries by intersecting with
+    // liveSquad.
+    const liveById = new Map(liveSquad.map((s) => [s.id, s] as const));
+    const ordered: typeof liveSquad = [];
+    const placements: DeploymentPlacement[] = [];
+    for (const p of opts.manualPlayerDeployment) {
+      const entry = liveById.get(p.rosterId);
+      if (!entry) continue;
+      ordered.push(entry);
+      placements.push(p);
+    }
+    playerRoster = ordered;
+    playerDeployment = placements;
+  } else {
+    const positions = mission.playerSpawnPositions;
+    playerDeployment = playerRoster.map((entry, i) => ({
+      rosterId: entry.id,
+      position: positions[Math.min(i, positions.length - 1)]!,
+    }));
+  }
   const rosters: RostersBySide = {
     A: playerRoster,
     B: [],

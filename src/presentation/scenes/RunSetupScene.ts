@@ -8,6 +8,7 @@ import { listUnitTemplates } from '../../config/loader';
 import { getMissionById } from '../../missions/library';
 import { pickMissions } from '../../missions/pick';
 import { newRunState } from '../../runs/state';
+import { nextMissionNeedsDeployScene } from '../../runs/launchMission';
 import type { RosterEntry } from '../../core/setup/types';
 
 const PHASE1_SQUAD: ReadonlyArray<RosterEntry> = [
@@ -103,7 +104,11 @@ export class RunSetupScene extends Phaser.Scene {
       () => {
         const run = newRunState(this.runSeed, PHASE1_SQUAD, this.missionIds);
         this.rootEl.remove();
-        this.scene.start('Battle', { runState: run });
+        if (nextMissionNeedsDeployScene(run)) {
+          this.scene.start('Deploy', { runState: run });
+        } else {
+          this.scene.start('Battle', { runState: run });
+        }
       };
     return root;
   }

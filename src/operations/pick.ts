@@ -175,6 +175,9 @@ export const instantiateOperation = (
     rewards: def.rewards,
     ...(def.stealthEntry === true ? { stealthEntry: true } : {}),
     ...(def.noIntelEntry === true ? { noIntelEntry: true } : {}),
+    ...(def.enforceDeploymentSlotsEntry === true
+      ? { enforceDeploymentSlotsEntry: true }
+      : {}),
   };
 };
 
