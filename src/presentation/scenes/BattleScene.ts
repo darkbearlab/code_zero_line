@@ -2157,10 +2157,18 @@ export class BattleScene extends Phaser.Scene {
       this.setUnitFacing(unitId, Math.atan2(to.y - from.y, to.x - from.x));
     }
 
-    const PAN_DUR = 220;
-    const HOLD_AFTER_FIRE = 600;
+    // Cinematic timing — deliberately slower than the regular move tween
+    // so reactions feel like a beat the player can actually watch:
+    //   PAN_DUR — camera pan in / pan back
+    //   HOLD_AFTER_FIRE — beat after the shot resolves before resuming
+    //   SEGMENT_SLOWDOWN — multiplier on the proportional segment duration
+    //     during cinematic mode; the slide between beats reads as decel-stop-
+    //     accel rather than a snappy short hop.
+    const PAN_DUR = 380;
+    const HOLD_AFTER_FIRE = 900;
+    const SEGMENT_SLOWDOWN = 1.5;
 
-    let estimatedDuration = baseDur;
+    let estimatedDuration = baseDur * SEGMENT_SLOWDOWN;
     for (const _ of beats) estimatedDuration += PAN_DUR + HOLD_AFTER_FIRE + PAN_DUR;
 
     this.movementTweens++;
@@ -2189,12 +2197,12 @@ export class BattleScene extends Phaser.Scene {
           finalizeAndDone();
           return;
         }
-        const segDur = baseDur * remaining;
+        const segDur = baseDur * remaining * SEGMENT_SLOWDOWN;
         this.tweens.add({
           targets: container,
           x: to.x,
           y: to.y,
-          duration: Math.max(60, segDur),
+          duration: Math.max(120, segDur),
           ease: currentT === 0 ? 'Sine.InOut' : 'Cubic.easeIn',
           onComplete: finalizeAndDone,
         });
@@ -2203,7 +2211,7 @@ export class BattleScene extends Phaser.Scene {
 
       const beat = beats[idx]!;
       const segT = beat.tweenAtT - currentT;
-      const segDur = baseDur * segT;
+      const segDur = baseDur * segT * SEGMENT_SLOWDOWN;
       const segX = from.x + (to.x - from.x) * beat.tweenAtT;
       const segY = from.y + (to.y - from.y) * beat.tweenAtT;
       const ease = currentT === 0 ? 'Cubic.easeOut' : 'Cubic.easeInOut';
@@ -2277,7 +2285,7 @@ export class BattleScene extends Phaser.Scene {
         targets: container,
         x: segX,
         y: segY,
-        duration: Math.max(60, segDur),
+        duration: Math.max(120, segDur),
         ease,
         onComplete: proceedToBeat,
       });
