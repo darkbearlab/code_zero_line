@@ -405,5 +405,7 @@ const formatEvent = (e: GameEvent): string => {
       return `🌙 stealth pending (${e.reason})`;
     case 'STEALTH_BROKEN':
       return `⚠ stealth broken (${e.reason}${e.deferred ? ', deferred' : ''})`;
+    case 'DOOR_OPERATED':
+      return `🚪 ${e.unitId} ${e.isOpen ? 'opened' : 'closed'} door (${e.terrainId})`;
   }
 };

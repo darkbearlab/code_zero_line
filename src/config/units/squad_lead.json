@@ -3,6 +3,6 @@
   "displayName": "Squad Lead",
   "quality": 2,
   "weaponIds": ["rifle", "blade"],
-  "traits": ["OFFICER", "STALWART", "INFANTRY", "COMMAND"],
+  "traits": ["OFFICER", "STALWART", "INFANTRY", "COMMAND", "DOOR_OPERATOR"],
   "recruitRole": "officer"
 }

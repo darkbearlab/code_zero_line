@@ -103,7 +103,9 @@ export type Command =
       /** Defaults to true. Charge bonus +1 die for the attacker. */
       isCharging?: boolean;
     }
-  | { type: 'RALLY'; unitId: string; reactionPlan?: ReactionPlan };
+  | { type: 'RALLY'; unitId: string; reactionPlan?: ReactionPlan }
+  | { type: 'OPERATE_DOOR'; unitId: string; terrainId: string }
+  | { type: 'PASS_DOOR'; unitId: string; reactionPlan?: ReactionPlan };
 
 export type TurnoverReason =
   | 'CHECK_FAILED'
@@ -233,7 +235,8 @@ export type GameEvent =
       type: 'STEALTH_BROKEN';
       reason: 'SHOT' | 'SPOTTED';
       deferred: boolean;
-    };
+    }
+  | { type: 'DOOR_OPERATED'; unitId: string; terrainId: string; isOpen: boolean };
 
 export class CommandError extends Error {
   constructor(

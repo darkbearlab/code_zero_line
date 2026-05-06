@@ -45,6 +45,9 @@ const styleFor = (t: Terrain): TerrainStyle => {
       hatched: true,
     };
   }
+  if (t.kind === 'DOOR') {
+    return { fillColor: 0x8a6a3a, fillAlpha: 1, strokeColor: 0xd4a84a, strokeWidth: 2 };
+  }
   if (t.kind === 'HIGH_GROUND') {
     return {
       fillColor: 0x6a4a30,
@@ -229,6 +232,8 @@ export const drawTerrain = (
   g: Phaser.GameObjects.Graphics,
   t: Terrain,
 ): void => {
+  // Open door (non-hinged): remove from scene — unit can walk through freely.
+  if (t.kind === 'DOOR' && t.isOpen && t.doorStyle !== 'hinged') return;
   const verts = t.polygon.vertices;
   if (verts.length === 0) return;
   const style = styleFor(t);

@@ -5,12 +5,13 @@ import { applyCommand } from '../../core/commands/reducer';
 import { isPointInPolygon } from '../../core/geometry/polygon';
 import {
   climbDestination,
+  findContactedDoor,
   findContactedSoftTerrain,
   findContactedWall,
   traverseDestination,
   vaultDestination,
 } from '../../core/geometry/wallTraversal';
-import { drawTerrain, polygonCentroid } from '../rendering/terrain';
+import { drawTerrain } from '../rendering/terrain';
 import { paintBoardFloorPhaser } from '../rendering/boardFloor';
 import { CombatEffects } from '../rendering/combatEffects';
 import { computeVisibilityPolygon } from '../rendering/visibilityPolygon';
@@ -144,7 +145,8 @@ interface ReactionPhaseState {
     | 'TRAVERSE'
     | 'RALLY'
     | 'COMMAND_MOVE'
-    | 'COMMAND_RALLY';
+    | 'COMMAND_RALLY'
+    | 'PASS_DOOR';
   moverId: string;
   moverStart: Vec2;
   moverRadius: number;
@@ -185,6 +187,8 @@ export class BattleScene extends Phaser.Scene {
   private gameState!: GameState;
   private terrainGfx!: Phaser.GameObjects.Graphics;
   private terrainLabels: Phaser.GameObjects.Text[] = [];
+  private terrainTooltipEl: HTMLElement | null = null;
+  private terrainTooltipAlt = false;
   private objectivesGfx!: Phaser.GameObjects.Graphics;
   private objectiveLabels: Phaser.GameObjects.Text[] = [];
   private poisGfx!: Phaser.GameObjects.Graphics;
@@ -417,9 +421,12 @@ export class BattleScene extends Phaser.Scene {
     this.fitCamera();
     const resizeHandler = () => this.fitCamera();
     this.scale.on('resize', resizeHandler);
+    this.terrainTooltipEl = document.getElementById('terrain-tooltip');
+    this.terrainTooltipAlt = false;
     this.events.once('shutdown', () => {
       this.scale.off('resize', resizeHandler);
       this.hud?.hideUnitDetails();
+      this.hideTerrainTooltip();
     });
 
     this.renderTerrain();
@@ -458,6 +465,28 @@ export class BattleScene extends Phaser.Scene {
       this.startOverview();
     });
     this.input.keyboard?.on('keyup-V', () => this.endOverview());
+    this.input.keyboard?.on('keydown-ALT', (e: KeyboardEvent) => {
+      e.preventDefault();
+      this.terrainTooltipAlt = true;
+      // Re-render tooltip with detail content if one is already visible.
+      if (this.terrainTooltipEl?.classList.contains('visible')) {
+        const wp = this.cameras.main.getWorldPoint(
+          this.input.activePointer.x,
+          this.input.activePointer.y,
+        );
+        this.updateTerrainTooltip(wp, this.input.activePointer.x, this.input.activePointer.y);
+      }
+    });
+    this.input.keyboard?.on('keyup-ALT', () => {
+      this.terrainTooltipAlt = false;
+      if (this.terrainTooltipEl?.classList.contains('visible')) {
+        const wp = this.cameras.main.getWorldPoint(
+          this.input.activePointer.x,
+          this.input.activePointer.y,
+        );
+        this.updateTerrainTooltip(wp, this.input.activePointer.x, this.input.activePointer.y);
+      }
+    });
 
     this.hud = new Hud(
       (cmd) => this.dispatch(cmd),
@@ -617,22 +646,10 @@ export class BattleScene extends Phaser.Scene {
 
   private renderTerrain(): void {
     this.terrainGfx.clear();
-    // Destroy old terrain labels if any.
     for (const lbl of this.terrainLabels) lbl.destroy();
     this.terrainLabels = [];
     for (const t of this.gameState.terrain) {
       drawTerrain(this.terrainGfx, t);
-      if (t.displayName) {
-        const c = polygonCentroid(t.polygon.vertices);
-        const lbl = this.add.text(c.x, c.y, t.displayName, {
-          fontFamily: 'ui-monospace, monospace',
-          fontSize: '9px',
-          color: '#cfe8cf',
-        });
-        lbl.setOrigin(0.5);
-        lbl.setAlpha(0.6);
-        this.terrainLabels.push(lbl);
-      }
     }
   }
 
@@ -2506,16 +2523,21 @@ export class BattleScene extends Phaser.Scene {
     const wall = this.findContactedHardWallForUnit(u);
     const softTerrain = findContactedSoftTerrain(this.gameState.terrain, u);
     const canTraverse = softTerrain !== null;
-    if (!wall) return { canVault: false, canClimb: false, canTraverse };
+    const door = findContactedDoor(this.gameState.terrain, u);
+    const canOperateDoor = !!door && unitHasTrait(u, 'DOOR_OPERATOR');
+    const doorIsOpen = door?.isOpen ?? false;
+    const canPassDoor = !!door && doorIsOpen;
+    const doorContext = { canOperateDoor, doorIsOpen, canPassDoor };
+    if (!wall) return { canVault: false, canClimb: false, canTraverse, ...doorContext };
     if (
       wall.kind === 'BLOCKER' ||
       wall.kind === 'OUT_OF_BOUNDS' ||
       wall.kind === 'NO_ENTRY'
     ) {
-      return { canVault: false, canClimb: false, canTraverse };
+      return { canVault: false, canClimb: false, canTraverse, ...doorContext };
     }
     if (wall.kind === 'HIGH_GROUND') {
-      return { canVault: false, canClimb: !noClimb, canTraverse };
+      return { canVault: false, canClimb: !noClimb, canTraverse, ...doorContext };
     }
     const isLow =
       wall.height !== undefined && wall.height <= UNIT_DISTANCE_PIXELS;
@@ -2523,6 +2545,7 @@ export class BattleScene extends Phaser.Scene {
       canVault: isLow && !noVault,
       canClimb: !isLow && !noClimb,
       canTraverse,
+      ...doorContext,
     };
   }
 
@@ -2744,6 +2767,22 @@ export class BattleScene extends Phaser.Scene {
         const act = this.gameState.initiative.activeActivation;
         if (!act) return;
         this.enterTraverseReactionPhase();
+        return;
+      }
+      case 'REQUEST_OPERATE_DOOR': {
+        const act = this.gameState.initiative.activeActivation;
+        if (!act) return;
+        const u = this.gameState.units.find((x) => x.id === act.unitId);
+        if (!u) return;
+        const door = findContactedDoor(this.gameState.terrain, u);
+        if (!door) return;
+        this.dispatch({ type: 'OPERATE_DOOR', unitId: act.unitId, terrainId: door.id });
+        return;
+      }
+      case 'REQUEST_PASS_DOOR': {
+        const act = this.gameState.initiative.activeActivation;
+        if (!act) return;
+        this.enterVaultClimbReactionPhase('PASS_DOOR');
         return;
       }
       case 'REQUEST_COMMAND_RALLY': {
@@ -3005,6 +3044,13 @@ export class BattleScene extends Phaser.Scene {
           reactionPlan: plan,
         });
         break;
+      case 'PASS_DOOR':
+        this.dispatch({
+          type: 'PASS_DOOR',
+          unitId: r.moverId,
+          reactionPlan: plan,
+        });
+        break;
       case 'COMMAND_MOVE':
         if (r.commandMovePayload) {
           this.dispatch({
@@ -3032,13 +3078,52 @@ export class BattleScene extends Phaser.Scene {
     void stanceUsed;
   }
 
+  private hideTerrainTooltip(): void {
+    this.terrainTooltipEl?.classList.remove('visible');
+  }
+
+  private updateTerrainTooltip(wp: { x: number; y: number }, screenX: number, screenY: number): void {
+    const el = this.terrainTooltipEl;
+    if (!el) return;
+    const hit = this.gameState.terrain.find(
+      (t) =>
+        (t.briefHint || t.detailHint || t.displayName) &&
+        isPointInPolygon(wp, t.polygon),
+    );
+    if (!hit) {
+      el.classList.remove('visible');
+      return;
+    }
+    const name = hit.displayName ?? '';
+    const hint = this.terrainTooltipAlt
+      ? (hit.detailHint ?? hit.briefHint ?? '')
+      : (hit.briefHint ?? '');
+    const altLabel = !this.terrainTooltipAlt && hit.detailHint
+      ? '按住 Alt 查看詳細說明'
+      : '';
+    el.innerHTML =
+      (name ? `<div class="tt-name">${name}</div>` : '') +
+      (hint ? `<div class="tt-hint">${hint}</div>` : '') +
+      (altLabel ? `<div class="tt-alt-label">${altLabel}</div>` : '');
+    // Position tooltip 14px right + 14px below cursor, flip left if near right edge.
+    const pad = 14;
+    const vw = window.innerWidth;
+    const right = screenX + pad + 260 > vw;
+    el.style.left = right ? `${screenX - 260 - pad}px` : `${screenX + pad}px`;
+    el.style.top = `${screenY + pad}px`;
+    el.classList.add('visible');
+  }
+
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
     if (this.panDrag) {
       const cam = this.cameras.main;
       cam.scrollX = this.panDrag.scrollX + (this.panDrag.x - pointer.x) / cam.zoom;
       cam.scrollY = this.panDrag.scrollY + (this.panDrag.y - pointer.y) / cam.zoom;
+      this.hideTerrainTooltip();
       return;
     }
+    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    this.updateTerrainTooltip(wp, pointer.x, pointer.y);
     // LOS preview overlay: only when idle (not aiming / not in reaction
     // phase). Showing during aim modes would add visual noise on top of
     // the aim cursor + move-preview lines.
@@ -3055,18 +3140,15 @@ export class BattleScene extends Phaser.Scene {
       this.updateUnitDetailPanel();
     }
     if (this.aimMode === 'aim-command-move-officer') {
-      const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       this.updateMovePreview({ x: wp.x, y: wp.y });
       return;
     }
     if (this.aimMode === 'aim-command-move-participant') {
       this.drawCommandMoveOverlay();
-      const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       this.drawCommandMoveCursorPreview({ x: wp.x, y: wp.y });
       return;
     }
     if (this.aimMode !== 'aim-move') return;
-    const wp = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
     if (this.moveFacingDrag) {
       const dx = wp.x - this.moveFacingDrag.target.x;
       const dy = wp.y - this.moveFacingDrag.target.y;
@@ -3342,22 +3424,32 @@ export class BattleScene extends Phaser.Scene {
     this.maybeScheduleAiTick();
   }
 
-  private enterVaultClimbReactionPhase(commandType: 'VAULT' | 'CLIMB'): void {
+  private enterVaultClimbReactionPhase(commandType: 'VAULT' | 'CLIMB' | 'PASS_DOOR'): void {
     const act = this.gameState.initiative.activeActivation;
     if (!act) return;
     const u = this.gameState.units.find((x) => x.id === act.unitId);
     if (!u) return;
-    const wall = this.findContactedHardWallForUnit(u);
-    if (!wall) {
-      this.hud.pushError(`${u.id} not touching a wall`);
-      return;
+    let dest: import('../../core/geometry/types').Vec2;
+    if (commandType === 'PASS_DOOR') {
+      const door = findContactedDoor(this.gameState.terrain, u);
+      if (!door) {
+        this.hud.pushError(`${u.id} not touching a door`);
+        return;
+      }
+      dest = vaultDestination(u, door.polygon.vertices);
+    } else {
+      const wall = this.findContactedHardWallForUnit(u);
+      if (!wall) {
+        this.hud.pushError(`${u.id} not touching a wall`);
+        return;
+      }
+      dest =
+        commandType === 'VAULT'
+          ? vaultDestination(u, wall.polygon.vertices)
+          : wall.kind === 'HIGH_GROUND'
+            ? traverseDestination(u, wall.polygon)
+            : climbDestination(u, wall.polygon.vertices);
     }
-    const dest =
-      commandType === 'VAULT'
-        ? vaultDestination(u, wall.polygon.vertices)
-        : wall.kind === 'HIGH_GROUND'
-          ? traverseDestination(u, wall.polygon)
-          : climbDestination(u, wall.polygon.vertices);
 
     const enemies = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))

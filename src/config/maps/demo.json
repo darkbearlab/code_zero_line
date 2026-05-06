@@ -8,6 +8,8 @@
       "kind": "HARD",
       "height": 24,
       "displayName": "矮牆",
+      "briefHint": "提供掩體；趴下時遮蔽視線",
+      "detailHint": "射擊：目標若在牆後獲得掩體（-1 骰）。站立單位可翻越（結束移動，消耗行動）。趴下時，牆高足以完全遮蔽視線，無法被越過射擊。",
       "polygon": {
         "vertices": [
           { "x": 307.2, "y": 322.56 },
@@ -22,6 +24,8 @@
       "kind": "HARD",
       "height": 200,
       "displayName": "高牆",
+      "briefHint": "永遠遮蔽視線；可攀爬越過",
+      "detailHint": "無論站立或趴下，高牆完全阻斷視線與射擊。可以攀爬動作越過（消耗整次啟動，本主動權內不可再行動）。無法翻越。",
       "polygon": {
         "vertices": [
           { "x": 92.16, "y": 384 },
@@ -36,6 +40,8 @@
       "kind": "HARD",
       "height": 200,
       "displayName": "高牆",
+      "briefHint": "永遠遮蔽視線；可攀爬越過",
+      "detailHint": "無論站立或趴下，高牆完全阻斷視線與射擊。可以攀爬動作越過（消耗整次啟動，本主動權內不可再行動）。無法翻越。",
       "polygon": {
         "vertices": [
           { "x": 660.48, "y": 245.76 },
@@ -49,6 +55,8 @@
       "id": "rubble-mid",
       "kind": "DIFFICULT",
       "displayName": "瓦礫堆",
+      "briefHint": "困難地形：移動上限 1 距離單位",
+      "detailHint": "從困難地形出發的單位，本次移動最多 1 距離單位，且移動後啟動結束、本主動權內不可再啟動該單位。不影響視線與射擊。",
       "polygon": {
         "vertices": [
           { "x": 220, "y": 420 },
@@ -62,6 +70,8 @@
       "id": "smoke-right",
       "kind": "SOFT",
       "displayName": "煙幕",
+      "briefHint": "提供掩體；不阻擋通行",
+      "detailHint": "煙幕為軟質掩蔽：射擊穿越煙幕時目標獲得掩體（-1 骰）。單位可自由進出，不影響移動。不阻斷視線，但降低命中機率。",
       "polygon": {
         "vertices": [
           { "x": 470, "y": 430 },
@@ -76,6 +86,8 @@
       "kind": "HARD",
       "height": 200,
       "displayName": "中央碉堡",
+      "briefHint": "永遠遮蔽視線；可攀爬越過",
+      "detailHint": "無論站立或趴下，高牆完全阻斷視線與射擊。可以攀爬動作越過（消耗整次啟動，本主動權內不可再行動）。無法翻越。",
       "polygon": {
         "vertices": [
           { "x": 336, "y": 348 },
@@ -90,6 +102,8 @@
       "kind": "HARD",
       "height": 32,
       "displayName": "板條箱",
+      "briefHint": "提供掩體；趴下時遮蔽視線",
+      "detailHint": "射擊：目標若在箱後獲得掩體（-1 骰）。站立單位可翻越（結束移動，消耗行動）。趴下時，箱高足以完全遮蔽視線。",
       "polygon": {
         "vertices": [
           { "x": 200, "y": 224 },
@@ -104,6 +118,8 @@
       "kind": "HARD",
       "height": 32,
       "displayName": "板條箱",
+      "briefHint": "提供掩體；趴下時遮蔽視線",
+      "detailHint": "射擊：目標若在箱後獲得掩體（-1 骰）。站立單位可翻越（結束移動，消耗行動）。趴下時，箱高足以完全遮蔽視線。",
       "polygon": {
         "vertices": [
           { "x": 508, "y": 224 },
@@ -118,6 +134,8 @@
       "kind": "HARD",
       "height": 32,
       "displayName": "板條箱",
+      "briefHint": "提供掩體；趴下時遮蔽視線",
+      "detailHint": "射擊：目標若在箱後獲得掩體（-1 骰）。站立單位可翻越（結束移動，消耗行動）。趴下時，箱高足以完全遮蔽視線。",
       "polygon": {
         "vertices": [
           { "x": 200, "y": 540 },
@@ -128,10 +146,28 @@
       }
     },
     {
+      "id": "door-test",
+      "kind": "DOOR",
+      "doorStyle": "shutter",
+      "displayName": "鐵捲門",
+      "briefHint": "關閉：阻擋通行與視線；開啟：任何人可穿越",
+      "detailHint": "帶有 DOOR_OPERATOR 特性的單位在 1 英吋內可開關門（消耗 1 行動）。門開啟時任何單位可執行穿門行動（邏輯同翻越，不 FORCED_END）。",
+      "polygon": {
+        "vertices": [
+          { "x": 376, "y": 490 },
+          { "x": 392, "y": 490 },
+          { "x": 392, "y": 502 },
+          { "x": 376, "y": 502 }
+        ]
+      }
+    },
+    {
       "id": "fwd-crate-a-right",
       "kind": "HARD",
       "height": 32,
       "displayName": "板條箱",
+      "briefHint": "提供掩體；趴下時遮蔽視線",
+      "detailHint": "射擊：目標若在箱後獲得掩體（-1 骰）。站立單位可翻越（結束移動，消耗行動）。趴下時，箱高足以完全遮蔽視線。",
       "polygon": {
         "vertices": [
           { "x": 508, "y": 540 },

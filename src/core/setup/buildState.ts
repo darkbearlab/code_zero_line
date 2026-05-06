@@ -61,6 +61,10 @@ export const buildInitialState = (input: BuildInitialStateInput): GameState => {
       polygon: t.polygon,
       ...(t.height !== undefined ? { height: t.height } : {}),
       ...(t.displayName !== undefined ? { displayName: t.displayName } : {}),
+      ...(t.briefHint !== undefined ? { briefHint: t.briefHint } : {}),
+      ...(t.detailHint !== undefined ? { detailHint: t.detailHint } : {}),
+      ...(t.kind === 'DOOR' ? { isOpen: t.isOpen ?? false } : {}),
+      ...(t.doorStyle !== undefined ? { doorStyle: t.doorStyle } : {}),
     })),
     ...(objectives.length > 0 ? { objectives } : {}),
     initiative: {

@@ -129,6 +129,14 @@ export const TRAITS: Readonly<Record<string, TraitDef>> = {
     cannotVault: true,
   },
 
+  // ✓ DOOR_OPERATOR — wired in reducer (OPERATE_DOOR) + UI traversal context.
+  DOOR_OPERATOR: {
+    id: 'DOOR_OPERATOR',
+    displayName: '開門許可',
+    description: '可以開關門（OPERATE_DOOR 行動）。',
+    canOperateDoor: true,
+  },
+
   // ──────────────────────────────────────────────────────────────────
   // Category tags — pure classification, no inherent effect. Used by
   // outside systems (combat-intel meta, scenario gates, AI targeting

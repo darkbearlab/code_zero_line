@@ -19,11 +19,14 @@ const IMPULSIVE_DEPS: ImpulsiveDeps = {
 };
 import {
   climbDestination,
+  distToPolygonEdge,
+  findContactedDoor,
   findContactedHardWall,
   findContactedSoftTerrain,
   traverseDestination,
   vaultDestination,
 } from '../geometry/wallTraversal';
+import { TERRAIN_INTERACT_REACH_PIXELS } from '../rules/constants';
 import type { Vec2 } from '../geometry/types';
 import { v2Dist, v2Lerp } from '../geometry/vec2';
 import { resolveShot } from '../resolution/shooting';
@@ -55,6 +58,7 @@ import {
   movementBlockingPolygons,
   movementEnterStopPolygons,
   movementExitStopPolygons,
+  updateTerrain,
   updateUnit,
 } from '../state/GameState';
 import type {
@@ -439,6 +443,9 @@ const activateCheck = (
       actionsRemaining: cap ?? -1,
       failureProtection: false,
       forcedTurnoverAfterAction: false,
+      // CUMBERSOME (and any future trait cap): when all allowed actions are
+      // spent, lock the unit for the rest of the initiative without turnover.
+      lockWhenDone: cap !== undefined,
     });
     return {
       state: next,
@@ -569,7 +576,7 @@ const passInitiative = (s: GameState, cmdIndex: number): CommandResult => {
   return turnover(s, 'VOLUNTARY', TURNOVER_MOMENTUM_GRANT, cmdIndex);
 };
 
-type ActionOutcome = 'SUCCESS' | 'FAILURE' | 'REACTION_HIT' | 'FORCED_END';
+type ActionOutcome = 'SUCCESS' | 'FAILURE' | 'REACTION_HIT' | 'FORCED_END' | 'NORMAL_END';
 
 /**
  * Apply per-action bookkeeping after an action command executes:
@@ -591,9 +598,33 @@ const processPostAction = (
     return turnover(cleared, 'REACTION_HIT', TURNOVER_MOMENTUM_GRANT, cmdIndex);
   }
 
+  // CUMBERSOME (and other trait-capped activations): action failure locks the
+  // unit for the rest of the initiative but does NOT cause turnover.
+  if (outcome === 'FAILURE' && act.lockWhenDone) {
+    const locked = updateUnit(s, act.unitId, { lockedThisInitiative: true });
+    const cleared = setActivation(locked, null);
+    return {
+      state: cleared,
+      events: [{ type: 'ACTIVATION_ENDED', unitId: act.unitId, reason: 'NORMAL' }],
+    };
+  }
+
   if (outcome === 'FAILURE' && !act.failureProtection) {
     const cleared = setActivation(s, null);
     return turnover(cleared, 'ACTION_FAILED', TURNOVER_MOMENTUM_GRANT, cmdIndex);
+  }
+
+  // NORMAL_END: action completed; activation ends without turnover and without
+  // locking the unit. Used by COMMAND_MOVE and COMMAND_RALLY — the officer
+  // finishes the command action but remains eligible for re-activation this round.
+  if (outcome === 'NORMAL_END') {
+    const cleared = setActivation(s, null);
+    return {
+      state: cleared,
+      events: [
+        { type: 'ACTIVATION_ENDED', unitId: act.unitId, reason: 'NORMAL' },
+      ],
+    };
   }
 
   // FORCED_END: action completed but activation ends without turnover.
@@ -625,6 +656,16 @@ const processPostAction = (
     act.actionsRemaining > 0 ? act.actionsRemaining - 1 : act.actionsRemaining;
 
   if (remaining === 0) {
+    // Trait-capped (e.g. CUMBERSOME): lock the unit this initiative on action
+    // exhaustion regardless of action outcome, no turnover.
+    if (act.lockWhenDone) {
+      const locked = updateUnit(s, act.unitId, { lockedThisInitiative: true });
+      const cleared = setActivation(locked, null);
+      return {
+        state: cleared,
+        events: [{ type: 'ACTIVATION_ENDED', unitId: act.unitId, reason: 'NORMAL' }],
+      };
+    }
     const cleared = setActivation(s, null);
     if (act.forcedTurnoverAfterAction) {
       const reason: TurnoverReason =
@@ -893,10 +934,23 @@ const moveAction = (
     cmdIndex,
   );
 
-  const finalEndpoint =
+  const rawInterruptEndpoint =
     reactionResult.interruptT !== null
       ? v2Lerp(u.position, path.endpoint, reactionResult.interruptT)
       : path.endpoint;
+  // When reaction interrupts mid-move, re-resolve the stop point against
+  // friendlyCircles so the unit doesn't overlap an ally it passed through.
+  const finalEndpoint =
+    reactionResult.interruptT !== null
+      ? computeMovePath(u.position, rawInterruptEndpoint, {
+          polygons: [],
+          enterStopPolygons: [],
+          exitStopPolygons: [],
+          enemyCircles: [],
+          friendlyCircles,
+          moverRadius: u.radius,
+        }).endpoint
+      : rawInterruptEndpoint;
   // End-of-move stance: explicit endProne flag → drop prone (rule 4.5).
   // Forbidden when starting in difficult terrain (rule 4.2C). Suppression
   // during reaction already sets PRONE via the shooting resolver, so we only
@@ -1379,6 +1433,103 @@ const traverseAction = (
 };
 
 /**
+ * OPERATE_DOOR — open or close a DOOR terrain. Requires DOOR_OPERATOR trait.
+ * Consumes 1 action; no movement, no reaction window.
+ */
+const operateDoorAction = (
+  s: GameState,
+  unitId: string,
+  terrainId: string,
+  cmdIndex: number,
+): CommandResult => {
+  const act = s.initiative.activeActivation;
+  if (!act || act.unitId !== unitId) {
+    throw new CommandError('NO_ACTIVE_UNIT', `Unit ${unitId} is not the active unit`);
+  }
+  const u = findUnit(s, unitId);
+  if (!u) throw new CommandError('UNIT_NOT_FOUND', `Unit ${unitId} not found`);
+  if (!isUnitAlive(u)) throw new CommandError('UNIT_DEAD', `${unitId} is dead`);
+  if (u.damage === 'SUPPRESSED') {
+    throw new CommandError('SUPPRESSED', `${unitId} cannot act while SUPPRESSED`);
+  }
+  if (!unitHasTrait(u, 'DOOR_OPERATOR')) {
+    throw new CommandError('NO_DOOR_OPERATOR', `${unitId} lacks DOOR_OPERATOR trait`);
+  }
+  const door = s.terrain.find((t) => t.id === terrainId);
+  if (!door) throw new CommandError('TERRAIN_NOT_FOUND', `Terrain ${terrainId} not found`);
+  if (door.kind !== 'DOOR') {
+    throw new CommandError('NOT_A_DOOR', `Terrain ${terrainId} is not a DOOR`);
+  }
+  const dist = distToPolygonEdge(u.position, door.polygon.vertices);
+  if (dist > u.radius + TERRAIN_INTERACT_REACH_PIXELS) {
+    throw new CommandError('TOO_FAR', `${unitId} is too far from door ${terrainId}`);
+  }
+  const newIsOpen = !door.isOpen;
+  const newState = updateTerrain(s, terrainId, { isOpen: newIsOpen });
+  const doorEvent: GameEvent = {
+    type: 'DOOR_OPERATED',
+    unitId,
+    terrainId,
+    isOpen: newIsOpen,
+  };
+  const post = processPostAction(newState, 'SUCCESS', cmdIndex);
+  return { state: post.state, events: [doorEvent, ...post.events] };
+};
+
+/**
+ * PASS_DOOR — move through an open door in a single action (like VAULT but no
+ * FORCED_END). Door must be open. No trait required.
+ */
+const passDoorAction = (
+  s: GameState,
+  unitId: string,
+  reactionPlan: ReactionPlan | undefined,
+  cmdIndex: number,
+): CommandResult => {
+  const act = s.initiative.activeActivation;
+  if (!act || act.unitId !== unitId) {
+    throw new CommandError('NO_ACTIVE_UNIT', `Unit ${unitId} is not the active unit`);
+  }
+  const u = findUnit(s, unitId);
+  if (!u) throw new CommandError('UNIT_NOT_FOUND', `Unit ${unitId} not found`);
+  if (!isUnitAlive(u)) throw new CommandError('UNIT_DEAD', `${unitId} is dead`);
+  if (u.damage === 'IMPEDED' || u.damage === 'SUPPRESSED') {
+    throw new CommandError('CANNOT_MOVE', `${unitId} cannot pass door while ${u.damage}`);
+  }
+  const door = findContactedDoor(s.terrain, u);
+  if (!door) {
+    throw new CommandError('NOT_TOUCHING_DOOR', `${unitId} not in contact with any door`);
+  }
+  if (!door.isOpen) {
+    throw new CommandError('DOOR_CLOSED', `Door ${door.id} is closed — open it first`);
+  }
+  const dest = vaultDestination(u, door.polygon.vertices);
+  ensureLandingClear(s, u, dest);
+
+  const reactionResult = resolveReactionPlan(s, unitId, u.position, dest, reactionPlan, cmdIndex);
+  const finalEndpoint =
+    reactionResult.interruptT !== null
+      ? v2Lerp(u.position, dest, reactionResult.interruptT)
+      : dest;
+  const moved = updateUnit(reactionResult.state, unitId, { position: finalEndpoint });
+
+  const moveEvent: GameEvent = {
+    type: 'MOVE_RESOLVED',
+    unitId,
+    from: u.position,
+    to: finalEndpoint,
+    stopReason: 'TARGET',
+    distance: v2Dist(u.position, finalEndpoint),
+    reactionWindows: [],
+    interruptedByMarker: reactionResult.interruptedByMarker,
+  };
+
+  const outcome: ActionOutcome = reactionOutcomeAfterFodder(u, reactionResult);
+  const post = processPostAction(moved, outcome, cmdIndex);
+  return { state: post.state, events: [moveEvent, ...reactionResult.events, ...post.events] };
+};
+
+/**
  * Compute one mover's effective target accounting for stance choices:
  *  - Crawl: cap to 1 unit-distance (rule 4.5).
  */
@@ -1712,7 +1863,7 @@ const commandMoveAction = (
 
   const outcome: ActionOutcome = groupReaction.suppressOrKillCaused
     ? 'REACTION_HIT'
-    : 'FORCED_END';
+    : 'SUCCESS';
   const post = processPostAction(finalState, outcome, cmdIndex);
   return { state: post.state, events: [...events, ...post.events] };
 };
@@ -1840,9 +1991,10 @@ const commandRallyAction = (
     }
   }
 
-  // Command rally always ends activation without turnover, even if some
-  // checks failed (per rule "行動完成後，軍官的啟動結束").
-  const post = processPostAction(finalState, 'FORCED_END', cmdIndex);
+  // Command rally uses 1 action from the activation budget. For CHECK_SUCCESS
+  // (unlimited), this allows the officer to continue acting. For SPEND (1 action),
+  // remaining hits 0 and the activation ends normally without turnover.
+  const post = processPostAction(finalState, 'SUCCESS', cmdIndex);
   return { state: post.state, events: [...events, ...post.events] };
 };
 
@@ -2244,6 +2396,10 @@ const applyCommandInner = (
       );
     case 'RALLY':
       return rallyAction(s, cmd.unitId, cmd.reactionPlan, cmdIndex);
+    case 'OPERATE_DOOR':
+      return operateDoorAction(s, cmd.unitId, cmd.terrainId, cmdIndex);
+    case 'PASS_DOOR':
+      return passDoorAction(s, cmd.unitId, cmd.reactionPlan, cmdIndex);
   }
 };
 

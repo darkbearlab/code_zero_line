@@ -95,7 +95,13 @@ export type CoverKind =
    * freely as if the polygon weren't there. Use for inaccessible
    * architectural voids that don't visually obstruct.
    */
-  | 'NO_ENTRY';
+  | 'NO_ENTRY'
+  /**
+   * 門 — interactable barrier. Blocks movement and LOS when closed
+   * (`isOpen === false`). A unit with DOOR_OPERATOR trait can open/close
+   * it (OPERATE_DOOR). Any unit can pass through an open door (PASS_DOOR).
+   */
+  | 'DOOR';
 
 export interface Terrain {
   readonly id: string;
@@ -110,6 +116,14 @@ export interface Terrain {
   readonly height?: number;
   /** Human label for debug/UI ("矮牆" / "高牆" / "瓦礫" / "煙幕" etc.). */
   readonly displayName?: string;
+  /** One-line tooltip shown on hover (no Alt). */
+  readonly briefHint?: string;
+  /** Full tooltip shown when Alt is held — rules interactions, traversal notes. */
+  readonly detailHint?: string;
+  /** Runtime door state. Undefined for non-DOOR terrain; false = closed, true = open. */
+  readonly isOpen?: boolean;
+  /** Visual style hint for DOOR rendering. shutter/blast/auto disappear when open; hinged would rotate. */
+  readonly doorStyle?: 'shutter' | 'blast' | 'auto' | 'hinged';
 }
 
 export type ActivationKind = 'SPEND' | 'CHECK_SUCCESS' | 'OVERDRAFT';
@@ -123,6 +137,13 @@ export interface ActiveActivation {
   readonly failureProtection: boolean;
   /** Turnover triggers automatically when this activation ends (OVERDRAFT, forced-pay rescue). */
   readonly forcedTurnoverAfterAction: boolean;
+  /**
+   * When true, the unit is locked (lockedThisInitiative) when the activation
+   * ends, regardless of action outcome. Set for trait-capped activations
+   * (e.g. CUMBERSOME) so the action-count limit blocks re-activation this
+   * initiative without causing turnover.
+   */
+  readonly lockWhenDone?: boolean;
   /** Momentum deficit granted to opponent at turnover (OVERDRAFT only). */
   readonly overdraftDeficit?: number;
   /**
@@ -284,6 +305,15 @@ export const updateUnit = (
   units: s.units.map((u) => (u.id === id ? { ...u, ...patch } : u)),
 });
 
+export const updateTerrain = (
+  s: GameState,
+  id: string,
+  patch: Partial<Terrain>,
+): GameState => ({
+  ...s,
+  terrain: s.terrain.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+});
+
 /**
  * A HARD terrain whose height is ≤ 1 unit-distance is considered a low wall:
  * vault-able and blocks LOS *only* against prone targets (rule 4.5 — prone
@@ -373,6 +403,8 @@ export const movementBlockingPolygons = (
       t.kind === 'OUT_OF_BOUNDS' ||
       t.kind === 'NO_ENTRY'
     ) {
+      out.push(t.polygon);
+    } else if (t.kind === 'DOOR' && !t.isOpen) {
       out.push(t.polygon);
     } else if (t.kind === 'HIGH_GROUND') {
       if (!isPointInPolygon(fromPosition, t.polygon)) {

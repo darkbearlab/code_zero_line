@@ -1,6 +1,7 @@
 import type { Polygon, Vec2 } from './types';
 import { isPointInPolygon } from './polygon';
 import type { Terrain, Unit } from '../state/GameState';
+import { TERRAIN_INTERACT_REACH_PIXELS } from '../rules/constants';
 
 /**
  * Find a wall-like terrain piece (HARD / BLOCKER / HIGH_GROUND /
@@ -16,7 +17,7 @@ import type { Terrain, Unit } from '../state/GameState';
 export const findContactedWall = (
   terrains: ReadonlyArray<Terrain>,
   unit: Unit,
-  epsilon = 4,
+  epsilon = TERRAIN_INTERACT_REACH_PIXELS,
 ): Terrain | null => {
   for (const t of terrains) {
     if (
@@ -63,7 +64,7 @@ export const findContactedHardWall = findContactedWall;
 export const findContactedSoftTerrain = (
   terrains: ReadonlyArray<Terrain>,
   unit: Unit,
-  epsilon = 4,
+  epsilon = TERRAIN_INTERACT_REACH_PIXELS,
 ): Terrain | null => {
   for (const t of terrains) {
     if (t.kind !== 'DIFFICULT' && t.kind !== 'SOFT') continue;
@@ -87,6 +88,43 @@ export const findContactedSoftTerrain = (
       const dist = Math.hypot(unit.position.x - px, unit.position.y - py);
       if (dist <= unit.radius + epsilon) return t;
     }
+  }
+  return null;
+};
+
+/**
+ * Minimum distance from a point to any edge of a polygon.
+ * Shared by findContactedWall, findContactedDoor, and operateDoorAction.
+ */
+export const distToPolygonEdge = (pos: Vec2, verts: ReadonlyArray<Vec2>): number => {
+  let best = Infinity;
+  for (let i = 0, j = verts.length - 1; i < verts.length; j = i++) {
+    const a = verts[j]!;
+    const b = verts[i]!;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) continue;
+    const tt = Math.max(0, Math.min(1, ((pos.x - a.x) * dx + (pos.y - a.y) * dy) / lenSq));
+    const px = a.x + dx * tt;
+    const py = a.y + dy * tt;
+    best = Math.min(best, Math.hypot(pos.x - px, pos.y - py));
+  }
+  return best;
+};
+
+/**
+ * Find a DOOR terrain whose edge the unit can reach.
+ */
+export const findContactedDoor = (
+  terrains: ReadonlyArray<Terrain>,
+  unit: Unit,
+  epsilon = TERRAIN_INTERACT_REACH_PIXELS,
+): Terrain | null => {
+  for (const t of terrains) {
+    if (t.kind !== 'DOOR') continue;
+    const dist = distToPolygonEdge(unit.position, t.polygon.vertices);
+    if (dist <= unit.radius + epsilon) return t;
   }
   return null;
 };

@@ -27,6 +27,12 @@ export interface MapTerrainDef {
   readonly polygon: Polygon;
   readonly height?: number;
   readonly displayName?: string;
+  /** One-line tooltip shown on hover (no Alt). E.g. "提供掩體；趴下時遮蔽視線" */
+  readonly briefHint?: string;
+  /** Full tooltip shown when Alt is held. Rules interactions, traversal notes, etc. */
+  readonly detailHint?: string;
+  readonly isOpen?: boolean;
+  readonly doorStyle?: 'shutter' | 'blast' | 'auto' | 'hinged';
 }
 
 /**

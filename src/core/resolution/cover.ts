@@ -84,6 +84,10 @@ export const coverDetail = (
       hardPolys.push(t.polygon);
       continue;
     }
+    if (t.kind === 'DOOR') {
+      if (!t.isOpen) hardPolys.push(t.polygon);
+      continue;
+    }
     if (t.kind !== 'HARD') continue;
     const high = isHighWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS);
     const low = isLowWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS);

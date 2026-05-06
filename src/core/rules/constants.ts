@@ -36,3 +36,6 @@ export const CRAWL_MAX_DISTANCE_PIXELS = UNIT_DISTANCE_PIXELS;
 
 /** Difficult-terrain start-in move cap (rule 4.2 C — 穿越與脫離). */
 export const DIFFICULT_TERRAIN_START_IN_CAP_PIXELS = UNIT_DISTANCE_PIXELS;
+
+/** Max gap between unit edge and terrain edge for terrain interactions (vault / climb / traverse / door). = 1 inch. */
+export const TERRAIN_INTERACT_REACH_PIXELS = UNIT_DISTANCE_PIXELS / 3;

@@ -33,6 +33,8 @@ export type ActionRequest =
   | 'REQUEST_VAULT'
   | 'REQUEST_CLIMB'
   | 'REQUEST_TRAVERSE'
+  | 'REQUEST_OPERATE_DOOR'
+  | 'REQUEST_PASS_DOOR'
   | 'REQUEST_COMMAND_RALLY'
   | 'REQUEST_COMMAND_MOVE'
   | 'CHOOSE_MOVE_STANDING'
@@ -132,6 +134,9 @@ export interface TraversalContext {
   readonly canVault: boolean;
   readonly canClimb: boolean;
   readonly canTraverse: boolean;
+  readonly canOperateDoor?: boolean;
+  readonly doorIsOpen?: boolean;
+  readonly canPassDoor?: boolean;
 }
 
 export interface MovePreviewContext {
@@ -913,6 +918,15 @@ export class Hud {
       if (canMove && ctx?.traversal?.canTraverse) {
         this.addReqBtn('穿越地形邊緣', 'REQUEST_TRAVERSE');
       }
+      if (canMove && ctx?.traversal?.canOperateDoor) {
+        this.addReqBtn(
+          ctx.traversal.doorIsOpen ? '關門' : '開門',
+          'REQUEST_OPERATE_DOOR',
+        );
+      }
+      if (canMove && ctx?.traversal?.canPassDoor) {
+        this.addReqBtn('穿門', 'REQUEST_PASS_DOOR');
+      }
       if (ctx?.commandRally?.canStart) {
         this.addReqBtn(
           '指揮整頓…(軍官 + 鄰近友軍)',
@@ -1675,5 +1689,7 @@ const formatEvent = (e: GameEvent): string => {
       return `🌙 隱蔽即將揭示(${e.reason}) — 敵方全滅`;
     case 'STEALTH_BROKEN':
       return `⚠ 隱蔽揭示(${e.reason}${e.deferred ? ',延遲' : ''})`;
+    case 'DOOR_OPERATED':
+      return `🚪 ${e.unitId} ${e.isOpen ? '開門' : '關門'}(${e.terrainId})`;
   }
 };

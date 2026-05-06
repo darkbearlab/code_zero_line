@@ -108,8 +108,10 @@ export const buildLosBlockers = (
           blockers.push(t.polygon);
         }
       }
+    } else if (t.kind === 'DOOR') {
+      if (!t.isOpen) blockers.push(t.polygon);
     }
-    // DIFFICULT — no LOS effect (only grants cover when target inside).
+    // DIFFICULT / DOOR(open) — no LOS effect.
   }
   return blockers;
 };

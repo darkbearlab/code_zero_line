@@ -69,6 +69,8 @@ export interface TraitDef {
   readonly cannotClimb?: boolean;
   /** Unit cannot VAULT. Same chassis-shape rationale as cannotClimb. */
   readonly cannotVault?: boolean;
+  /** Unit can open and close DOOR terrain (OPERATE_DOOR action). */
+  readonly canOperateDoor?: boolean;
   /** Marker that more complex behavior is required and not yet implemented. */
   readonly tbd?: boolean;
 }
