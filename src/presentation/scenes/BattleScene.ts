@@ -4316,12 +4316,20 @@ export class BattleScene extends Phaser.Scene {
       }
     }
 
-    const stoppingPolygons = this.gameState.terrain
-      .filter((t) => t.kind === 'HARD')
-      .map((t) => t.polygon);
-    const enterStopPolygons = this.gameState.terrain
-      .filter((t) => t.kind === 'DIFFICULT')
-      .map((t) => t.polygon);
+    // Use the same blocking/edge-stop sets as the reducer so the preview
+    // circle matches what `MOVE` will actually produce — including BLOCKER
+    // / OUT_OF_BOUNDS / NO_ENTRY / HIGH_GROUND, plus closed DOOR (open
+    // doors are passable, the terrain helpers honour `isOpen` per rule
+    // §門地形) and SOFT smoke entry/exit.
+    const stoppingPolygons = movementBlockingPolygons(
+      this.gameState.terrain,
+      u.position,
+    );
+    const enterStopPolygons = movementEnterStopPolygons(this.gameState.terrain);
+    const exitStopPolygons = movementExitStopPolygons(
+      this.gameState.terrain,
+      u.position,
+    );
     const enemyCircles = this.gameState.units
       .filter((o) => o.faction !== u.faction && isUnitAlive(o))
       .map(getUnitCircle);
@@ -4333,6 +4341,7 @@ export class BattleScene extends Phaser.Scene {
     const path = computeMovePath(u.position, target, {
       polygons: stoppingPolygons,
       enterStopPolygons,
+      exitStopPolygons,
       enemyCircles,
       friendlyCircles,
       moverRadius: u.radius,
