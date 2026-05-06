@@ -232,8 +232,17 @@ export const drawTerrain = (
   g: Phaser.GameObjects.Graphics,
   t: Terrain,
 ): void => {
-  // Open door (non-hinged): remove from scene — unit can walk through freely.
-  if (t.kind === 'DOOR' && t.isOpen && t.doorStyle !== 'hinged') return;
+  // Open door (non-hinged): draw a faded dashed outline so the player can
+  // still see where the doorway is — units pass through freely but the
+  // empty frame stays on the map as an unambiguous "this is a passable
+  // doorway" marker. Closed doors render as a solid rectangle below.
+  if (t.kind === 'DOOR' && t.isOpen && t.doorStyle !== 'hinged') {
+    const verts = t.polygon.vertices;
+    if (verts.length === 0) return;
+    g.lineStyle(2, 0xd4a84a, 0.45);
+    strokePolygonDashed(g, verts, true);
+    return;
+  }
   const verts = t.polygon.vertices;
   if (verts.length === 0) return;
   const style = styleFor(t);

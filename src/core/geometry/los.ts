@@ -109,7 +109,14 @@ export const buildLosBlockers = (
         }
       }
     } else if (t.kind === 'DOOR') {
-      if (!t.isOpen) blockers.push(t.polygon);
+      // Closed door blocks LOS like a HARD high wall — including the
+      // high-ground bypass: when both endpoints are elevated, a closed
+      // door at ground level no longer obstructs (rule consistency with
+      // §9.1 high-wall treatment).
+      if (!t.isOpen) {
+        if (highObstacleBypass) continue;
+        blockers.push(t.polygon);
+      }
     }
     // DIFFICULT / DOOR(open) — no LOS effect.
   }

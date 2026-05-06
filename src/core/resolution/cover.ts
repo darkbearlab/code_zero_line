@@ -90,7 +90,11 @@ export const coverDetail = (
       continue;
     }
     if (t.kind === 'DOOR') {
-      if (!t.isOpen) hardPolys.push(t.polygon);
+      // Closed door = high wall for cover (same bothOnHigh bypass as
+      // HARD high walls). Open door is transparent.
+      if (!t.isOpen) {
+        if (!bothOnHigh) hardPolys.push(t.polygon);
+      }
       continue;
     }
     if (t.kind !== 'HARD') continue;
