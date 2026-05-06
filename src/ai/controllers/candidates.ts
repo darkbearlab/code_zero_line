@@ -164,8 +164,16 @@ const generateMoveCandidates: CommandGenerator = (state, faction, unit) => {
     distance: UNIT_DISTANCE_PIXELS,
     stopShort: unit.radius + 12,
   });
+  // Charge candidate: target the nearest enemy's centre directly. The
+  // reducer's path collision clips this to base contact, where auto-melee
+  // (rule §4.7) fires immediately. Lookahead evaluates the post-melee state
+  // so it'll pick this when the kill probability beats shooting. Only added
+  // when the unit has a melee weapon — bare-handed charges are a guaranteed
+  // loss.
+  const hasMeleeWeapon = unit.weapons.some((w) => w.kind === 'MELEE');
   const targets: Vec2[] = [
     pathStep,
+    ...(hasMeleeWeapon ? [anchor] : []),
     ...radialMoveTargets(unit, anchor),
     ...terrainAimedTargets(state, unit),
     ...objectiveAimedTargets(state, unit),

@@ -6,12 +6,11 @@ import {
   profileExpectedHits,
 } from '../../core/resolution/dice';
 import { listAvailableShootModes } from '../../core/resolution/shoot_modes';
-import { UNIT_DISTANCE_PIXELS } from '../../core/rules/constants';
 import type { Command } from '../../core/commands/types';
 import type { Faction, GameState, Unit } from '../../core/state/GameState';
 import { findUnit, isUnitAlive } from '../../core/state/GameState';
 import type { AiController } from '../types';
-import { pathfindingStepToward } from '../navigation';
+import { pickProtectedStep } from '../exposure';
 
 /**
  * Expected hits across the full dice profile, with cover removed from the
@@ -130,13 +129,18 @@ const chooseActiveAction = (
 
   const nearest = nearestEnemy(state, u, faction);
   if (nearest) {
-    const target = pathfindingStepToward(state, u.position, nearest.position, {
-      distance: UNIT_DISTANCE_PIXELS,
-      stopShort: nearest.radius + 12,
-    });
-    // No-progress safety net: if pathfinding can't suggest a different cell
-    // than where we already are (target sealed off, or unit is sitting in
-    // a corner), end the activation rather than spin forever.
+    // Charge bias: a unit with a melee weapon and no good shot drops the
+    // 12-pixel stand-off so its move can end in base contact. Auto-melee
+    // (rule §4.7 — 底板接觸敵軍 → 觸發近戰) fires on contact, so we don't
+    // need a separate MELEE command here. Without melee weapon, keep the
+    // 12-pixel stand-off (fighting bare-handed = guaranteed loss).
+    const hasMeleeWeapon = u.weapons.some((w) => w.kind === 'MELEE');
+    const stopShort = hasMeleeWeapon ? 0 : nearest.radius + 12;
+    const target = pickProtectedStep(state, u, nearest.position, { stopShort });
+    // No-progress safety net: pickProtectedStep returns the unit's own
+    // position when standing still scores best (every direction adds
+    // exposure for too little progress). End the activation rather than
+    // dispatch a no-op MOVE.
     if (v2Dist(target, u.position) < 1) {
       return { type: 'END_ACTIVATION' };
     }
@@ -174,12 +178,7 @@ const stepTowardNearestObjective = (
   if (!best) return null;
   // Already inside the marker — let the unit hold position and engage.
   if (bestDist <= best.radius) return null;
-  const target = pathfindingStepToward(
-    state,
-    u.position,
-    { x: best.x, y: best.y },
-    { distance: UNIT_DISTANCE_PIXELS, stopShort: 0 },
-  );
+  const target = pickProtectedStep(state, u, { x: best.x, y: best.y });
   if (v2Dist(target, u.position) < 1) return null;
   return target;
 };

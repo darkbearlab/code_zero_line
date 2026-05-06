@@ -896,13 +896,13 @@ export class Hud {
       const canShoot =
         activeUnit.damage !== 'SUPPRESSED' &&
         (ctx?.shoot?.candidates.length ?? 0) > 0;
-      const canMelee = (ctx?.melee?.candidates.length ?? 0) > 0;
+      // Manual melee is no longer player-facing — melee triggers automatically
+      // on base contact (rule §4.7), so no button is offered.
       const canRally =
         activeUnit.damage === 'IMPEDED' || activeUnit.damage === 'SUPPRESSED';
 
       if (canMove) this.addReqBtn('移動', 'REQUEST_MOVE');
       if (canShoot) this.addReqBtn('射擊…', 'REQUEST_SHOOT');
-      if (canMelee) this.addReqBtn('近戰…', 'REQUEST_MELEE');
       if (canRally) this.addReqBtn('整頓', 'REQUEST_RALLY');
       if (canMove && ctx?.traversal?.canVault) {
         this.addReqBtn('翻越矮牆', 'REQUEST_VAULT');

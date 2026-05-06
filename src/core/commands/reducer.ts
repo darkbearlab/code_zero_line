@@ -983,11 +983,10 @@ const moveAction = (
       : startedInDifficult
         ? 'FORCED_END'
         : 'SUCCESS';
-  const post = processPostAction(moved, outcome, cmdIndex);
-  return {
-    state: post.state,
-    events: [moveEvent, ...reactionResult.events, ...post.events],
-  };
+  return applyAutoMeleeAndPostAction(moved, unitId, outcome, cmdIndex, [
+    moveEvent,
+    ...reactionResult.events,
+  ]);
 };
 
 /**
@@ -1130,11 +1129,10 @@ const crawlAction = (
     reactionOutcomeAfterFodder(u, reactionResult) === 'REACTION_HIT'
       ? 'REACTION_HIT'
       : 'FORCED_END';
-  const post = processPostAction(moved, outcome, cmdIndex);
-  return {
-    state: post.state,
-    events: [moveEvent, ...reactionResult.events, ...post.events],
-  };
+  return applyAutoMeleeAndPostAction(moved, unitId, outcome, cmdIndex, [
+    moveEvent,
+    ...reactionResult.events,
+  ]);
 };
 
 /**
@@ -1250,11 +1248,10 @@ const vaultAction = (
   };
 
   const outcome: ActionOutcome = reactionOutcomeAfterFodder(u, reactionResult);
-  const post = processPostAction(moved, outcome, cmdIndex);
-  return {
-    state: post.state,
-    events: [moveEvent, ...reactionResult.events, ...post.events],
-  };
+  return applyAutoMeleeAndPostAction(moved, unitId, outcome, cmdIndex, [
+    moveEvent,
+    ...reactionResult.events,
+  ]);
 };
 
 /**
@@ -1354,11 +1351,10 @@ const climbAction = (
     reactionOutcomeAfterFodder(u, reactionResult) === 'REACTION_HIT'
       ? 'REACTION_HIT'
       : 'FORCED_END';
-  const post = processPostAction(moved, outcome, cmdIndex);
-  return {
-    state: post.state,
-    events: [moveEvent, ...reactionResult.events, ...post.events],
-  };
+  return applyAutoMeleeAndPostAction(moved, unitId, outcome, cmdIndex, [
+    moveEvent,
+    ...reactionResult.events,
+  ]);
 };
 
 /**
@@ -1425,11 +1421,10 @@ const traverseAction = (
   };
 
   const outcome: ActionOutcome = reactionOutcomeAfterFodder(u, reactionResult);
-  const post = processPostAction(moved, outcome, cmdIndex);
-  return {
-    state: post.state,
-    events: [moveEvent, ...reactionResult.events, ...post.events],
-  };
+  return applyAutoMeleeAndPostAction(moved, unitId, outcome, cmdIndex, [
+    moveEvent,
+    ...reactionResult.events,
+  ]);
 };
 
 /**
@@ -1525,8 +1520,10 @@ const passDoorAction = (
   };
 
   const outcome: ActionOutcome = reactionOutcomeAfterFodder(u, reactionResult);
-  const post = processPostAction(moved, outcome, cmdIndex);
-  return { state: post.state, events: [moveEvent, ...reactionResult.events, ...post.events] };
+  return applyAutoMeleeAndPostAction(moved, unitId, outcome, cmdIndex, [
+    moveEvent,
+    ...reactionResult.events,
+  ]);
 };
 
 /**
@@ -1861,6 +1858,26 @@ const commandMoveAction = (
     });
   }
 
+  // Auto-melee on contact (rule §4.7). Each mover that ends in base contact
+  // with an enemy fights a charging melee right now — free, before turnover.
+  // Resolved in officer→participant order (matches the spec list). Any
+  // charging attacker that loses → MELEE_LOSS turnover overrides the move's
+  // own outcome (REACTION_HIT, OVERDRAFT, etc.).
+  for (const spec of specs) {
+    const mover = findUnit(finalState, spec.unitId);
+    if (!mover || !isUnitAlive(mover)) continue;
+    const target = findMeleeContact(finalState, mover);
+    if (!target) continue;
+    const r = resolveMeleeContact(finalState, mover, target, true, cmdIndex);
+    finalState = r.state;
+    events.push(...r.events);
+    if (!r.attackerWins) {
+      const cleared = setActivation(finalState, null);
+      const t = turnover(cleared, 'MELEE_LOSS', TURNOVER_MOMENTUM_GRANT, cmdIndex);
+      return { state: t.state, events: [...events, ...t.events] };
+    }
+  }
+
   const outcome: ActionOutcome = groupReaction.suppressOrKillCaused
     ? 'REACTION_HIT'
     : 'SUCCESS';
@@ -2032,6 +2049,146 @@ const buildMeleePool = (
   return { dice, threshold: weapon.threshold };
 };
 
+/**
+ * Pure melee resolution: opposed dice, kill the loser, emit the event.
+ * Caller has already validated that attacker + defender are alive, opposing
+ * faction, and in base contact. Returns {attackerWins} so callers can decide
+ * whether to trigger MELEE_LOSS turnover (charging attacker lost) or just
+ * continue normal post-action processing.
+ */
+const resolveMeleeContact = (
+  s: GameState,
+  attacker: Unit,
+  defender: Unit,
+  isCharging: boolean,
+  cmdIndex: number,
+): { state: GameState; events: GameEvent[]; attackerWins: boolean } => {
+  const contactPoint = v2Lerp(attacker.position, defender.position, 0.5);
+  const aPool = buildMeleePool(s, attacker, contactPoint, isCharging);
+  const dPool = buildMeleePool(s, defender, contactPoint, false);
+
+  const rng = deriveRng(s.seed, cmdIndex, 'melee');
+  const intel = s.combatIntel ?? EMPTY_COMBAT_INTEL;
+  const aLevel = resolveCombatIntelLevel(defender, intel, 'melee', attacker.faction);
+  const dLevel = resolveCombatIntelLevel(attacker, intel, 'melee', defender.faction);
+  const aProfile = buildDiceProfile(aPool.dice, aPool.threshold, aLevel);
+  const dProfile = buildDiceProfile(dPool.dice, dPool.threshold, dLevel);
+  let attackerHits = 0;
+  let defenderHits = 0;
+  let rerolls = 0;
+  for (;;) {
+    attackerHits = rollProfile(aProfile, rng, D6_SIDES).hits;
+    defenderHits = rollProfile(dProfile, rng, D6_SIDES).hits;
+    if (attackerHits !== defenderHits) break;
+    rerolls++;
+    if (rerolls > 10) {
+      // Safety bail-out: declare attacker the winner on tied 10th reroll.
+      attackerHits = defenderHits + 1;
+      break;
+    }
+  }
+
+  const attackerWins = attackerHits > defenderHits;
+  const winnerId = attackerWins ? attacker.id : defender.id;
+  const loserId = attackerWins ? defender.id : attacker.id;
+  const next = updateUnit(s, loserId, { damage: 'KILLED' });
+  const meleeEvent: GameEvent = {
+    type: 'MELEE_RESOLVED',
+    attackerId: attacker.id,
+    defenderId: defender.id,
+    attackerHits,
+    defenderHits,
+    attackerDice: aPool.dice,
+    defenderDice: dPool.dice,
+    winnerId,
+    loserId,
+    isCharging,
+    rerolls,
+  };
+  return { state: next, events: [meleeEvent], attackerWins };
+};
+
+const hasMeleeWeapon = (u: Unit): boolean =>
+  u.weapons.some((w) => w.kind === 'MELEE');
+
+/**
+ * Find the closest enemy unit whose base is in melee contact with `mover`.
+ * Returns null when no contact. Used by every move-resulting action to
+ * fire forced melee on contact (rule §4.7 — 底板接觸敵軍 → 觸發近戰).
+ */
+const findMeleeContact = (s: GameState, mover: Unit): Unit | null => {
+  let best: Unit | null = null;
+  let bestDist = Infinity;
+  for (const o of s.units) {
+    if (o.faction === mover.faction) continue;
+    if (!isUnitAlive(o)) continue;
+    const dist = v2Dist(mover.position, o.position);
+    if (dist > mover.radius + o.radius + 2) continue;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = o;
+    }
+  }
+  return best;
+};
+
+/**
+ * Wrap `processPostAction` with the rule §4.7 forced-melee-on-contact step.
+ * Every movement-resulting action (MOVE / CRAWL / VAULT / CLIMB / TRAVERSE /
+ * PASS_DOOR) ends by calling this so we don't repeat the precedence logic in
+ * each handler:
+ *
+ *   1. If the mover ended in base contact with an enemy, resolve charging
+ *      melee right now — this is FREE (no extra action), and resolves before
+ *      any turnover the move's outcome would have caused.
+ *   2. If the charging attacker LOST → MELEE_LOSS turnover (rule 4.7C)
+ *      overrides whatever the move's outcome would have triggered (REACTION_HIT,
+ *      OVERDRAFT-forced turnover, FORCED_END locking, etc.).
+ *   3. Otherwise — attacker won, or no contact — fall through to normal
+ *      `processPostAction` with the move's original outcome.
+ */
+const applyAutoMeleeAndPostAction = (
+  state: GameState,
+  moverId: string,
+  baseOutcome: ActionOutcome,
+  cmdIndex: number,
+  preEvents: ReadonlyArray<GameEvent>,
+): CommandResult => {
+  const mover = findUnit(state, moverId);
+  // Mover may already be dead (reaction kill during the move). Skip melee.
+  // Also skip when either side lacks a melee weapon — defensive against
+  // hand-built test fixtures and legacy unit configs; rule §4.7 assumes
+  // every unit can melee at least with a basic weapon.
+  if (mover && isUnitAlive(mover) && hasMeleeWeapon(mover)) {
+    const target = findMeleeContact(state, mover);
+    if (target && hasMeleeWeapon(target)) {
+      const r = resolveMeleeContact(state, mover, target, true, cmdIndex);
+      if (!r.attackerWins) {
+        const cleared = setActivation(r.state, null);
+        const t = turnover(cleared, 'MELEE_LOSS', TURNOVER_MOMENTUM_GRANT, cmdIndex);
+        return {
+          state: t.state,
+          events: [...preEvents, ...r.events, ...t.events],
+        };
+      }
+      const post = processPostAction(r.state, baseOutcome, cmdIndex);
+      return {
+        state: post.state,
+        events: [...preEvents, ...r.events, ...post.events],
+      };
+    }
+  }
+  const post = processPostAction(state, baseOutcome, cmdIndex);
+  return { state: post.state, events: [...preEvents, ...post.events] };
+};
+
+/**
+ * Manual MELEE command. Now redundant with the auto-melee-on-contact
+ * trigger that fires from every movement action — units in contact will
+ * have already resolved their melee. Kept as a no-op safety net for old
+ * replays and for edge cases (scripted setups that put units in contact
+ * without going through a move).
+ */
 const meleeAction = (
   s: GameState,
   attackerId: string,
@@ -2058,7 +2215,7 @@ const meleeAction = (
     throw new CommandError('FRIENDLY_FIRE', 'Same-faction melee');
   }
   const dist = v2Dist(attacker.position, defender.position);
-  const contactRange = attacker.radius + defender.radius + 2; // small slack
+  const contactRange = attacker.radius + defender.radius + 2;
   if (dist > contactRange) {
     throw new CommandError(
       'NOT_IN_CONTACT',
@@ -2066,63 +2223,14 @@ const meleeAction = (
     );
   }
 
-  const contactPoint = v2Lerp(attacker.position, defender.position, 0.5);
-  const aPool = buildMeleePool(s, attacker, contactPoint, isCharging);
-  const dPool = buildMeleePool(s, defender, contactPoint, false);
-
-  const rng = deriveRng(s.seed, cmdIndex, 'melee');
-  // Combat-intel.melee level applies per-side. Player (faction A) gets
-  // its intel level; enemy never benefits from player upgrades (gated by
-  // attackerFaction arg). Missing combatIntel → 0 → legacy behaviour.
-  const intel = s.combatIntel ?? EMPTY_COMBAT_INTEL;
-  const aLevel = resolveCombatIntelLevel(defender, intel, 'melee', attacker.faction);
-  const dLevel = resolveCombatIntelLevel(attacker, intel, 'melee', defender.faction);
-  const aProfile = buildDiceProfile(aPool.dice, aPool.threshold, aLevel);
-  const dProfile = buildDiceProfile(dPool.dice, dPool.threshold, dLevel);
-  let attackerHits = 0;
-  let defenderHits = 0;
-  let rerolls = 0;
-  for (;;) {
-    attackerHits = rollProfile(aProfile, rng, D6_SIDES).hits;
-    defenderHits = rollProfile(dProfile, rng, D6_SIDES).hits;
-    if (attackerHits !== defenderHits) break;
-    rerolls++;
-    if (rerolls > 10) {
-      // Safety bail-out: declare attacker the winner on tied 10th reroll.
-      attackerHits = defenderHits + 1;
-      break;
-    }
-  }
-
-  const attackerWins = attackerHits > defenderHits;
-  const winnerId = attackerWins ? attackerId : defenderId;
-  const loserId = attackerWins ? defenderId : attackerId;
-
-  const next = updateUnit(s, loserId, { damage: 'KILLED' });
-
-  const meleeEvent: GameEvent = {
-    type: 'MELEE_RESOLVED',
-    attackerId,
-    defenderId,
-    attackerHits,
-    defenderHits,
-    attackerDice: aPool.dice,
-    defenderDice: dPool.dice,
-    winnerId,
-    loserId,
-    isCharging,
-    rerolls,
-  };
-
-  if (!attackerWins && isCharging) {
-    // Rule 4.7C: charging attacker lost → turnover.
-    const cleared = setActivation(next, null);
+  const r = resolveMeleeContact(s, attacker, defender, isCharging, cmdIndex);
+  if (!r.attackerWins && isCharging) {
+    const cleared = setActivation(r.state, null);
     const t = turnover(cleared, 'MELEE_LOSS', TURNOVER_MOMENTUM_GRANT, cmdIndex);
-    return { state: t.state, events: [meleeEvent, ...t.events] };
+    return { state: t.state, events: [...r.events, ...t.events] };
   }
-
-  const post = processPostAction(next, 'SUCCESS', cmdIndex);
-  return { state: post.state, events: [meleeEvent, ...post.events] };
+  const post = processPostAction(r.state, 'SUCCESS', cmdIndex);
+  return { state: post.state, events: [...r.events, ...post.events] };
 };
 
 const rallyAction = (
