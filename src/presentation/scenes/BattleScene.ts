@@ -2143,6 +2143,7 @@ export class BattleScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const savedScrollX = cam.scrollX;
     const savedScrollY = cam.scrollY;
+    const savedZoom = cam.zoom;
     const totalDist = Math.hypot(to.x - from.x, to.y - from.y);
     const baseDur = Math.max(
       MOVEMENT_TWEEN_MIN_MS,
@@ -2177,14 +2178,18 @@ export class BattleScene extends Phaser.Scene {
     const finalizeAndDone = () => {
       this.movementTweens = Math.max(0, this.movementTweens - 1);
       this.activeMovesMeta.delete(unitId);
-      // Restore camera to its pre-cinematic position so the player isn't
-      // left looking somewhere unexpected.
-      this.cameras.main.pan(
-        savedScrollX + cam.width / (2 * cam.zoom),
-        savedScrollY + cam.height / (2 * cam.zoom),
+      // Restore camera (centre + zoom) to its pre-cinematic state so the
+      // player isn't left looking somewhere unexpected, especially after
+      // a beat that zoomed out to fit a long shot line.
+      cam.pan(
+        savedScrollX + cam.width / (2 * savedZoom),
+        savedScrollY + cam.height / (2 * savedZoom),
         PAN_DUR,
         'Cubic.easeInOut',
       );
+      if (Math.abs(cam.zoom - savedZoom) > 0.005) {
+        cam.zoomTo(savedZoom, PAN_DUR, 'Cubic.easeInOut');
+      }
       if (this.movementTweens === 0) this.maybeScheduleAiTick();
       onComplete();
     };
@@ -2217,9 +2222,12 @@ export class BattleScene extends Phaser.Scene {
       const ease = currentT === 0 ? 'Cubic.easeOut' : 'Cubic.easeInOut';
 
       const proceedToBeat = () => {
-        // Fire one consolidated beat: pan to the participants' centroid,
-        // fire each shot effect with the mover's CURRENT visual position
-        // as the tracer target, hold, pan back to the mover.
+        // Fire one consolidated beat: pan to the midpoint of the shot
+        // line (shooter ↔ mover) so both ends of the engagement are on
+        // screen, zoom out if needed to fit the bounding box, drop a
+        // 「⚡ 反應射擊」 floater above the shooter side, fire the shot
+        // effects with the mover's CURRENT visual position as the tracer
+        // target, hold, then pan back to the mover.
         const shooters: Unit[] = [];
         for (const ev of beat.shotEvents) {
           for (const pid of ev.participantIds.length > 0
@@ -2234,15 +2242,52 @@ export class BattleScene extends Phaser.Scene {
           runSegment(idx + 1);
           return;
         }
-        let cx = 0;
-        let cy = 0;
+        // Shooter centroid (FOCUSED groups read as a single side).
+        let scx = 0;
+        let scy = 0;
         for (const sh of shooters) {
-          cx += sh.position.x;
-          cy += sh.position.y;
+          scx += sh.position.x;
+          scy += sh.position.y;
         }
-        cx /= shooters.length;
-        cy /= shooters.length;
-        cam.pan(cx, cy, PAN_DUR, 'Cubic.easeInOut');
+        scx /= shooters.length;
+        scy /= shooters.length;
+        const moverPos = { x: container.x, y: container.y };
+        // Camera target = midpoint of the shot line.
+        const camX = (scx + moverPos.x) / 2;
+        const camY = (scy + moverPos.y) / 2;
+        // Bounding box of every involved unit + a margin, used to decide
+        // whether we need to zoom out to keep both ends in frame. Never
+        // zoom IN past the saved (default) zoom — preserves the normal
+        // play view scale.
+        let minX = moverPos.x;
+        let minY = moverPos.y;
+        let maxX = moverPos.x;
+        let maxY = moverPos.y;
+        for (const sh of shooters) {
+          if (sh.position.x < minX) minX = sh.position.x;
+          if (sh.position.y < minY) minY = sh.position.y;
+          if (sh.position.x > maxX) maxX = sh.position.x;
+          if (sh.position.y > maxY) maxY = sh.position.y;
+        }
+        const margin = 96; // ~1 UD of breathing room around the shot line
+        const bboxW = maxX - minX + margin * 2;
+        const bboxH = maxY - minY + margin * 2;
+        const fitZoom = Math.min(cam.width / bboxW, cam.height / bboxH);
+        const targetZoom = Math.min(savedZoom, Math.max(0.2, fitZoom));
+        cam.pan(camX, camY, PAN_DUR, 'Cubic.easeInOut');
+        if (Math.abs(cam.zoom - targetZoom) > 0.005) {
+          cam.zoomTo(targetZoom, PAN_DUR, 'Cubic.easeInOut');
+        }
+        // 「⚡ 反應射擊」 floater above the shooter side. Appears just before
+        // the camera pan settles so the player has time to read it before
+        // the muzzle flash. For SOLO beats this is one shooter; FOCUSED
+        // shows it once above the group centroid.
+        this.effects.hitFloater(
+          { x: scx, y: scy - shooters[0]!.radius - 18 },
+          '⚡ 反應射擊',
+          '#ffd166',
+          PAN_DUR - 80,
+        );
         this.time.delayedCall(PAN_DUR, () => {
           // Synthesize a target Unit pointing at the mover's CURRENT visual
           // position so tracer / hit effects land where the player sees the
