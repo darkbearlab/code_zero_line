@@ -180,7 +180,9 @@ interface ActiveMoveMeta {
   from: Vec2;
   to: Vec2;
   windows: ReadonlyArray<ReactionWindow>;
-  tween: Phaser.Tweens.Tween;
+  /** Single underlying tween for plain moves; null for cinematic moves which
+   * orchestrate a tween chain instead. */
+  tween: Phaser.Tweens.Tween | null;
 }
 
 export class BattleScene extends Phaser.Scene {
@@ -1451,8 +1453,23 @@ export class BattleScene extends Phaser.Scene {
    * calls in the hot loop.
    */
   private tickAutoFacing(): void {
-    for (const info of this.activeMovesMeta.values()) {
-      const t = info.tween.progress;
+    for (const [moverId, info] of this.activeMovesMeta) {
+      // For the regular animateMove path, progress comes from the single
+      // tween. For cinematic moves (no single tween), progress is derived
+      // from the mover container's interpolation along the from→to vector.
+      let t: number;
+      if (info.tween) {
+        t = info.tween.progress;
+      } else {
+        const c = this.unitContainers.get(moverId);
+        if (!c) continue;
+        const dx = info.to.x - info.from.x;
+        const dy = info.to.y - info.from.y;
+        const len2 = dx * dx + dy * dy;
+        if (len2 < 0.25) continue;
+        t = ((c.x - info.from.x) * dx + (c.y - info.from.y) * dy) / len2;
+        t = Math.max(0, Math.min(1, t));
+      }
       const moverPos = v2Lerp(info.from, info.to, t);
       for (const w of info.windows) {
         if (t < w.startT || t > w.endT) continue;
@@ -1543,6 +1560,14 @@ export class BattleScene extends Phaser.Scene {
       // slide-into-contact has visibly landed. Keyed by mover unit id;
       // consumed by the matching MELEE_RESOLVED event in this same loop.
       const moveDurationByMover = new Map<string, number>();
+      // Reaction shot events absorbed by a cinematic move — the main
+      // SHOT_RESOLVED branch below skips these, since the cinematic is
+      // already responsible for firing their visual effects (with camera
+      // pan + per-beat sequencing).
+      const absorbedShotEvents = this.buildCinematicAbsorptions(
+        cmd,
+        result.events,
+      );
       let pendingTurnover:
         | { to: 'A' | 'B'; reason: TurnoverReason }
         | null = null;
@@ -1555,11 +1580,31 @@ export class BattleScene extends Phaser.Scene {
             MOVEMENT_TWEEN_MIN_MS,
             (dist / UNIT_DISTANCE_PIXELS) * MOVEMENT_MS_PER_UD,
           );
-          animTailMs = Math.max(animTailMs, dur);
-          moveDurationByMover.set(ev.unitId, dur);
-          this.animateMove(ev.unitId, ev.from, ev.to, ev.reactionWindows);
+          // Cinematic flow: solo move with at least one reaction. Splits
+          // the slide into segments at each reaction's tweenAtT, pans the
+          // camera to the firing unit(s) per beat, then resumes.
+          const beats = this.buildCinematicBeats(cmd, ev, result.events);
+          if (beats !== null && beats.length > 0) {
+            const cinematicDur = this.animateMoveCinematic(
+              ev.unitId,
+              ev.from,
+              ev.to,
+              ev.reactionWindows,
+              beats,
+              () => {},
+            );
+            animTailMs = Math.max(animTailMs, cinematicDur);
+            moveDurationByMover.set(ev.unitId, cinematicDur);
+          } else {
+            animTailMs = Math.max(animTailMs, dur);
+            moveDurationByMover.set(ev.unitId, dur);
+            this.animateMove(ev.unitId, ev.from, ev.to, ev.reactionWindows);
+          }
         }
         if (ev.type === 'SHOT_RESOLVED') {
+          // Skip — the cinematic move handler will fire this shot at its
+          // own beat with the mover's visual position as tracer target.
+          if (absorbedShotEvents.has(ev)) continue;
           const target = this.gameState.units.find(
             (u) => u.id === ev.targetId,
           );
@@ -1956,6 +2001,296 @@ export class BattleScene extends Phaser.Scene {
       cmd.type === 'MELEE' ||
       cmd.type === 'RALLY'
     );
+  }
+
+  /**
+   * Decide whether a command's reaction shots are eligible for absorption
+   * by the cinematic move handler. Returns the set of `SHOT_RESOLVED`
+   * events the dispatch loop should skip (because the cinematic will fire
+   * them itself, sequenced with the mover's slide).
+   *
+   * Eligibility:
+   *  - cmd is a solo movement (`MOVE` / `CRAWL` / `VAULT` / `CLIMB` /
+   *    `TRAVERSE` / `PASS_DOOR`) with a `reactionPlan`.
+   *  - There is a single `MOVE_RESOLVED` in the result and at least one
+   *    `weaponMode === 'REACTION'` shot resolved.
+   *
+   * `COMMAND_MOVE` is intentionally skipped — the multi-mover orchestration
+   * fires reactions before the moves and would need a different design.
+   */
+  private buildCinematicAbsorptions(
+    cmd: Command,
+    events: ReadonlyArray<GameEvent>,
+  ): Set<GameEvent> {
+    const absorbed = new Set<GameEvent>();
+    const isSoloMove =
+      cmd.type === 'MOVE' ||
+      cmd.type === 'CRAWL' ||
+      cmd.type === 'VAULT' ||
+      cmd.type === 'CLIMB' ||
+      cmd.type === 'TRAVERSE' ||
+      cmd.type === 'PASS_DOOR';
+    if (!isSoloMove) return absorbed;
+    const plan = (cmd as { reactionPlan?: ReactionPlan }).reactionPlan;
+    if (!plan || plan.markers.length === 0) return absorbed;
+    const moveEvents = events.filter(
+      (e): e is Extract<GameEvent, { type: 'MOVE_RESOLVED' }> =>
+        e.type === 'MOVE_RESOLVED',
+    );
+    if (moveEvents.length !== 1) return absorbed;
+    for (const ev of events) {
+      if (ev.type !== 'SHOT_RESOLVED') continue;
+      if (ev.weaponMode !== 'REACTION') continue;
+      absorbed.add(ev);
+    }
+    return absorbed;
+  }
+
+  /**
+   * Build the per-beat schedule for a cinematic move. Pairs each reaction
+   * `SHOT_RESOLVED` event in `events` with its originating marker (in
+   * declaration order) and converts the marker's path-relative `atT` to
+   * tween-relative `tweenAtT` accounting for any reaction interrupt that
+   * truncated the actual journey.
+   *
+   * Returns `null` when the move is not eligible for cinematic treatment;
+   * the dispatch loop falls back to the regular `animateMove` in that case.
+   */
+  private buildCinematicBeats(
+    cmd: Command,
+    moveEvent: Extract<GameEvent, { type: 'MOVE_RESOLVED' }>,
+    events: ReadonlyArray<GameEvent>,
+  ): ReadonlyArray<{
+    tweenAtT: number;
+    shotEvents: ReadonlyArray<Extract<GameEvent, { type: 'SHOT_RESOLVED' }>>;
+  }> | null {
+    const plan = (cmd as { reactionPlan?: ReactionPlan }).reactionPlan;
+    if (!plan || plan.markers.length === 0) return null;
+    // Walk events in order, picking up reaction shots only.
+    const reactionShots = events.filter(
+      (e): e is Extract<GameEvent, { type: 'SHOT_RESOLVED' }> =>
+        e.type === 'SHOT_RESOLVED' && e.weaponMode === 'REACTION',
+    );
+    if (reactionShots.length === 0) return null;
+    // interruptT — the path-fraction at which the move was halted by a
+    // reaction-suppress/kill, or 1.0 when the path completed.
+    let interruptT = 1;
+    if (
+      moveEvent.interruptedByMarker >= 0 &&
+      moveEvent.interruptedByMarker < plan.markers.length
+    ) {
+      const m = plan.markers[moveEvent.interruptedByMarker];
+      if (m && m.atT > 0) interruptT = m.atT;
+    }
+    // Pair markers and reaction shots by sequential matching on shooterId.
+    // resolveReactionPlan iterates in plan order and emits SHOT_RESOLVED in
+    // the same order; markers that didn't fire (LOS blocked, etc.) just
+    // produce no event and we skip them.
+    const beats: Array<{
+      tweenAtT: number;
+      shotEvents: Array<Extract<GameEvent, { type: 'SHOT_RESOLVED' }>>;
+    }> = [];
+    let shotIdx = 0;
+    for (let mIdx = 0; mIdx < plan.markers.length; mIdx++) {
+      if (shotIdx >= reactionShots.length) break;
+      const marker = plan.markers[mIdx]!;
+      const shot = reactionShots[shotIdx]!;
+      if (shot.shooterId !== marker.shooterId) continue;
+      shotIdx++;
+      const tweenAtT = Math.max(
+        0,
+        Math.min(1, marker.atT / Math.max(interruptT, 1e-3)),
+      );
+      beats.push({ tweenAtT, shotEvents: [shot] });
+    }
+    if (beats.length === 0) return null;
+    beats.sort((a, b) => a.tweenAtT - b.tweenAtT);
+    return beats;
+  }
+
+  /**
+   * Cinematic move with mid-flight reaction beats. Splits the slide into
+   * segments at each reaction's projected position along the tween: each
+   * segment decelerates into a pause, the camera pans to the firing unit
+   * (FOCUSED — pans to the centroid of all participants and fires them in
+   * one beat; SOLO — separate beat per shooter), the shot effects play,
+   * the camera pans back to the mover, then the next segment accelerates
+   * back to normal.
+   *
+   * `beats` is sorted by `tweenAtT` ascending. Each beat owns one or more
+   * SHOT_RESOLVED events that all fire together (FOCUSED/COMBINED bundles).
+   * The mover's container position at the moment of firing is fed to
+   * `playShotEffectsAtPos` so tracers terminate where the player visually
+   * sees the mover, not at the post-action `to` (which can be further
+   * along the slide for non-final reactions).
+   */
+  private animateMoveCinematic(
+    unitId: string,
+    from: Vec2,
+    to: Vec2,
+    windows: ReadonlyArray<ReactionWindow>,
+    beats: ReadonlyArray<{
+      tweenAtT: number;
+      shotEvents: ReadonlyArray<Extract<GameEvent, { type: 'SHOT_RESOLVED' }>>;
+    }>,
+    onComplete: () => void,
+  ): number {
+    const container = this.unitContainers.get(unitId);
+    if (!container) {
+      onComplete();
+      return 0;
+    }
+    const cam = this.cameras.main;
+    const savedScrollX = cam.scrollX;
+    const savedScrollY = cam.scrollY;
+    const totalDist = Math.hypot(to.x - from.x, to.y - from.y);
+    const baseDur = Math.max(
+      MOVEMENT_TWEEN_MIN_MS,
+      (totalDist / UNIT_DISTANCE_PIXELS) * MOVEMENT_MS_PER_UD,
+    );
+    if (totalDist < 0.5 || beats.length === 0) {
+      this.animateMove(unitId, from, to, windows);
+      onComplete();
+      return baseDur;
+    }
+    if (Math.hypot(to.x - from.x, to.y - from.y) > 0.5) {
+      this.setUnitFacing(unitId, Math.atan2(to.y - from.y, to.x - from.x));
+    }
+
+    const PAN_DUR = 220;
+    const HOLD_AFTER_FIRE = 600;
+
+    let estimatedDuration = baseDur;
+    for (const _ of beats) estimatedDuration += PAN_DUR + HOLD_AFTER_FIRE + PAN_DUR;
+
+    this.movementTweens++;
+    let currentT = 0;
+
+    const finalizeAndDone = () => {
+      this.movementTweens = Math.max(0, this.movementTweens - 1);
+      this.activeMovesMeta.delete(unitId);
+      // Restore camera to its pre-cinematic position so the player isn't
+      // left looking somewhere unexpected.
+      this.cameras.main.pan(
+        savedScrollX + cam.width / (2 * cam.zoom),
+        savedScrollY + cam.height / (2 * cam.zoom),
+        PAN_DUR,
+        'Cubic.easeInOut',
+      );
+      if (this.movementTweens === 0) this.maybeScheduleAiTick();
+      onComplete();
+    };
+
+    const runSegment = (idx: number): void => {
+      if (idx >= beats.length) {
+        // Final segment: from currentT to 1.0 (the rest of the slide).
+        const remaining = 1 - currentT;
+        if (remaining < 1e-3) {
+          finalizeAndDone();
+          return;
+        }
+        const segDur = baseDur * remaining;
+        this.tweens.add({
+          targets: container,
+          x: to.x,
+          y: to.y,
+          duration: Math.max(60, segDur),
+          ease: currentT === 0 ? 'Sine.InOut' : 'Cubic.easeIn',
+          onComplete: finalizeAndDone,
+        });
+        return;
+      }
+
+      const beat = beats[idx]!;
+      const segT = beat.tweenAtT - currentT;
+      const segDur = baseDur * segT;
+      const segX = from.x + (to.x - from.x) * beat.tweenAtT;
+      const segY = from.y + (to.y - from.y) * beat.tweenAtT;
+      const ease = currentT === 0 ? 'Cubic.easeOut' : 'Cubic.easeInOut';
+
+      const proceedToBeat = () => {
+        // Fire one consolidated beat: pan to the participants' centroid,
+        // fire each shot effect with the mover's CURRENT visual position
+        // as the tracer target, hold, pan back to the mover.
+        const shooters: Unit[] = [];
+        for (const ev of beat.shotEvents) {
+          for (const pid of ev.participantIds.length > 0
+            ? ev.participantIds
+            : [ev.shooterId]) {
+            const sh = this.gameState.units.find((u) => u.id === pid);
+            if (sh) shooters.push(sh);
+          }
+        }
+        if (shooters.length === 0) {
+          currentT = beat.tweenAtT;
+          runSegment(idx + 1);
+          return;
+        }
+        let cx = 0;
+        let cy = 0;
+        for (const sh of shooters) {
+          cx += sh.position.x;
+          cy += sh.position.y;
+        }
+        cx /= shooters.length;
+        cy /= shooters.length;
+        cam.pan(cx, cy, PAN_DUR, 'Cubic.easeInOut');
+        this.time.delayedCall(PAN_DUR, () => {
+          // Synthesize a target Unit pointing at the mover's CURRENT visual
+          // position so tracer / hit effects land where the player sees the
+          // unit, not at the post-action endpoint.
+          const moverNow = this.gameState.units.find((u) => u.id === unitId);
+          if (moverNow) {
+            const visualTarget: Unit = {
+              ...moverNow,
+              position: { x: container.x, y: container.y },
+            };
+            for (const ev of beat.shotEvents) {
+              const shooter = this.gameState.units.find(
+                (u) => u.id === ev.shooterId,
+              );
+              if (!shooter) continue;
+              this.faceUnitTowardPoint(ev.shooterId, visualTarget.position);
+              for (const pid of ev.participantIds) {
+                this.faceUnitTowardPoint(pid, visualTarget.position);
+              }
+              this.playShotEffects(ev, shooter, visualTarget);
+            }
+          }
+          this.time.delayedCall(HOLD_AFTER_FIRE, () => {
+            cam.pan(container.x, container.y, PAN_DUR, 'Cubic.easeInOut');
+            this.time.delayedCall(PAN_DUR, () => {
+              currentT = beat.tweenAtT;
+              runSegment(idx + 1);
+            });
+          });
+        });
+      };
+
+      if (segDur < 30) {
+        // No meaningful segment — go straight to the beat.
+        proceedToBeat();
+        return;
+      }
+
+      this.tweens.add({
+        targets: container,
+        x: segX,
+        y: segY,
+        duration: Math.max(60, segDur),
+        ease,
+        onComplete: proceedToBeat,
+      });
+    };
+
+    runSegment(0);
+    this.activeMovesMeta.set(unitId, {
+      from,
+      to,
+      windows,
+      tween: null,
+    });
+    return estimatedDuration;
   }
 
   private animateMove(
