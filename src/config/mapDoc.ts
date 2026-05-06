@@ -25,6 +25,7 @@ export type EditorShapeTool =
   | 'soft'
   | 'out-of-bounds'
   | 'no-entry'
+  | 'door'
   | 'zone-a'
   | 'zone-b'
   | 'objective';
@@ -69,6 +70,7 @@ const TOOL_LABEL: Readonly<Record<EditorShapeTool, string>> = {
   soft: '煙幕',
   'out-of-bounds': '不可互動區域',
   'no-entry': '不可進入區',
+  door: '門',
   'zone-a': 'Zone A',
   'zone-b': 'Zone B',
   objective: '目標',
@@ -209,9 +211,11 @@ export const docToMapDef = (doc: EditorMapDoc): MapDef => {
               ? 'OUT_OF_BOUNDS'
               : s.tool === 'no-entry'
                 ? 'NO_ENTRY'
-                : s.tool === 'difficult'
-                  ? 'DIFFICULT'
-                  : 'SOFT';
+                : s.tool === 'door'
+                  ? 'DOOR'
+                  : s.tool === 'difficult'
+                    ? 'DIFFICULT'
+                    : 'SOFT';
     const def: MapTerrainDef = {
       id: s.id,
       kind,
@@ -221,6 +225,7 @@ export const docToMapDef = (doc: EditorMapDoc): MapDef => {
         : s.tool === 'high'
           ? { height: HIGH_WALL_HEIGHT }
           : {}),
+      ...(s.tool === 'door' ? { isOpen: false, doorStyle: 'shutter' } : {}),
       displayName: TOOL_LABEL[s.tool],
     };
     terrain.push(def);
@@ -266,6 +271,7 @@ const terrainTool = (t: MapTerrainDef): EditorShapeTool => {
   if (t.kind === 'HIGH_GROUND') return 'high-ground';
   if (t.kind === 'OUT_OF_BOUNDS') return 'out-of-bounds';
   if (t.kind === 'NO_ENTRY') return 'no-entry';
+  if (t.kind === 'DOOR') return 'door';
   return t.kind === 'DIFFICULT' ? 'difficult' : 'soft';
 };
 
