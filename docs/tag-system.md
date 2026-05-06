@@ -74,6 +74,7 @@ Source: `src/core/traits/registry.ts`. **Status legend:**
 | NO_PRONE | ability | ✓ | reducer (CRAWL refusal, MOVE/COMMAND_MOVE endProne stripping, post-command `enforceNoProne` safeguard auto-stands), BattleScene (skip stance picker, `canEndProne` false) |
 | NO_CLIMB | ability | ✓ | reducer (CLIMB refusal), BattleScene (`buildTraversalContext` masks canClimb) |
 | NO_VAULT | ability | ✓ | reducer (VAULT refusal), BattleScene (`buildTraversalContext` masks canVault) |
+| DOOR_OPERATOR | ability | ✓ | reducer (`operateDoorAction` 必要 trait,無此 trait 無法開關門),BattleScene (`buildTraversalContext` 計算 `canOperateDoor`)。穿門(`PASS_DOOR`)不需要此 trait —— 開著的門誰都能走過。 |
 
 ---
 

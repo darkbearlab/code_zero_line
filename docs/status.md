@@ -1,7 +1,7 @@
 # 開發進度與待辦
 
 > 取代舊的 `docs/archive/implementation-roadmap.md` 5-phase 計畫。
-> **最後更新:2026-05-05**(LOS 規則統一 + 預覽連線 push 完之後)。
+> **最後更新:2026-05-06**(門地形 + 地形互動範圍放寬 push 完之後)。
 > 已出貨 / WIP / 不在 v1 範圍 三類分明,別跟設計願景混淆 — 願景在 [roguelite-design-summary.md](roguelite-design-summary.md)。
 
 ---
@@ -9,12 +9,14 @@
 ## 已出貨(可以正常玩、有測試覆蓋)
 
 ### 戰鬥引擎與 AI(原 PvP 遺產)
-- 命令 reducer:MOVE / SHOOT / RALLY / VAULT / CLIMB / CRAWL / COMMAND_MOVE / COMMAND_RALLY / activations
+- 命令 reducer:MOVE / SHOOT / RALLY / VAULT / CLIMB / CRAWL / COMMAND_MOVE / COMMAND_RALLY / OPERATE_DOOR / PASS_DOOR / activations
 - 自由 2D 空間、多邊形地形、圓形單位底板、確定性 sfc32 RNG
 - 掩體 / 趴下 / 高低牆 / 困難地形 / 軟掩體 / 反應射擊窗口
+- **地形種類**:HARD(高/矮牆)、DIFFICULT(瓦礫)、SOFT(煙幕)、BLOCKER、HIGH_GROUND、OUT_OF_BOUNDS、NO_ENTRY、**DOOR**(可開關互動門,DOOR_OPERATOR 特性需求)
+- **地形互動範圍**:vault / climb / traverse / 開門 統一採用「單位邊緣距地形邊緣 ≤ 1 英吋」(`TERRAIN_INTERACT_REACH_PIXELS = UNIT_DISTANCE_PIXELS / 3 = 32px`),取代原本緊貼判定的 4px epsilon
 - **LOS 模型**:中心對中心單線判定(rulebook §4.1「底板中心」),overlay 用同一條判定產生的可見多邊形渲染 — 所見即所射。預覽 hover 時對所有可見單位畫線(友軍青、敵軍紅 + 掩體來源標籤)。`coverDetail()` 拆出趴地 / 高地 / 困難地形 / 煙霧 / 矮牆五項供 UI 使用。
 - AI:`greedy` 1-ply、`lookahead` depth-2 beam-6,EV-gated reactions、formation-aware
-- 已實裝 traits:OFFICER、STALWART、FRAGILE、ARMOR(N)、CUMBERSOME、TOUGH、STEALTH、CANNON_FODDER、FANATIC、IMPULSIVE_AGGRESSIVE、NO_PRONE、NO_CLIMB、NO_VAULT
+- 已實裝 traits:OFFICER、STALWART、FRAGILE、ARMOR(N)、CUMBERSOME、TOUGH、STEALTH、CANNON_FODDER、FANATIC、IMPULSIVE_AGGRESSIVE、NO_PRONE、NO_CLIMB、NO_VAULT、DOOR_OPERATOR
 - Scenarios:elimination、engage-reach、defend(holdout)、extract、assassinate(decapitation)、control-points(conquest)、breakthrough
 
 ### Roguelite campaign 層
@@ -105,6 +107,14 @@ AGITATOR / WARLORD / MARTYRDOM 完全 stub;FANATIC / IMPULSIVE_AGGRESSIVE 已實
 ## 近期 commit 軌跡(往回看 15 筆)
 
 ```
+7f0ca0c  門地形系統 + 地形互動範圍放寬(DOOR / OPERATE_DOOR / PASS_DOOR / DOOR_OPERATOR + 1 英吋接觸放寬)
+7ede294  UX P0:資訊架構與後果預警補齊(任務進度條 / 反應自動跳過 / RELOAD badge / 中文 event log / 地形 hover tooltip)
+d53a924  stealth/AI 復原:玩家檢定失敗丟 POI + AI 卡命令時自動 END/PASS
+c36d801  fix(stealth):listAvailableShootModes 改用 effectiveLOS — 修 AI 隱密戰卡死
+3b4fa6d  HUD:邊框光暈改為四邊獨立漸層,陣營切換改為各邊往外/往內歸位
+244369e  fix(HUD):showBattleHud 還原 hud-frame-glow display 屬性
+6f152ef  HUD:加強螢幕邊框光暈強度,陣營切換改為滑出再滑入動畫
+4f06fc6  主動權 banner:延後到動畫播完 + 改用半透明黑橫幅樣式
 3fc32f2  LOS 規則統一:中心線判定 + 預覽連線 + 掩體標籤
 30b0da9  LOS 視野預覽:重寫 visibility polygon 為角度掃描法
 2fbc7c4  LOS 視野預覽:修 atan2 wraparound 造成的長弦/反向陰影
@@ -112,17 +122,9 @@ AGITATOR / WARLORD / MARTYRDOM 完全 stub;FANATIC / IMPULSIVE_AGGRESSIVE 已實
 caedc80  夜間隱密狀態 Stage 5b:Operation chain 傳染
 082ada0  夜間隱密狀態 Stage 5a:破隱偵測 + 壓制延後規則
 6372e10  夜間隱密狀態 Stage 4:patrol 行為(無 POI 則靜止)
-c3570dc  夜間隱密狀態 Stage 3:POI 追蹤與衰減
-7d95bb6  夜間隱密狀態 Stage 2:1UD 視距夾頂 + 敵方反應射擊關閉
-b3dc0e0  夜間隱密狀態 Stage 1:Schema + state plumbing
-25da002  開發文件重構:歸檔過時 + 新增四份主參考
-8683485  Operation 系統 Stage 4:UI — 卡片鏈條預覽 + RunResult 文案分歧
-8c5790a  Operation 系統 Stage 3:RunState 串接 + 撤退 + 持久化
-402e6ab  Operation 系統 Stage 2:pickOperations + RoundState 接 OperationInstance
-dec6508  Operation 系統 Stage 1:MissionDef 加 difficulty + Operation schema
 ```
 
-軌跡:Operation 系統 → 夜間隱密狀態 5 階段 → LOS overlay 修正與規則統一。LOS 段落把「畫面看到的」與「規則允許射的」對齊到同一條中心線。
+軌跡:Operation 系統 → 夜間隱密狀態 5 階段 → LOS overlay 修正與規則統一 → HUD 邊框/橫幅 polish → 隱密 AI 修復 → UX P0 → **門地形系統 + 地形互動範圍放寬**。最近兩筆把「玩家對地圖的可操作性」往前推:UX P0 把資訊清楚化,門系統補上 CQC 場景需要的快速進出操作。
 
 ---
 
