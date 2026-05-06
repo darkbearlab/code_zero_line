@@ -253,6 +253,15 @@ export class BattleScene extends Phaser.Scene {
   /** Active move tweens used by per-frame auto-facing of LOS witnesses. */
   private activeMovesMeta = new Map<string, ActiveMoveMeta>();
   private movementTweens = 0;
+  /**
+   * Units that died as part of the most recent command (e.g. SHOT_RESOLVED
+   * killed the target, MELEE_RESOLVED killed the loser). Their containers
+   * stay alive on screen during the move/melee animation so the player
+   * sees the full sequence — slide into contact → clash → death — instead
+   * of the loser vanishing the moment `applyCommand` returns. Cleared by
+   * `dispatch` once it schedules the deferred destruction.
+   */
+  private deferredDeaths = new Set<string>();
   private aiControlled: Record<'A' | 'B', boolean> = { A: false, B: false };
   private aiPending = false;
   private aiTickEvent: Phaser.Time.TimerEvent | null = null;
@@ -964,9 +973,11 @@ export class BattleScene extends Phaser.Scene {
     for (const u of this.gameState.units) {
       if (isUnitAlive(u)) aliveIds.add(u.id);
     }
-    // Destroy containers for dead/missing units.
+    // Destroy containers for dead/missing units. Units in `deferredDeaths`
+    // are kept alive on screen until the dispatch animation tail fires —
+    // see `dispatch` for the schedule and the rationale.
     for (const [id, container] of [...this.unitContainers]) {
-      if (!aliveIds.has(id)) {
+      if (!aliveIds.has(id) && !this.deferredDeaths.has(id)) {
         container.destroy();
         this.unitContainers.delete(id);
       }
@@ -1493,6 +1504,16 @@ export class BattleScene extends Phaser.Scene {
     }
     this.clearTimer();
     try {
+      // Snapshot which units were alive BEFORE this command resolves so we
+      // can defer the visual destruction of any unit killed by it. Without
+      // the defer, `renderUnits` would destroy a melee victim's container
+      // the instant `applyCommand` returns — i.e. mid-slide of the mover's
+      // tween. The player wants: slide → contact pop → dice → death.
+      const wasAliveIds = new Set<string>();
+      for (const u of this.gameState.units) {
+        if (isUnitAlive(u)) wasAliveIds.add(u.id);
+      }
+
       const result = applyCommand(this.gameState, cmd);
       this.gameState = result.state;
       this.replayLog = appendCommand(this.replayLog, cmd);
@@ -1500,6 +1521,16 @@ export class BattleScene extends Phaser.Scene {
       if (this.aimMode === 'aim-shoot' || this.aimMode === 'aim-melee') {
         this.aimMode = 'idle';
       }
+
+      // Newly-dead units → keep their containers on screen until the
+      // animation tail catches up. `renderUnits` honours `deferredDeaths`.
+      for (const u of this.gameState.units) {
+        if (wasAliveIds.has(u.id) && !isUnitAlive(u)) {
+          this.deferredDeaths.add(u.id);
+        }
+      }
+      const newlyDead = [...this.deferredDeaths];
+
       this.refreshHud();
       this.renderUnits();
       // Animate any moves and overlay any dice rolls.
@@ -1508,6 +1539,10 @@ export class BattleScene extends Phaser.Scene {
       // until all unit motion / shot effects / melee clash visuals have
       // played out before taking over the screen.
       let animTailMs = 0;
+      // Per-mover tween duration, used to delay melee effects until the
+      // slide-into-contact has visibly landed. Keyed by mover unit id;
+      // consumed by the matching MELEE_RESOLVED event in this same loop.
+      const moveDurationByMover = new Map<string, number>();
       let pendingTurnover:
         | { to: 'A' | 'B'; reason: TurnoverReason }
         | null = null;
@@ -1521,6 +1556,7 @@ export class BattleScene extends Phaser.Scene {
             (dist / UNIT_DISTANCE_PIXELS) * MOVEMENT_MS_PER_UD,
           );
           animTailMs = Math.max(animTailMs, dur);
+          moveDurationByMover.set(ev.unitId, dur);
           this.animateMove(ev.unitId, ev.from, ev.to, ev.reactionWindows);
         }
         if (ev.type === 'SHOT_RESOLVED') {
@@ -1551,8 +1587,15 @@ export class BattleScene extends Phaser.Scene {
           if (att) this.faceUnitTowardPoint(ev.attackerId, def?.position ?? att.position);
           if (def) this.faceUnitTowardPoint(ev.defenderId, att?.position ?? def.position);
           if (att && def) {
-            this.playMeleeEffects(ev, att, def);
-            animTailMs = Math.max(animTailMs, 500);
+            // Auto-melee on contact: the attacker's MOVE_RESOLVED was emitted
+            // earlier in this same event list. Use its tween duration as the
+            // start delay so the contact pop fires when the slide lands —
+            // not before.
+            const startDelay = moveDurationByMover.get(ev.attackerId) ?? 0;
+            this.playMeleeEffects(ev, att, def, startDelay);
+            // playMeleeEffects schedules: contact at startDelay, dice at +260,
+            // death marker at +260+320=+580. Add a small buffer for the floater.
+            animTailMs = Math.max(animTailMs, startDelay + 700);
           }
         }
         if (ev.type === 'IMPULSIVE_TRIGGERED') {
@@ -1618,6 +1661,26 @@ export class BattleScene extends Phaser.Scene {
             this.showTurnoverBanner(t.to, t.reason);
           });
         }
+      }
+      // Destroy deferred-death containers after the animation tail completes.
+      // Until then the loser's sprite stays on screen so the player sees the
+      // mover slide in, the contact pop, the dice tally, and only then the
+      // body collapse. `renderUnits` skips destruction for ids in the set.
+      if (newlyDead.length > 0) {
+        // Snapshot + clear immediately so a follow-up dispatch doesn't see
+        // stale ids (which would make it skip destroying genuinely-gone
+        // units in its own renderUnits pass).
+        this.deferredDeaths.clear();
+        const cleanupDelay = Math.max(animTailMs, 0);
+        this.time.delayedCall(cleanupDelay, () => {
+          for (const id of newlyDead) {
+            const c = this.unitContainers.get(id);
+            if (c) {
+              c.destroy();
+              this.unitContainers.delete(id);
+            }
+          }
+        });
       }
       this.maybeScheduleAiTick();
       this.checkVictory();
@@ -2066,46 +2129,61 @@ export class BattleScene extends Phaser.Scene {
    * side, then escalate / death marker on the loser. Melee event lacks an
    * explicit beforeDamage so we approximate using the loser's current state.
    */
+  /**
+   * Visual chain for melee. `startDelayMs` shifts every effect to wait
+   * for an upstream animation (typically the mover's slide-into-contact
+   * tween): we want the player to see the move land, then the contact
+   * flash + 「⚔ 近戰」 indicator, then a beat, and only then dice tallies
+   * + loser death. Callers pass the move tween duration so the contact
+   * pop lines up with the slide finishing.
+   */
   private playMeleeEffects(
     ev: Extract<GameEvent, { type: 'MELEE_RESOLVED' }>,
     attacker: Unit,
     defender: Unit,
+    startDelayMs = 0,
   ): void {
     const mid = {
       x: (attacker.position.x + defender.position.x) / 2,
       y: (attacker.position.y + defender.position.y) / 2,
     };
-    this.effects.escalateFlash(mid, 9, 0);
+    // Contact pop — fires the moment the move tween lands (or immediately
+    // if there was no preceding move).
+    this.effects.escalateFlash(mid, 9, startDelayMs);
+    this.effects.hitFloater(mid, '⚔ 近戰', '#ffd166', startDelayMs);
+    // Brief breathing room so the player registers the clash before the
+    // dice tallies pop and the loser dies.
+    const dice = startDelayMs + 260;
     this.effects.hitFloater(
       attacker.position,
       `${ev.attackerHits}h`,
       ev.winnerId === attacker.id ? '#9af09a' : '#aaaaaa',
-      40,
+      dice,
     );
     this.effects.hitFloater(
       defender.position,
       `${ev.defenderHits}h`,
       ev.winnerId === defender.id ? '#9af09a' : '#aaaaaa',
-      40,
+      dice,
     );
     const loser = ev.loserId === attacker.id ? attacker : defender;
     if (loser.damage !== 'NONE') {
-      this.effects.escalateFlash(loser.position, loser.radius, 200);
-      this.effects.bloodMist(loser.position, 1, 200);
+      this.effects.escalateFlash(loser.position, loser.radius, dice + 160);
+      this.effects.bloodMist(loser.position, 1, dice + 160);
       if (loser.damage === 'KILLED') {
-        this.effects.deathMarker(loser.position, loser.radius, 360);
+        this.effects.deathMarker(loser.position, loser.radius, dice + 320);
         this.effects.hitFloater(
           loser.position,
           'KILL',
           '#ff3a3a',
-          380,
+          dice + 340,
         );
       } else {
         this.effects.hitFloater(
           loser.position,
           loser.damage,
           '#ffaa55',
-          360,
+          dice + 320,
         );
       }
     }
