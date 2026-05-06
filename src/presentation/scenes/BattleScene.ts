@@ -707,7 +707,8 @@ export class BattleScene extends Phaser.Scene {
           (t.kind === 'HARD' &&
             !isLowWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS)) ||
           t.kind === 'BLOCKER' ||
-          t.kind === 'OUT_OF_BOUNDS',
+          t.kind === 'OUT_OF_BOUNDS' ||
+          (t.kind === 'DOOR' && !t.isOpen),
       )
       .map((t) => t.polygon);
     const lowWallPolys = this.gameState.terrain
@@ -1026,15 +1027,17 @@ export class BattleScene extends Phaser.Scene {
       height: BATTLEFIELD_SIZE_PIXELS,
     };
     // Use the same blocker set as the LOS overlay's hard tier (high
-    // walls + BLOCKER + OOB + low walls when prone) so the fog edge
-    // matches what the player perceives as "I can see this cell".
+    // walls + BLOCKER + OOB + closed DOOR + low walls when prone) so
+    // the fog edge matches what the player perceives as "I can see
+    // this cell".
     const hardHighPolys = this.gameState.terrain
       .filter(
         (t) =>
           (t.kind === 'HARD' &&
             !isLowWall(t, VAULT_HEIGHT_THRESHOLD_PIXELS)) ||
           t.kind === 'BLOCKER' ||
-          t.kind === 'OUT_OF_BOUNDS',
+          t.kind === 'OUT_OF_BOUNDS' ||
+          (t.kind === 'DOOR' && !t.isOpen),
       )
       .map((t) => t.polygon);
     const lowWallPolys = this.gameState.terrain
