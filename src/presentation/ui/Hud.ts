@@ -5,6 +5,7 @@ import type {
   ShootMode,
 } from '../../core/commands/types';
 import type { GameState, Unit } from '../../core/state/GameState';
+import { isInDifficultTerrain } from '../../core/state/queries';
 import { getFaction, getUnitTemplate } from '../../config/loader';
 import { getTraitDef } from '../../core/traits/registry';
 import { parseTrait } from '../../core/traits/types';
@@ -220,10 +221,13 @@ export class Hud {
   private logWrapEl: HTMLElement;
   private logToggleEl: HTMLButtonElement;
   private missionEl: HTMLElement;
+  private progressEl: HTMLElement;
   private stealthEl: HTMLElement;
   private noIntelEl: HTMLElement;
   private unitDetailsEl: HTMLElement;
   private unitDetailsCurrentId: string | null = null;
+  private settingsMenuEl: HTMLElement;
+  private _escHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor(
     private dispatch: DispatchFn,
@@ -286,6 +290,9 @@ export class Hud {
     this.missionEl = mustElement('hud-mission');
     this.missionEl.textContent = '';
     this.missionEl.hidden = true;
+    this.progressEl = mustElement('hud-progress');
+    this.progressEl.textContent = '';
+    this.progressEl.hidden = true;
     this.stealthEl = mustElement('hud-stealth');
     this.stealthEl.hidden = true;
     this.noIntelEl = mustElement('hud-no-intel');
@@ -293,6 +300,23 @@ export class Hud {
     this.unitDetailsEl = mustElement('hud-unit-details');
     this.unitDetailsEl.hidden = true;
     this.logToggleEl.onclick = () => this.toggleLogCollapsed();
+    // Settings menu (ESC to open/close, ⚙ gear button, close ✕ button)
+    this.settingsMenuEl = mustElement('settings-menu');
+    this.settingsMenuEl.hidden = true;
+    mustElement('settings-gear-btn').onclick = () => this.toggleSettings();
+    mustElement('settings-close-btn').onclick = () => { this.settingsMenuEl.hidden = true; };
+    mustElement('settings-save-battle-btn').onclick = () => {
+      this.requestAction('SAVE_REPLAY');
+      this.settingsMenuEl.hidden = true;
+    };
+    // Remove any previous ESC listener from a prior Hud instance.
+    if (this._escHandler) document.removeEventListener('keydown', this._escHandler);
+    this._escHandler = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (!this.settingsMenuEl.hidden) { this.settingsMenuEl.hidden = true; e.stopPropagation(); return; }
+      this.settingsMenuEl.hidden = false;
+    };
+    document.addEventListener('keydown', this._escHandler);
     // Restore last collapsed preference (Phaser keeps the DOM across scenes).
     try {
       if (localStorage.getItem('czl.logCollapsed') === '1') {
@@ -338,6 +362,24 @@ export class Hud {
   }
 
   /**
+   * Always-on scenario progress chip in the top bar. Tone drives the colour
+   * (normal / warn / danger / win) so the player can track countdown/score
+   * urgency at a glance.
+   */
+  setMissionProgress(
+    progress: { text: string; tone: 'normal' | 'warn' | 'danger' | 'win' } | null,
+  ): void {
+    if (!progress || progress.text === '') {
+      this.progressEl.textContent = '';
+      this.progressEl.hidden = true;
+      return;
+    }
+    this.progressEl.textContent = progress.text;
+    this.progressEl.className = `tone-${progress.tone}`;
+    this.progressEl.hidden = false;
+  }
+
+  /**
    * Top-left unit-detail card. Pass `null` to hide. BattleScene calls this
    * for hover changes, click-to-pin selection changes, AND every state
    * refresh — so the panel must rebuild whenever the unit's data could
@@ -346,13 +388,19 @@ export class Hud {
    * dispatched command, which is in the same order as the action panel
    * already does.
    */
-  showUnitDetails(unit: Unit | null): void {
+  showUnitDetails(
+    unit: Unit | null,
+    weaponUsage?: Readonly<Record<string, ReadonlyArray<string>>>,
+  ): void {
     if (unit === null) {
       this.hideUnitDetails();
       return;
     }
     this.unitDetailsCurrentId = unit.id;
-    this.unitDetailsEl.replaceChildren(...buildUnitDetailsBody(unit));
+    const usedWeaponIds = weaponUsage?.[unit.id] ?? [];
+    this.unitDetailsEl.replaceChildren(
+      ...buildUnitDetailsBody(unit, usedWeaponIds),
+    );
     this.unitDetailsEl.hidden = false;
   }
 
@@ -399,8 +447,15 @@ export class Hud {
       const remaining =
         act.actionsRemaining === -1 ? '∞' : String(act.actionsRemaining);
       const u = state.units.find((x) => x.id === act.unitId);
-      const stance = u?.stance === 'PRONE' ? ' · prone' : '';
-      this.activeEl.textContent = `· ${act.unitId} active (${act.kind}, ${remaining} left${stance})`;
+      const stance = u?.stance === 'PRONE' ? '·趴' : '';
+      const lockSuffix = act.lockWhenDone === true ? '(達上限後鎖定)' : '';
+      const usedWeapons = act.weaponUsage?.[act.unitId] ?? [];
+      const usedSuffix =
+        usedWeapons.length > 0 ? `·武器已用:${usedWeapons.join(',')}` : '';
+      this.activeEl.textContent =
+        `· 啟動中:${act.unitId}` +
+        `(${ACTIVATION_KIND_LABEL[act.kind]})` +
+        ` · 剩餘行動:${remaining}${lockSuffix}${stance}${usedSuffix}`;
     } else {
       this.activeEl.textContent = '';
     }
@@ -598,6 +653,10 @@ export class Hud {
     this.logEl.scrollTop = this.logEl.scrollHeight;
   }
 
+  private toggleSettings(): void {
+    this.settingsMenuEl.hidden = !this.settingsMenuEl.hidden;
+  }
+
   private toggleLogCollapsed(): void {
     const collapsed = this.logWrapEl.classList.toggle('collapsed');
     this.logToggleEl.textContent = collapsed ? '▲ log' : '▼ log';
@@ -615,6 +674,13 @@ export class Hud {
     this.logEl.scrollTop = this.logEl.scrollHeight;
   }
 
+  pushInfo(message: string): void {
+    this.logLines.push(message);
+    while (this.logLines.length > 100) this.logLines.shift();
+    this.logEl.textContent = this.logLines.slice(-12).join('\n');
+    this.logEl.scrollTop = this.logEl.scrollHeight;
+  }
+
   private renderActions(
     state: GameState,
     selectedUnitId: string | null,
@@ -625,23 +691,37 @@ export class Hud {
 
     if (aimMode === 'aim-move-stance') {
       const header = document.createElement('h3');
-      header.textContent = 'Choose movement stance';
+      header.textContent = '選擇移動姿勢';
       this.actionsEl.appendChild(header);
-      this.addReqBtn('Standing — full distance', 'CHOOSE_MOVE_STANDING');
-      this.addReqBtn('Crawl — 1 unit, ends prone', 'CHOOSE_MOVE_CRAWL');
+      this.addReqBtn('站立移動(完整距離)', 'CHOOSE_MOVE_STANDING');
+      this.addReqBtnWithSub(
+        '匍匐(1 距離單位)',
+        '結束本次啟動·本主動權內無法再啟動本單位',
+        'warn',
+        'CHOOSE_MOVE_CRAWL',
+      );
       const cancel = document.createElement('button');
-      cancel.textContent = 'Cancel';
+      cancel.textContent = '取消';
       cancel.onclick = () => this.requestAction('CANCEL_AIM');
       this.actionsEl.appendChild(cancel);
       return;
     }
 
     if (aimMode === 'aim-move') {
+      const act = state.initiative.activeActivation;
+      const mover = act ? state.units.find((u) => u.id === act.unitId) : undefined;
+      if (mover && isInDifficultTerrain(mover.position, state.terrain)) {
+        const banner = document.createElement('div');
+        banner.className = 'danger-banner';
+        banner.textContent =
+          '⚠ 從困難地形出發:移動上限 1 距離單位,完成後本主動權內此單位不可再啟動';
+        this.actionsEl.appendChild(banner);
+      }
       const note = document.createElement('div');
       note.style.color = '#cfe8cf';
       note.style.whiteSpace = 'pre-wrap';
       note.textContent =
-        'Click map to confirm move target.\nRed segments = enemy LOS windows.\nESC or right-click to cancel.';
+        '點擊地圖確認移動目標。\n紅色段 = 敵方 LOS 視窗。\nESC 或右鍵取消。';
       this.actionsEl.appendChild(note);
       // End-of-move stance toggle — visible only for standing moves where the
       // rule allows ending prone.
@@ -656,7 +736,7 @@ export class Hud {
         this.actionsEl.appendChild(toggle);
       }
       const cancel = document.createElement('button');
-      cancel.textContent = 'Cancel';
+      cancel.textContent = '取消';
       cancel.onclick = () => this.requestAction('CANCEL_AIM');
       this.actionsEl.appendChild(cancel);
       return;
@@ -684,12 +764,17 @@ export class Hud {
 
     if (aimMode === 'aim-command-move-officer-stance') {
       const header = document.createElement('h3');
-      header.textContent = 'Command Move — officer stance';
+      header.textContent = '指揮移動 — 軍官姿勢';
       this.actionsEl.appendChild(header);
-      this.addReqBtn('Standing — full distance', 'CHOOSE_CMD_MOVE_STANDING');
-      this.addReqBtn('Crawl — 1 unit, ends prone', 'CHOOSE_CMD_MOVE_CRAWL');
+      this.addReqBtn('站立移動(完整距離)', 'CHOOSE_CMD_MOVE_STANDING');
+      this.addReqBtnWithSub(
+        '匍匐(1 距離單位)',
+        '結束本次啟動·本主動權內無法再啟動本單位',
+        'warn',
+        'CHOOSE_CMD_MOVE_CRAWL',
+      );
       const cancel = document.createElement('button');
-      cancel.textContent = 'Cancel';
+      cancel.textContent = '取消';
       cancel.onclick = () => this.requestAction('CANCEL_AIM');
       this.actionsEl.appendChild(cancel);
       return;
@@ -739,34 +824,41 @@ export class Hud {
       : undefined;
     if (selected && selected.faction === state.initiative.holder) {
       const header = document.createElement('h3');
-      header.textContent = `Activate ${selected.id} (${selected.quality}+)`;
+      header.textContent = `啟動 ${selected.id}(素質 ${selected.quality}+)`;
       this.actionsEl.appendChild(header);
       const cur = state.initiative.momentum[selected.faction];
       const cost = selected.quality;
       if (cur >= cost) {
-        this.addBtn(`Spend (${cost})`, {
-          type: 'ACTIVATE_SPEND',
-          unitId: selected.id,
-        });
+        this.addBtnWithSub(
+          `動能花費 ${cost}`,
+          `花費後可進行 1 個行動`,
+          '',
+          { type: 'ACTIVATE_SPEND', unitId: selected.id },
+        );
       } else {
-        this.addBtn(`Overdraft (deficit ${cost - cur})`, {
-          type: 'ACTIVATE_OVERDRAFT',
-          unitId: selected.id,
-        });
+        const deficit = cost - cur;
+        this.addBtnWithSub(
+          `動能透支 ${deficit}`,
+          `行動後強制易手·對手起始 +${deficit} 動能`,
+          'warn',
+          { type: 'ACTIVATE_OVERDRAFT', unitId: selected.id },
+        );
       }
-      this.addBtn(`Check (roll ≥ ${selected.quality})`, {
-        type: 'ACTIVATE_CHECK',
-        unitId: selected.id,
-      });
+      this.addBtnWithSub(
+        `檢定(擲 ≥ ${selected.quality})`,
+        `失敗 → 對手獲 2 動能;成功不消耗動能`,
+        'warn',
+        { type: 'ACTIVATE_CHECK', unitId: selected.id },
+      );
     } else if (selected) {
       const note = document.createElement('div');
       note.style.color = '#7a9a7a';
-      note.textContent = `${selected.id} is on ${selected.faction}; current holder is ${state.initiative.holder}.`;
+      note.textContent = `${selected.id} 屬於 ${selected.faction} 陣營;當前主動權在 ${state.initiative.holder}。`;
       this.actionsEl.appendChild(note);
     } else {
       const note = document.createElement('div');
       note.style.color = '#7a9a7a';
-      note.textContent = 'Select a unit to activate, or pass initiative.';
+      note.textContent = '選擇單位以啟動,或讓出主動權。';
       this.actionsEl.appendChild(note);
     }
 
@@ -774,16 +866,13 @@ export class Hud {
     sep.style.borderTop = '1px solid #2a3a2a';
     sep.style.margin = '6px 0';
     this.actionsEl.appendChild(sep);
-    this.addBtn('Pass Initiative', { type: 'PASS_INITIATIVE' });
+    this.addBtnWithSub(
+      '讓出主動權',
+      '本主動權結束·對手獲 2 動能(規則表)',
+      'warn',
+      { type: 'PASS_INITIATIVE' },
+    );
 
-    const sep2 = document.createElement('div');
-    sep2.style.borderTop = '1px solid #2a3a2a';
-    sep2.style.margin = '6px 0';
-    this.actionsEl.appendChild(sep2);
-    const replayHeader = document.createElement('h3');
-    replayHeader.textContent = 'Replay';
-    this.actionsEl.appendChild(replayHeader);
-    this.addReqBtn('Save current battle', 'SAVE_REPLAY');
   }
 
   private renderActivationActions(
@@ -793,7 +882,7 @@ export class Hud {
   ): void {
     const activeUnit = state.units.find((u) => u.id === act.unitId);
     const header = document.createElement('h3');
-    header.textContent = `Active: ${act.unitId} (${act.kind})`;
+    header.textContent = `啟動中:${act.unitId}(${ACTIVATION_KIND_LABEL[act.kind]})`;
     this.actionsEl.appendChild(header);
 
     if (activeUnit) {
@@ -806,34 +895,39 @@ export class Hud {
       const canRally =
         activeUnit.damage === 'IMPEDED' || activeUnit.damage === 'SUPPRESSED';
 
-      if (canMove) this.addReqBtn('Move', 'REQUEST_MOVE');
-      if (canShoot) this.addReqBtn('Shoot…', 'REQUEST_SHOOT');
-      if (canMelee) this.addReqBtn('Melee…', 'REQUEST_MELEE');
-      if (canRally) this.addReqBtn('Rally', 'REQUEST_RALLY');
+      if (canMove) this.addReqBtn('移動', 'REQUEST_MOVE');
+      if (canShoot) this.addReqBtn('射擊…', 'REQUEST_SHOOT');
+      if (canMelee) this.addReqBtn('近戰…', 'REQUEST_MELEE');
+      if (canRally) this.addReqBtn('整頓', 'REQUEST_RALLY');
       if (canMove && ctx?.traversal?.canVault) {
-        this.addReqBtn('Vault (over low wall)', 'REQUEST_VAULT');
+        this.addReqBtn('翻越矮牆', 'REQUEST_VAULT');
       }
       if (canMove && ctx?.traversal?.canClimb) {
-        this.addReqBtn('Climb (high wall, ends activation)', 'REQUEST_CLIMB');
+        this.addReqBtnWithSub(
+          '攀爬高牆',
+          '結束本次啟動·本主動權內無法再啟動本單位',
+          'warn',
+          'REQUEST_CLIMB',
+        );
       }
       if (canMove && ctx?.traversal?.canTraverse) {
-        this.addReqBtn('Traverse (across terrain edge)', 'REQUEST_TRAVERSE');
+        this.addReqBtn('穿越地形邊緣', 'REQUEST_TRAVERSE');
       }
       if (ctx?.commandRally?.canStart) {
         this.addReqBtn(
-          'Command Rally… (officer + nearby allies)',
+          '指揮整頓…(軍官 + 鄰近友軍)',
           'REQUEST_COMMAND_RALLY',
         );
       }
       if (canMove && ctx?.commandMove?.canStart) {
         this.addReqBtn(
-          'Command Move… (officer + nearby allies)',
+          '指揮移動…(軍官 + 鄰近友軍)',
           'REQUEST_COMMAND_MOVE',
         );
       }
     }
     if (act.kind === 'CHECK_SUCCESS') {
-      this.addBtn('End Activation', { type: 'END_ACTIVATION' });
+      this.addBtn('結束啟動', { type: 'END_ACTIVATION' });
     }
   }
 
@@ -862,6 +956,12 @@ export class Hud {
               ? ` w/ ${m.participantIds.join(',')}`
               : '';
           b.textContent = `${m.mode} [${m.weaponDisplay}]${partsLabel} (${m.diceReadout})`;
+          if (m.mode === 'SOLO') {
+            const warn = document.createElement('span');
+            warn.className = 'risk-tag';
+            warn.textContent = '未壓制即易手';
+            b.appendChild(warn);
+          }
           b.onclick = () =>
             this.dispatch({
               type: 'SHOOT',
@@ -1219,9 +1319,41 @@ export class Hud {
     this.actionsEl.appendChild(b);
   }
 
+  private addBtnWithSub(
+    main: string,
+    sub: string,
+    tone: '' | 'warn',
+    cmd: Command,
+  ): void {
+    const b = document.createElement('button');
+    b.textContent = main;
+    const subEl = document.createElement('span');
+    subEl.className = tone === 'warn' ? 'btn-sub warn' : 'btn-sub';
+    subEl.textContent = sub;
+    b.appendChild(subEl);
+    b.onclick = () => this.dispatch(cmd);
+    this.actionsEl.appendChild(b);
+  }
+
   private addReqBtn(label: string, req: ActionRequest): void {
     const b = document.createElement('button');
     b.textContent = label;
+    b.onclick = () => this.requestAction(req);
+    this.actionsEl.appendChild(b);
+  }
+
+  private addReqBtnWithSub(
+    main: string,
+    sub: string,
+    tone: '' | 'warn',
+    req: ActionRequest,
+  ): void {
+    const b = document.createElement('button');
+    b.textContent = main;
+    const subEl = document.createElement('span');
+    subEl.className = tone === 'warn' ? 'btn-sub warn' : 'btn-sub';
+    subEl.textContent = sub;
+    b.appendChild(subEl);
     b.onclick = () => this.requestAction(req);
     this.actionsEl.appendChild(b);
   }
@@ -1242,6 +1374,14 @@ const DAMAGE_LABEL: Readonly<Record<Unit['damage'], string>> = {
   KILLED: '陣亡',
 };
 
+const ACTIVATION_KIND_LABEL: Readonly<
+  Record<NonNullable<GameState['initiative']['activeActivation']>['kind'], string>
+> = {
+  SPEND: '動能花費',
+  CHECK_SUCCESS: '檢定成功',
+  OVERDRAFT: '動能透支',
+};
+
 const DAMAGE_TONE: Readonly<Record<Unit['damage'], '' | 'warn' | 'danger'>> = {
   NONE: '',
   IMPEDED: 'warn',
@@ -1249,7 +1389,10 @@ const DAMAGE_TONE: Readonly<Record<Unit['damage'], '' | 'warn' | 'danger'>> = {
   KILLED: 'danger',
 };
 
-const buildUnitDetailsBody = (unit: Unit): HTMLElement[] => {
+const buildUnitDetailsBody = (
+  unit: Unit,
+  usedWeaponIds: ReadonlyArray<string> = [],
+): HTMLElement[] => {
   const out: HTMLElement[] = [];
 
   // Resolve template + faction info defensively — legacy fixture units may
@@ -1351,6 +1494,15 @@ const buildUnitDetailsBody = (unit: Unit): HTMLElement[] => {
       meta.textContent = `${w.kind} · ${w.diceCount}d ${w.threshold}+ · ${w.modes.join('/')}`;
       li.appendChild(name);
       li.appendChild(meta);
+      const usedThisActivation = usedWeaponIds.includes(w.id);
+      const isReload = w.descriptors.includes('RELOAD');
+      if (usedThisActivation) {
+        const usedTag = document.createElement('span');
+        usedTag.className = 'meta';
+        usedTag.style.color = '#ff8a6a';
+        usedTag.textContent = isReload ? '· 本主動權需重裝' : '· 本啟動已用';
+        li.appendChild(usedTag);
+      }
       if (w.descriptors.length > 0) {
         const d = document.createElement('span');
         d.className = 'descs';
@@ -1441,37 +1593,87 @@ const buildUnitDetailsBody = (unit: Unit): HTMLElement[] => {
   return out;
 };
 
+const ACTIVATION_KIND_ZH: Record<string, string> = {
+  SPEND: '動能花費',
+  CHECK_SUCCESS: '檢定成功',
+  OVERDRAFT: '動能透支',
+};
+
+const ACTIVATION_END_REASON_ZH: Record<string, string> = {
+  NORMAL: '正常結束',
+  FORCED_TURNOVER: '強制易手',
+  CHECK_FAILED: '檢定失敗',
+};
+
+const TURNOVER_REASON_ZH: Record<string, string> = {
+  CHECK_FAILED: '檢定失敗',
+  ACTION_FAILED: '行動失敗',
+  VOLUNTARY: '主動讓出',
+  OVERDRAFT: '動能透支',
+  REACTION_HIT: '反應命中',
+  MELEE_LOSS: '近戰落敗',
+};
+
+const SHOT_MODE_ZH: Record<string, string> = {
+  SOLO: '單兵',
+  FOCUSED: '集火',
+  COMBINED: '聯合',
+};
+
+const WEAPON_MODE_ZH: Record<string, string> = {
+  ACTIVE: '主動',
+  REACTION: '反應',
+};
+
+const STOP_REASON_ZH: Record<string, string> = {
+  TARGET: '抵達',
+  OBSTACLE: '障礙阻擋',
+  ENEMY: '敵單位阻擋',
+};
+
+const IMPULSIVE_VARIANT_ZH: Record<string, string> = {
+  AGGRESSIVE: '激進',
+};
+
+const IMPULSIVE_REASON_ZH: Record<string, string> = {
+  CHECK_FAILED: '檢定失敗',
+  TURNOVER: '易手',
+};
+
+const zh = <T extends string>(map: Record<string, string>, key: T): string =>
+  map[key] ?? key;
+
 const formatEvent = (e: GameEvent): string => {
   switch (e.type) {
     case 'MOMENTUM_SPENT':
-      return `· ${e.faction} spent ${e.amount} momentum`;
+      return `· ${e.faction} 花費 ${e.amount} 動能`;
     case 'OVERDRAFT_DECLARED':
-      return `· ${e.unitId} overdrafted (deficit ${e.deficit})`;
+      return `· ${e.unitId} 動能透支 ${e.deficit} 點(對手獲 ${e.deficit} 點起始動能)`;
     case 'ACTIVATION_BEGAN':
-      return `▶ ${e.unitId} activated (${e.kind})`;
+      return `▶ ${e.unitId} 啟動(${zh(ACTIVATION_KIND_ZH, e.kind)})`;
     case 'ACTIVATION_CHECK_ROLLED':
-      return `🎲 ${e.unitId} check ${e.threshold}+ → rolled ${e.roll} → ${e.success ? '✓' : '✗'}`;
+      return `🎲 ${e.unitId} 檢定 ${e.threshold}+ → 擲出 ${e.roll} → ${e.success ? '成功' : '失敗'}`;
     case 'ACTIVATION_ENDED':
-      return `■ ${e.unitId} activation ended (${e.reason})`;
+      return `■ ${e.unitId} 啟動結束(${zh(ACTIVATION_END_REASON_ZH, e.reason)})`;
     case 'INITIATIVE_TURNOVER':
-      return `↔ Initiative ${e.from} → ${e.to} (${e.reason}, +${e.momentumGranted})`;
+      return `↔ 主動權 ${e.from} → ${e.to}(${zh(TURNOVER_REASON_ZH, e.reason)}·對手 +${e.momentumGranted} 動能)`;
     case 'MOVE_RESOLVED':
-      return `→ ${e.unitId} moved ${e.distance.toFixed(0)}px (${e.stopReason})${e.interruptedByMarker >= 0 ? ` interrupted@m${e.interruptedByMarker}` : ''}`;
+      return `→ ${e.unitId} 移動 ${e.distance.toFixed(0)}px(${zh(STOP_REASON_ZH, e.stopReason)})${e.interruptedByMarker >= 0 ? ` · 反應點 m${e.interruptedByMarker} 中斷` : ''}`;
     case 'SHOT_RESOLVED':
-      return `🔫 ${e.shooterId}${e.participantIds.length > 0 ? `+${e.participantIds.length}` : ''} → ${e.targetId} (${e.mode} ${e.weaponMode}): ${e.hits}/${e.diceCount} hits, ${e.beforeDamage}→${e.afterDamage}${e.coverApplied ? ' (cover)' : ''}`;
+      return `🔫 ${e.shooterId}${e.participantIds.length > 0 ? `+${e.participantIds.length}` : ''} → ${e.targetId}(${zh(SHOT_MODE_ZH, e.mode)}·${zh(WEAPON_MODE_ZH, e.weaponMode)}):${e.diceCount} 骰中 ${e.hits},${e.beforeDamage}→${e.afterDamage}${e.coverApplied ? '(掩體 -1)' : ''}`;
     case 'MELEE_RESOLVED':
-      return `⚔ ${e.attackerId} vs ${e.defenderId}: ${e.attackerHits}-${e.defenderHits} → ${e.winnerId} wins`;
+      return `⚔ ${e.attackerId} vs ${e.defenderId}:${e.attackerHits}-${e.defenderHits} → ${e.winnerId} 勝`;
     case 'RALLY_ROLLED':
-      return `🎯 ${e.unitId} rally ${e.threshold}+ → ${e.roll} → ${e.success ? `${e.beforeDamage}→${e.afterDamage}` : '✗'}`;
+      return `🎯 ${e.unitId} 整頓 ${e.threshold}+ → ${e.roll} → ${e.success ? `${e.beforeDamage}→${e.afterDamage}` : '失敗'}`;
     case 'IMPULSIVE_TRIGGERED':
-      return `⚡ ${e.unitId} impulsive(${e.variant.toLowerCase()}) on ${e.reason} → ${e.action}`;
+      return `⚡ ${e.unitId} 衝動觸發(${zh(IMPULSIVE_VARIANT_ZH, e.variant)})於 ${zh(IMPULSIVE_REASON_ZH, e.reason)} → ${e.action}`;
     case 'STEALTH_POI_CREATED':
-      return `🌙 POI(${e.cause}) @${e.position.x.toFixed(0)},${e.position.y.toFixed(0)} ttl→${e.expiresAtCycle}`;
+      return `🌙 隱蔽 POI(${e.cause})@${e.position.x.toFixed(0)},${e.position.y.toFixed(0)} 效期→${e.expiresAtCycle}`;
     case 'PATROL_TRIGGERED':
-      return `👁 ${e.unitId} patrol on ${e.reason}`;
+      return `👁 ${e.unitId} 巡邏觸發於 ${e.reason}`;
     case 'STEALTH_PENDING_BREAK':
-      return `🌙 stealth break pending (${e.reason}) — all enemies neutralised`;
+      return `🌙 隱蔽即將揭示(${e.reason}) — 敵方全滅`;
     case 'STEALTH_BROKEN':
-      return `⚠ stealth broken (${e.reason}${e.deferred ? ', deferred' : ''})`;
+      return `⚠ 隱蔽揭示(${e.reason}${e.deferred ? ',延遲' : ''})`;
   }
 };

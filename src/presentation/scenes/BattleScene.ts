@@ -15,6 +15,7 @@ import { paintBoardFloorPhaser } from '../rendering/boardFloor';
 import { CombatEffects } from '../rendering/combatEffects';
 import { computeVisibilityPolygon } from '../rendering/visibilityPolygon';
 import { detectScenarioVictory } from '../../core/scenario/victory';
+import { formatScenarioProgress } from '../../core/scenario/progress';
 import {
   appendCommand,
   createReplayLog,
@@ -821,12 +822,13 @@ export class BattleScene extends Phaser.Scene {
    */
   private updateUnitDetailPanel(): void {
     const id = this.losPreviewUnitId ?? this.selectedUnitId;
+    const weaponUsage = this.gameState.initiative.activeActivation?.weaponUsage;
     if (id === null) {
-      this.hud.showUnitDetails(null);
+      this.hud.showUnitDetails(null, weaponUsage);
       return;
     }
     const u = this.gameState.units.find((x) => x.id === id);
-    this.hud.showUnitDetails(u ?? null);
+    this.hud.showUnitDetails(u ?? null, weaponUsage);
   }
 
   /** Hit-test pointer against any alive unit; returns its id or null. */
@@ -1299,6 +1301,33 @@ export class BattleScene extends Phaser.Scene {
       stanceTag.destroy();
     }
 
+    // Initiative-state tag above the unit: 🔒 (locked this initiative — can't
+    // be re-activated or join a command/focused/combined call) and 🛡 (already
+    // reacted this round — no more reaction fire until handover). Both fade
+    // away on INITIATIVE_TURNOVER (engine clears the flags).
+    let statusTag = container.getByName('status-tag') as
+      | Phaser.GameObjects.Text
+      | null;
+    const statusText =
+      (u.lockedThisInitiative ? '🔒' : '') +
+      (u.cannotReactThisRound ? '🛡' : '');
+    if (statusText.length > 0) {
+      if (!statusTag) {
+        statusTag = this.add.text(0, -(u.radius + 11), statusText, {
+          fontFamily: 'ui-monospace, monospace',
+          fontSize: '11px',
+          color: '#ffd166',
+        });
+        statusTag.setName('status-tag');
+        statusTag.setOrigin(0.5);
+        container.add(statusTag);
+      } else {
+        statusTag.setText(statusText);
+      }
+    } else if (statusTag) {
+      statusTag.destroy();
+    }
+
     // Damage tag — icon dots under the unit. 1 orange = IMPEDED, 2 red =
     // SUPPRESSED. KILLED units are filtered out before this runs.
     let tag = container.getByName('damage-tag') as
@@ -1729,6 +1758,46 @@ export class BattleScene extends Phaser.Scene {
    * busy with animation or aiming. If we're stuck in a reaction phase where
    * the defender is AI, auto-confirm with an empty plan instead.
    */
+  /**
+   * Cheap eligibility check for the reaction-phase auto-skip optimisation.
+   * Mirrors the conditions reducer / planReactions enforce on a defender:
+   * alive, not locked-this-initiative, not cannot-react-this-round, not
+   * SUPPRESSED, and owns at least one SHOOT weapon with a REACTION mode.
+   * If no defender unit qualifies, the reaction phase has no possible
+   * outcome other than an empty plan — auto-skipping spares the player a
+   * pointless Confirm click (especially in sandbox mode where both sides
+   * are human-controlled).
+   */
+  private defenderHasAnyEligibleReactor(defender: 'A' | 'B'): boolean {
+    return this.gameState.units.some((u) => {
+      if (u.faction !== defender) return false;
+      if (!isUnitAlive(u)) return false;
+      if (u.lockedThisInitiative) return false;
+      if (u.cannotReactThisRound) return false;
+      if (u.damage === 'SUPPRESSED') return false;
+      return u.weapons.some(
+        (w) => w.kind === 'SHOOT' && w.modes.includes('REACTION'),
+      );
+    });
+  }
+
+  /**
+   * Centralised auto-skip decision. Returns true when the reaction phase
+   * should be bypassed entirely because no defender can react. Each
+   * `enter*ReactionPhase` calls this right after `this.reaction` is set up
+   * and immediately invokes confirmReaction() if true, dispatching the
+   * underlying command with an empty marker plan.
+   */
+  private autoSkipReactionIfNoReactor(): boolean {
+    if (!this.reaction) return false;
+    const defender: 'A' | 'B' =
+      this.reaction.moverFaction === 'A' ? 'B' : 'A';
+    if (this.defenderHasAnyEligibleReactor(defender)) return false;
+    this.hud.pushInfo('⚡ 反應階段:無可反應單位 → 自動跳過');
+    this.confirmReaction();
+    return true;
+  }
+
   private maybeScheduleAiTick(): void {
     if (this.aiPending) return;
     if (this.movementTweens > 0) return;
@@ -2181,6 +2250,14 @@ export class BattleScene extends Phaser.Scene {
     };
     this.hud.update(this.gameState, this.selectedUnitId, this.aimMode, ctx);
     this.hud.setMissionInfo(this.formatMissionLabel());
+    this.hud.setMissionProgress(
+      formatScenarioProgress(
+        this.gameState,
+        this.missionScenario,
+        this.missionParams,
+        this.missionInitialAlive,
+      ),
+    );
     // Refresh detail card so a pinned unit's panel reflects damage / stance
     // / activation flags as combat unfolds.
     this.updateUnitDetailPanel();
@@ -3198,6 +3275,7 @@ export class BattleScene extends Phaser.Scene {
     this.drawReactionPreview();
     this.renderUnits();
     this.refreshHud();
+    if (this.autoSkipReactionIfNoReactor()) return;
     this.startTimer(
       'Reaction',
       timersConfig.reactionPhaseSeconds,
@@ -3255,6 +3333,7 @@ export class BattleScene extends Phaser.Scene {
     this.drawReactionPreview();
     this.renderUnits();
     this.refreshHud();
+    if (this.autoSkipReactionIfNoReactor()) return;
     this.startTimer(
       'Reaction',
       timersConfig.reactionPhaseSeconds,
@@ -3319,6 +3398,7 @@ export class BattleScene extends Phaser.Scene {
     this.drawReactionPreview();
     this.renderUnits();
     this.refreshHud();
+    if (this.autoSkipReactionIfNoReactor()) return;
     this.startTimer(
       'Reaction',
       timersConfig.reactionPhaseSeconds,
@@ -3479,6 +3559,7 @@ export class BattleScene extends Phaser.Scene {
     this.drawReactionPreview();
     this.renderUnits();
     this.refreshHud();
+    if (this.autoSkipReactionIfNoReactor()) return;
     this.startTimer(
       'Reaction',
       timersConfig.reactionPhaseSeconds,
@@ -3536,6 +3617,7 @@ export class BattleScene extends Phaser.Scene {
     this.drawReactionPreview();
     this.renderUnits();
     this.refreshHud();
+    if (this.autoSkipReactionIfNoReactor()) return;
     this.startTimer(
       'Reaction',
       timersConfig.reactionPhaseSeconds,
@@ -3573,6 +3655,7 @@ export class BattleScene extends Phaser.Scene {
     this.drawReactionPreview();
     this.renderUnits();
     this.refreshHud();
+    if (this.autoSkipReactionIfNoReactor()) return;
     this.startTimer(
       'Reaction',
       timersConfig.reactionPhaseSeconds,

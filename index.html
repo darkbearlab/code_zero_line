@@ -41,29 +41,52 @@
         align-items: center;
         font-size: 13px;
       }
+      #hud-progress {
+        font-weight: bold;
+        padding: 2px 8px;
+        border-radius: 3px;
+        border: 1px solid transparent;
+      }
+      #hud-progress.tone-normal { color: #cfe8cf; border-color: #2a4a2a; background: rgba(40,80,40,0.2); }
+      #hud-progress.tone-warn   { color: #ffd166; border-color: #6a5a2a; background: rgba(120,90,30,0.25); }
+      #hud-progress.tone-danger { color: #ff8a6a; border-color: #6a2a2a; background: rgba(120,40,30,0.3); }
+      #hud-progress.tone-win    { color: #6affb0; border-color: #2a6a4a; background: rgba(40,120,80,0.3); animation: hud-progress-pulse 1.2s ease-in-out infinite; }
+      @keyframes hud-progress-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.55; }
+      }
       #hud-unit-details {
         position: absolute;
         top: 48px;
         left: 12px;
-        width: 280px;
+        width: 300px;
         max-height: calc(100vh - 160px);
         overflow-y: auto;
         padding: 10px 12px;
         background: rgba(10, 14, 10, 0.92);
         border: 1px solid #3a5a3a;
-        font-size: 12px;
-        line-height: 1.45;
+        font-size: 13px;
+        line-height: 1.5;
         color: #cfe8cf;
+        pointer-events: auto;
+      }
+      #hud-unit-details::after {
+        content: '📌';
+        position: absolute;
+        top: 6px;
+        right: 8px;
+        font-size: 12px;
+        opacity: 0.45;
         pointer-events: none;
       }
       #hud-unit-details .ud-name {
-        font-size: 14px;
+        font-size: 15px;
         font-weight: bold;
         color: #cfe8cf;
         margin-bottom: 2px;
       }
       #hud-unit-details .ud-sub {
-        font-size: 11px;
+        font-size: 12px;
         color: #9aa89a;
         margin-bottom: 8px;
       }
@@ -293,34 +316,47 @@
       }
       #hud-actions {
         position: absolute;
+        bottom: 0;
+        left: 0;
         right: 0;
-        top: 48px;
-        bottom: 80px;
-        width: 260px;
-        padding: 12px;
-        background: rgba(10, 14, 10, 0.85);
-        border-left: 1px solid #2a3a2a;
+        top: auto;
+        width: auto;
+        max-height: 180px;
+        padding: 8px 16px;
+        background: rgba(10, 14, 10, 0.92);
+        border-top: 1px solid #2a3a2a;
+        border-left: none;
         display: flex;
-        flex-direction: column;
-        gap: 8px;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        align-content: flex-start;
+        gap: 5px 10px;
         font-size: 12px;
         overflow-y: auto;
+        z-index: 10;
       }
       #hud-actions h3 {
-        margin: 0 0 4px;
+        flex-basis: 100%;
+        margin: 4px 0 2px;
         font-size: 12px;
         color: #7a9a7a;
         font-weight: normal;
         letter-spacing: 0.5px;
       }
+      #hud-actions h3:first-child {
+        margin-top: 0;
+      }
       #hud-actions button {
         background: #1a2a1a;
         color: #cfe8cf;
         border: 1px solid #3a5a3a;
-        padding: 6px 10px;
+        padding: 5px 10px;
         font: inherit;
         cursor: pointer;
         text-align: left;
+        flex-shrink: 0;
+        white-space: nowrap;
       }
       #hud-actions button:hover {
         background: #2a4a2a;
@@ -329,59 +365,115 @@
         opacity: 0.4;
         cursor: not-allowed;
       }
+      /* Sub-labels and candidate rows take up a full line */
+      #hud-actions > div {
+        flex-basis: 100%;
+        flex-shrink: 0;
+      }
+      /* Inline red warning chip inside a button (e.g. SOLO 未壓制即易手) */
+      #hud-actions button .risk-tag {
+        color: #ff8a6a;
+        font-size: 10px;
+        margin-left: 8px;
+        font-weight: bold;
+      }
+      /* Two-line button: small grey/red subtitle on a new line under main label */
+      #hud-actions button .btn-sub {
+        display: block;
+        font-size: 10px;
+        color: #8aa28a;
+        font-weight: normal;
+        margin-top: 2px;
+        white-space: normal;
+      }
+      #hud-actions button .btn-sub.warn {
+        color: #ff8a6a;
+      }
+      /* Pre-action red banner (e.g. 困難地形:移動上限 1·主動權結束) */
+      #hud-actions .danger-banner {
+        background: rgba(255, 138, 106, 0.15);
+        border: 1px solid #ff8a6a;
+        color: #ffd0c2;
+        padding: 6px 10px;
+        font-size: 12px;
+        line-height: 1.4;
+        margin-bottom: 4px;
+      }
+      /* Log: top-right corner, 1-line compact by default */
       #hud-log-wrap {
         position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 260px;
-        background: rgba(10, 14, 10, 0.85);
-        border-top: 1px solid #2a3a2a;
+        top: 52px;
+        right: 8px;
+        bottom: auto;
+        left: auto;
+        width: 300px;
+        max-width: calc(100vw - 20px);
+        background: rgba(10, 14, 10, 0.88);
+        border: 1px solid #2a3a2a;
+        border-radius: 3px;
+        z-index: 12;
       }
       #hud-log-toggle {
-        position: absolute;
-        top: -22px;
-        right: 8px;
+        position: static;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        width: 100%;
+        box-sizing: border-box;
         background: rgba(10, 14, 10, 0.95);
-        border: 1px solid #2a3a2a;
-        border-bottom: none;
-        color: #cfe8cf;
+        border: none;
+        border-bottom: 1px solid #1a2a1a;
+        color: #6a8a6a;
         font: inherit;
         font-size: 11px;
-        padding: 2px 10px;
+        padding: 2px 8px;
         cursor: pointer;
         line-height: 1.4;
+        text-align: right;
       }
       #hud-log-toggle:hover {
         background: #1a2a1a;
+        color: #cfe8cf;
       }
+      /* Default: 5-line view at 14px so recent events stay readable */
       #hud-log {
-        height: 80px;
-        padding: 8px 16px;
-        font-size: 12px;
+        height: 110px;
+        padding: 4px 8px;
+        font-size: 14px;
         line-height: 1.5;
         overflow-y: auto;
         white-space: pre-wrap;
-        color: #8aa28a;
+        color: #cfe8cf;
+        scrollbar-width: thin;
       }
+      #hud-log::-webkit-scrollbar {
+        display: none;
+      }
+      /* "collapsed" in Hud.ts = user clicked to expand */
       #hud-log-wrap.collapsed #hud-log {
-        height: 16px;
-        padding-top: 1px;
-        padding-bottom: 1px;
-        line-height: 1.2;
-        overflow: hidden;
-        white-space: nowrap;
-        text-overflow: ellipsis;
+        height: 240px;
+        padding: 6px 8px;
+        white-space: pre-wrap;
+        overflow-y: auto;
+        scrollbar-width: thin;
+      }
+      #hud-log-wrap.collapsed #hud-log::-webkit-scrollbar {
+        display: initial;
+      }
+      /* When scrubber is visible, lift actions panel above it so buttons stay clickable */
+      #hud:has(#hud-scrubber:not([hidden])) #hud-actions {
+        bottom: 74px;
       }
       #hud-scrubber {
         position: absolute;
-        bottom: 80px;
+        bottom: 0;
         left: 0;
-        right: 260px;
+        right: 0;
         padding: 10px 16px;
-        background: rgba(20, 30, 20, 0.92);
-        border-top: 1px solid #2a3a2a;
+        background: rgba(20, 30, 20, 0.95);
+        border-top: 2px solid #4a7a4a;
         font-size: 12px;
-        z-index: 11;
+        z-index: 12;
       }
       #hud-scrubber[hidden] {
         display: none;
@@ -430,6 +522,19 @@
         font-size: 11px;
         margin-top: 6px;
         line-height: 1.4;
+      }
+      #settings-menu {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0,0,0,0.55);
+        font-family: monospace;
+      }
+      #settings-menu[hidden] {
+        display: none;
       }
       .setup-root {
         position: absolute;
@@ -546,6 +651,7 @@
     <div id="hud">
       <div id="hud-top">
         <span id="hud-mission" hidden></span>
+        <span id="hud-progress" class="tone-normal" hidden></span>
         <span id="hud-stealth" hidden style="color: #b8c8ff; font-weight: bold;">🌙 夜間隱密</span>
         <span id="hud-no-intel" hidden style="color: #ffaa66; font-weight: bold;">🚫 情報不明</span>
         <span>主動權 <strong id="hud-round">1</strong></span>
@@ -559,6 +665,11 @@
           <label><input type="checkbox" id="hud-ai-b" /> AI B</label>
         </span>
         <span id="hud-timer" hidden></span>
+        <button id="settings-gear-btn" title="Settings (ESC)" style="
+          margin-left: auto; background: none; border: none;
+          color: #7a9a7a; font-size: 14px; cursor: pointer; padding: 2px 6px;
+          line-height: 1;
+        ">⚙</button>
       </div>
       <div id="hud-unit-details" hidden></div>
       <div id="hud-actions"></div>
@@ -585,6 +696,31 @@
       <div id="hud-log-wrap">
         <button id="hud-log-toggle" type="button" title="Collapse / expand log">▼ log</button>
         <div id="hud-log"></div>
+      </div>
+    </div>
+    <!-- Settings overlay (ESC / ⚙) -->
+    <div id="settings-menu" hidden>
+      <div style="
+        background: rgba(10,14,10,0.97); border: 1px solid #2a3a2a;
+        min-width: 260px; color: #cfe8cf;
+      ">
+        <div style="
+          display: flex; justify-content: space-between; align-items: center;
+          padding: 10px 16px; border-bottom: 1px solid #2a3a2a;
+        ">
+          <span style="font-size: 13px; color: #7a9a7a; letter-spacing: 1px;">⚙ SETTINGS</span>
+          <button id="settings-close-btn" style="
+            background: none; border: none; color: #7a9a7a; font-size: 16px;
+            cursor: pointer; padding: 0 4px; line-height: 1;
+          ">✕</button>
+        </div>
+        <div style="padding: 12px 16px; display: flex; flex-direction: column; gap: 8px;">
+          <button id="settings-save-battle-btn" style="
+            background: #1a2a1a; color: #cfe8cf; border: 1px solid #3a5a3a;
+            padding: 7px 14px; font: inherit; font-size: 13px; cursor: pointer;
+            text-align: left;
+          ">💾 Save current battle</button>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/index.ts"></script>
