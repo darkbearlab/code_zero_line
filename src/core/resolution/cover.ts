@@ -25,7 +25,12 @@ export interface CoverDetail {
   readonly difficult: boolean;
   /** 9.3: shot crosses or touches SOFT (smoke). */
   readonly soft: boolean;
-  /** 9.1: shot segment crosses a hard cover (low wall / BLOCKER / OOB). */
+  /**
+   * 9.1: shot crosses a hard cover (low wall / BLOCKER / OOB / closed door).
+   * Three lines are tested: shooter to target centre, plus shooter to each
+   * lateral tangent of the target's base (at ±radius perpendicular to the
+   * line of sight). If any one is blocked, cover applies.
+   */
   readonly hardWall: boolean;
 }
 
@@ -95,11 +100,38 @@ export const coverDetail = (
     if (shooterOnHigh && low && !high) continue;
     hardPolys.push(t.polygon);
   }
-  const hardWall = segmentBlockedByPolygons(
+  // Cover triggers if EITHER the centre line OR either lateral-tangent line
+  // is blocked. The two tangents are at ±target.radius perpendicular to the
+  // shooter→target ray — they represent "the two sides of the target's
+  // base" as seen by the shooter. If either side is hidden by hard cover
+  // the target is considered behind cover, even when the centre line is
+  // clear.
+  let hardWall = segmentBlockedByPolygons(
     shooter.position,
     target.position,
     hardPolys,
   );
+  if (!hardWall && hardPolys.length > 0) {
+    const dx = target.position.x - shooter.position.x;
+    const dy = target.position.y - shooter.position.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > 0) {
+      const px = -dy / dist;
+      const py = dx / dist;
+      const r = target.radius;
+      const left = {
+        x: target.position.x + px * r,
+        y: target.position.y + py * r,
+      };
+      const right = {
+        x: target.position.x - px * r,
+        y: target.position.y - py * r,
+      };
+      hardWall =
+        segmentBlockedByPolygons(shooter.position, left, hardPolys) ||
+        segmentBlockedByPolygons(shooter.position, right, hardPolys);
+    }
+  }
 
   return { prone, highGround, difficult, soft, hardWall };
 };
